@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface RegisterFormInputs {
   name: string;
   email: string;
-  role: UserRole;
   password: string;
   confirmPassword: string;
 }
@@ -27,11 +25,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
     handleSubmit,
     watch,
     formState: { errors }
-  } = useForm<RegisterFormInputs>({
-    defaultValues: {
-      role: 'seller'
-    }
-  });
+  } = useForm<RegisterFormInputs>();
 
   const passwordValue = watch('password');
 
@@ -44,14 +38,15 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
       console.log('🚀 [Cadastro] Submetendo novo usuário para Supabase Auth:', {
         email: data.email,
         name: data.name,
-        role: data.role
       });
 
+      // Todo novo usuário é cadastrado com a função padrão 'seller' (membro)
+      // Promoções a Administrador são realizadas exclusivamente pelos administradores dentro do sistema
       const result = await signUp({
         name: data.name.trim(),
         email: data.email.trim(),
         password: data.password,
-        role: data.role
+        role: 'seller'
       });
 
       if (!result.success) {
@@ -168,21 +163,6 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
                 {errors.email.message}
               </span>
             )}
-          </div>
-
-          {/* Cargo / Função */}
-          <div>
-            <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">
-              Cargo / Função
-            </label>
-            <select
-              id="role"
-              className="w-full px-3.5 py-2.5 text-sm bg-white rounded-lg border border-gray-300 focus:border-[#00478f] focus:ring-2 focus:ring-[#00478f]/20 outline-none transition-colors"
-              {...register('role')}
-            >
-              <option value="seller">Consultor de Vendas (seller)</option>
-              <option value="admin">Administrador (admin)</option>
-            </select>
           </div>
 
           {/* Senha */}

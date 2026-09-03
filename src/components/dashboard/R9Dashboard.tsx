@@ -6,7 +6,6 @@ import {
   LayoutGrid, 
   ChevronLeft, 
   ChevronRight, 
-  ChevronDown,
   Shield, 
   User, 
   LogOut, 
@@ -61,7 +60,6 @@ export const R9Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('canvas'); // 'canvas', 'planner', 'fila', 'resumo', 'meu_dia', 'rank_semanal', 'rank_mensal', 'produto_graduacao', 'produto_pos', 'produto_tecnico', 'resumo_semanal', 'equipe'
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [initialProductForModal, setInitialProductForModal] = useState<MainProductType>('Graduação');
 
   // Keep viewRole aligned if user changes
@@ -240,46 +238,14 @@ export const R9Dashboard: React.FC = () => {
             </div>
           )}
 
-          {/* User profile */}
-          <div className="relative">
-            <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs text-gray-700 transition-colors cursor-pointer"
-              title="Informações da Conta"
-            >
-              <div className="w-6 h-6 rounded-full bg-[#00478f] text-white font-bold text-[10px] flex items-center justify-center">
-                {userInitials}
-              </div>
-              <span className="hidden sm:inline font-medium">{userName}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${isActualAdmin ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                {isActualAdmin ? 'Admin' : 'Membro'}
-              </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
-            </button>
-
-            {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 p-2.5 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-2 text-xs">
-                <div className="px-2 py-1.5 border-b border-gray-100">
-                  <p className="text-[10px] uppercase font-bold text-gray-400">Usuário Conectado</p>
-                  <p className="font-bold text-gray-900 text-sm mt-0.5">{userName}</p>
-                  <p className="text-[11px] text-gray-500">{currentUser?.email}</p>
-                  <div className="mt-1.5 flex items-center gap-1.5">
-                    <span className="px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-full font-bold text-[10px]">
-                      {isActualAdmin ? 'Administrador Geral' : 'Membro'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
           <button
             id="logout-btn"
             onClick={() => signOut()}
-            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-red-200"
             title="Sair da Conta"
           >
             <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline font-medium">Sair</span>
           </button>
 
         </div>
