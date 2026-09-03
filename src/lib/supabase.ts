@@ -225,6 +225,31 @@ create trigger on_auth_user_created
 alter publication supabase_realtime add table public.profiles;
 alter publication supabase_realtime add table public.campaigns;
 alter publication supabase_realtime add table public.sales;
+
+-- 7. Migração de Dados Históricos (Garante responsável preenchido em registros legados)
+update public.sales s
+set 
+  collaborator_name = coalesce(
+    nullif(s.collaborator_name, ''),
+    nullif(s.seller_name, ''),
+    p.name,
+    'Consultor R9'
+  ),
+  seller_name = coalesce(
+    nullif(s.seller_name, ''),
+    nullif(s.collaborator_name, ''),
+    p.name,
+    'Consultor R9'
+  )
+from public.profiles p
+where (s.seller_id = p.id::text or s.seller_id = cast(p.id as text))
+  and (s.collaborator_name is null or s.collaborator_name = '' or s.seller_name is null or s.seller_name = '');
+
+update public.sales
+set 
+  collaborator_name = coalesce(nullif(collaborator_name, ''), nullif(seller_name, ''), 'Consultor R9'),
+  seller_name = coalesce(nullif(seller_name, ''), nullif(collaborator_name, ''), 'Consultor R9')
+where collaborator_name is null or collaborator_name = '' or seller_name is null or seller_name = '';
 `;
 
 // Local Storage Sync Engine for seamless, 100% resilient operation

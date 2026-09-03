@@ -142,6 +142,9 @@ export function normalizeRemoteSale(row: any): Sale {
     row.collaborator_name || 
     row.seller_name || 
     custom.collaborator_name || 
+    custom.seller_name ||
+    row.user_name ||
+    row.created_by_name ||
     'Consultor R9';
 
   const opportunity = 
@@ -233,10 +236,12 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
   );
 
   const partnerScholarshipBool = Boolean(custom.has_bolsa_convenio);
+  const responsibleName = sale.seller_name || custom.collaborator_name || custom.seller_name || 'Consultor';
 
   return {
     id: sale.id,
-    collaborator_name: sale.seller_name || 'Consultor',
+    collaborator_name: responsibleName,
+    seller_name: responsibleName,
     candidate_name: custom.candidate_name || sale.client_name || 'Candidato',
     opportunity: custom.opportunity_number || sale.id.replace('sale-', 'OP-'),
     product: custom.main_product || sale.product_name || 'Graduação',
@@ -256,11 +261,15 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
  * Payload alternativo compatível com o schema completo/clássico
  */
 export function buildStandardSalePayload(sale: Sale): Record<string, any> {
+  const custom = sale.custom_data || {};
+  const responsibleName = sale.seller_name || custom.collaborator_name || custom.seller_name || 'Consultor';
+
   const payload: Record<string, any> = {
     id: sale.id,
     campaign_id: sale.campaign_id || null,
     campaign_name: sale.campaign_name || 'Captação R9',
-    seller_name: sale.seller_name || 'Consultor',
+    seller_name: responsibleName,
+    collaborator_name: responsibleName,
     seller_email: sale.seller_email || '',
     client_name: sale.custom_data?.candidate_name || sale.client_name || 'Candidato',
     client_document: sale.client_document || null,

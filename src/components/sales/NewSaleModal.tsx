@@ -56,14 +56,59 @@ const PARCELA_LEVE_OPTIONS: ParcelaLeveOption[] = [
   'Sem parcelas'
 ];
 
+/**
+ * Regras de desabilitação para canais FDI baseado no Produto Principal:
+ * - Graduação: desabilita 'Técnico' e 'Pós Graduação'
+ * - Pós Graduação: desabilita todos que não são 'Pós Graduação'
+ * - Curso Técnico: desabilita todos que não são 'Técnico'
+ */
+export const isFdiChannelDisabled = (channel: ProductChannelFDI, product: MainProductType): boolean => {
+  if (product === 'Graduação') {
+    return channel === 'Técnico' || channel === 'Pós Graduação';
+  }
+  if (product === 'Pós Graduação') {
+    return channel !== 'Pós Graduação';
+  }
+  if (product === 'Curso Técnico') {
+    return channel !== 'Técnico';
+  }
+  return false;
+};
+
 export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
   initialProduct = 'Graduação'
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, profiles, refreshProfiles } = useAuth();
   const { activeCampaigns, addSale } = useSales();
+
+  // Consultor Responsável
+  const [selectedSellerId, setSelectedSellerId] = useState<string>(currentUser?.id || '');
+
+  // Padrão Inteligente: usuário logado pré-selecionado e busca perfis atualizados ao abrir
+  useEffect(() => {
+    if (isOpen) {
+      refreshProfiles();
+      if (currentUser?.id) {
+        setSelectedSellerId(currentUser.id);
+      }
+    }
+  }, [isOpen, currentUser, refreshProfiles]);
+
+  // Lista consolidada de consultores disponíveis (tabela profiles + usuário logado se não listado)
+  const availableConsultants = React.useMemo(() => {
+    const list = [...profiles];
+    if (currentUser && !list.some(p => p.id === currentUser.id)) {
+      list.unshift(currentUser);
+    }
+    return list;
+  }, [profiles, currentUser]);
+
+  const selectedConsultant = React.useMemo(() => {
+    return availableConsultants.find(p => p.id === selectedSellerId) || currentUser;
+  }, [availableConsultants, selectedSellerId, currentUser]);
 
   // 1. Produto Principal
   const [mainProduct, setMainProduct] = useState<MainProductType>(initialProduct);
@@ -118,7 +163,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   // Adjust modalities and shifts based on selected main product
   useEffect(() => {
     if (mainProduct === 'Graduação') {
-      setFdiChannel('Vestibular');
+      if (isFdiChannelDisabled(fdiChannel, 'Graduação')) {
+        setFdiChannel('Vestibular');
+      }
       setModality('Presencial');
       setShift('Noite');
     } else if (mainProduct === 'Pós Graduação') {
@@ -207,6 +254,11 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
     setIsSubmitting(true);
 
+    const chosenSeller = selectedConsultant || currentUser;
+    const chosenSellerName = chosenSeller?.name || 'Consultor R9';
+    const chosenSellerId = chosenSeller?.id || currentUser?.id || '';
+    const chosenSellerEmail = chosenSeller?.email || currentUser?.email || '';
+
     try {
       const response = await addSale({
         campaign_id: selectedCampaignId || activeCampaigns[0]?.id || 'camp-1',
@@ -214,9 +266,15 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
         product_name: `${mainProduct} - ${modality} (${shift})`,
         value: 1200, // Valor padrão de referência no sistema
         payment_method: 'PIX',
+        seller_id: chosenSellerId,
+        seller_name: chosenSellerName,
+        seller_email: chosenSellerEmail,
+        collaborator_name: chosenSellerName,
         custom_data: {
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
+          collaborator_name: chosenSellerName,
+          seller_name: chosenSellerName,
           sale_date: formattedDateBr,
           main_product: mainProduct,
           business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
@@ -371,13 +429,46 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
             </div>
           </div>
 
-          {/* 2. SEÇÃO: DADOS DA OPORTUNIDADE */}
+          {/* 2. SEÇÃO: DADOS DA OPORTUNIDADE & CONSULTOR */}
           <div className="space-y-3 pt-1">
             <div className="flex items-center gap-2 pb-1.5 border-b border-gray-100">
               <Hash className="w-4 h-4 text-[#0052cc]" />
               <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                2. Dados da Oportunidade
+                2. Dados da Oportunidade & Responsável
               </h3>
+            </div>
+
+            {/* Consultor Responsável */}
+            <div className="p-3 bg-blue-50/40 border border-blue-100/80 rounded-2xl">
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="select-consultant" className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-[#0052cc]" />
+                  <span>Consultor Responsável *</span>
+                </label>
+                {selectedConsultant && (
+                  <span className="text-[10px] font-medium text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md">
+                    {selectedConsultant.id === currentUser?.id ? 'Usuário logado (Padrão)' : 'Consultor selecionado'}
+                  </span>
+                )}
+              </div>
+              <select
+                id="select-consultant"
+                value={selectedSellerId}
+                onChange={(e) => setSelectedSellerId(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-white border border-blue-200 rounded-xl focus:outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100 transition-all font-medium text-gray-900 cursor-pointer shadow-2xs"
+              >
+                {availableConsultants.length > 0 ? (
+                  availableConsultants.map((prof) => (
+                    <option key={prof.id} value={prof.id}>
+                      {prof.name} {prof.id === currentUser?.id ? '(Você - Logado)' : ''} ({prof.role === 'admin' ? 'Administrador' : 'Consultor'})
+                    </option>
+                  ))
+                ) : (
+                  <option value={currentUser?.id || ''}>
+                    {currentUser?.name || 'Consultor Atual'} (Você - Logado)
+                  </option>
+                )}
+              </select>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -468,19 +559,29 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {FDI_CHANNELS.map((channel) => {
                 const isSelected = fdiChannel === channel;
+                const isDisabled = isFdiChannelDisabled(channel, mainProduct);
+
                 return (
                   <button
                     key={channel}
                     type="button"
-                    onClick={() => setFdiChannel(channel)}
-                    className={`px-3 py-2 text-xs rounded-xl font-medium border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      isSelected
-                        ? 'bg-[#0052cc] text-white border-[#0052cc] shadow-xs font-bold scale-[1.01]'
-                        : 'bg-gray-50/70 border-gray-200/90 text-gray-700 hover:bg-gray-100'
+                    disabled={isDisabled}
+                    onClick={() => {
+                      if (!isDisabled) {
+                        setFdiChannel(channel);
+                      }
+                    }}
+                    title={isDisabled ? `Opção indisponível para ${mainProduct}` : undefined}
+                    className={`px-3 py-2 text-xs rounded-xl font-medium border text-left transition-all flex items-center justify-between ${
+                      isDisabled
+                        ? 'opacity-35 bg-gray-100/90 border-gray-200 text-gray-400 cursor-not-allowed select-none'
+                        : isSelected
+                        ? 'bg-[#0052cc] text-white border-[#0052cc] shadow-xs font-bold scale-[1.01] cursor-pointer'
+                        : 'bg-gray-50/70 border-gray-200/90 text-gray-700 hover:bg-gray-100 cursor-pointer'
                     }`}
                   >
                     <span className="truncate">{channel}</span>
-                    {isSelected && (
+                    {isSelected && !isDisabled && (
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0 ml-1" />
                     )}
                   </button>

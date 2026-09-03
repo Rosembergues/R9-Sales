@@ -31,6 +31,10 @@ interface SalesContextType {
     payment_method: PaymentMethod;
     custom_data?: Record<string, any>;
     notes?: string;
+    seller_id?: string;
+    seller_name?: string;
+    seller_email?: string;
+    collaborator_name?: string;
   }) => Promise<{ success: boolean; sale?: Sale; error?: string }>;
   updateSale: (saleId: string, updatedData: Partial<Sale>) => Promise<{ success: boolean; error?: string }>;
   deleteSale: (saleId: string) => Promise<{ success: boolean; error?: string }>;
@@ -93,7 +97,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           logSupabaseError('loadData - Consulta tabela sales', salesError);
         } else if (remoteSales && remoteSales.length > 0) {
           try {
-            const normalized = remoteSales.map(normalizeRemoteSale);
+            const normalized = remoteSales.map(row => {
+              const sale = normalizeRemoteSale(row);
+              // Migração/preenchimento para registros legados sem responsável
+              if (!sale.seller_name || sale.seller_name.trim() === '' || sale.seller_name === 'Consultor') {
+                const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as any).created_by);
+                if (matchedProfile) {
+                  sale.seller_name = matchedProfile.name;
+                } else if (currentUser?.name) {
+                  sale.seller_name = currentUser.name;
+                }
+              }
+              return sale;
+            });
             setSales(normalized);
             LocalSyncEngine.saveSales(normalized);
           } catch (normErr) {
@@ -304,6 +320,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     payment_method: PaymentMethod;
     custom_data?: Record<string, any>;
     notes?: string;
+    seller_id?: string;
+    seller_name?: string;
+    seller_email?: string;
+    collaborator_name?: string;
   }) => {
     if (!currentUser) {
       return { success: false, error: 'Usuário não autenticado.' };
@@ -313,14 +333,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const commissionRate = campaign ? campaign.commission_rate : 5.0;
     const commission = (Number(saleData.value) * commissionRate) / 100;
 
+    const selectedSellerId = saleData.seller_id || currentUser.id;
+    const selectedSellerProfile = profiles.find(p => p.id === selectedSellerId);
+    const selectedSellerName = saleData.seller_name || saleData.collaborator_name || selectedSellerProfile?.name || currentUser.name;
+    const selectedSellerEmail = saleData.seller_email || selectedSellerProfile?.email || currentUser.email;
+
     const newSaleId = `sale-${Date.now().toString().slice(-6)}`;
     const newSale: Sale = {
       id: newSaleId,
       campaign_id: saleData.campaign_id,
       campaign_name: campaign ? campaign.title : 'Venda Direta',
-      seller_id: currentUser.id,
-      seller_name: currentUser.name,
-      seller_email: currentUser.email,
+      seller_id: selectedSellerId,
+      seller_name: selectedSellerName,
+      seller_email: selectedSellerEmail,
       client_name: saleData.client_name,
       client_document: saleData.client_document,
       client_phone: saleData.client_phone,
@@ -330,7 +355,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       payment_method: saleData.payment_method,
       status: 'Aprovada',
       commission,
-      custom_data: saleData.custom_data,
+      custom_data: {
+        ...saleData.custom_data,
+        collaborator_name: selectedSellerName,
+        seller_name: selectedSellerName,
+      },
       notes: saleData.notes,
       created_at: new Date().toISOString(),
     };

@@ -53,6 +53,19 @@ const PARCELA_LEVE_OPTIONS: ParcelaLeveOption[] = [
   'Sem parcelas'
 ];
 
+const isFdiChannelDisabled = (channel: ProductChannelFDI, product: MainProductType): boolean => {
+  if (product === 'Graduação') {
+    return channel === 'Técnico' || channel === 'Pós Graduação';
+  }
+  if (product === 'Pós Graduação') {
+    return channel !== 'Pós Graduação';
+  }
+  if (product === 'Curso Técnico') {
+    return channel !== 'Técnico';
+  }
+  return false;
+};
+
 export const EditSaleModal: React.FC<EditSaleModalProps> = ({
   sale,
   isOpen,
@@ -351,7 +364,15 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               </label>
               <select
                 value={mainProduct}
-                onChange={(e) => setMainProduct(e.target.value as MainProductType)}
+                onChange={(e) => {
+                  const newProduct = e.target.value as MainProductType;
+                  setMainProduct(newProduct);
+                  if (isFdiChannelDisabled(fdiChannel, newProduct)) {
+                    if (newProduct === 'Graduação') setFdiChannel('Vestibular');
+                    else if (newProduct === 'Pós Graduação') setFdiChannel('Pós Graduação');
+                    else if (newProduct === 'Curso Técnico') setFdiChannel('Técnico');
+                  }
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-semibold"
               >
                 <option value="Graduação">Graduação</option>
@@ -370,9 +391,14 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 onChange={(e) => setFdiChannel(e.target.value as ProductChannelFDI)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
               >
-                {FDI_CHANNELS.map(ch => (
-                  <option key={ch} value={ch}>{ch}</option>
-                ))}
+                {FDI_CHANNELS.map(ch => {
+                  const isDisabled = isFdiChannelDisabled(ch, mainProduct);
+                  return (
+                    <option key={ch} value={ch} disabled={isDisabled}>
+                      {ch} {isDisabled ? '(Indisponível)' : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           </div>
@@ -463,37 +489,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
             </div>
           </div>
 
-          {/* Row 6: Valor e Status */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Valor do Lançamento (R$)
-              </label>
-              <input
-                type="number"
-                value={value}
-                onChange={(e) => setValue(Number(e.target.value))}
-                min="0"
-                step="50"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Status da Venda
-              </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as SaleStatus)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-medium"
-              >
-                <option value="Aprovada">Aprovada</option>
-                <option value="Em Análise">Em Análise</option>
-                <option value="Pendente">Pendente / Cancelada</option>
-              </select>
-            </div>
-          </div>
 
           {/* Row 7: Observações */}
           <div>
