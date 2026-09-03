@@ -19,7 +19,7 @@ import {
   User
 } from 'lucide-react';
 import { EditSaleModal } from '../sales/EditSaleModal';
-import { getSaleDateBr, getTodayBrDate } from '../../lib/salesMapper';
+import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay } from '../../lib/salesMapper';
 
 interface DailyClosingViewProps {
   onOpenNewSaleModal?: () => void;
@@ -578,7 +578,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                   const seller = sale.seller_name || 'Consultor';
                   const mod = normalizeModality(sale.custom_data?.modality);
                   const shift = sale.custom_data?.shift || 'Noite';
-                  const fdi = sale.custom_data?.fdi_channel || 'Vestibular';
+                  const fdi = getSaleFdiDisplay(sale);
 
                   return (
                     <tr key={sale.id} className="hover:bg-blue-50/30 transition-colors">

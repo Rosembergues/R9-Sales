@@ -46,7 +46,7 @@ import { SalesSpreadsheetTable } from './SalesSpreadsheetTable';
 import { DailyClosingView } from './DailyClosingView';
 import { NewSaleModal } from '../sales/NewSaleModal';
 import { MainProductType, Sale } from '../../types';
-import { getTodayBrDate, getSaleDateBr } from '../../lib/salesMapper';
+import { getTodayBrDate, getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
 
 export const R9Dashboard: React.FC = () => {
   const { currentUser, signOut } = useAuth();
@@ -88,7 +88,7 @@ export const R9Dashboard: React.FC = () => {
     }
     const name = (sale.product_name || '').toLowerCase();
     const mod = (sale.custom_data?.modality || '').toLowerCase();
-    const fdi = (sale.custom_data?.fdi_channel || '').toLowerCase();
+    const fdi = getSaleFdiDisplay(sale).toLowerCase();
 
     if (name.includes('pós') || mod.includes('pós') || fdi.includes('pós')) {
       return 'Pós Graduação';

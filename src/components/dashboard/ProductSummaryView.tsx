@@ -28,6 +28,7 @@ import {
   Shield
 } from 'lucide-react';
 import { EditSaleModal } from '../sales/EditSaleModal';
+import { getSaleFdiDisplay } from '../../lib/salesMapper';
 
 interface ProductSummaryViewProps {
   productType: MainProductType;
@@ -55,7 +56,7 @@ export const ProductSummaryView: React.FC<ProductSummaryViewProps> = ({
     }
     const name = (sale.product_name || '').toLowerCase();
     const mod = (sale.custom_data?.modality || '').toLowerCase();
-    const fdi = (sale.custom_data?.fdi_channel || '').toLowerCase();
+    const fdi = getSaleFdiDisplay(sale).toLowerCase();
 
     if (name.includes('pós') || mod.includes('pós') || fdi.includes('pós')) {
       return 'Pós Graduação';
@@ -179,7 +180,7 @@ export const ProductSummaryView: React.FC<ProductSummaryViewProps> = ({
     return productSales.filter(s => {
       const opp = s.custom_data?.opportunity_number || '';
       const cand = s.custom_data?.candidate_name || s.client_name || '';
-      const fdi = s.custom_data?.fdi_channel || '';
+      const fdi = getSaleFdiDisplay(s);
       const mod = s.custom_data?.modality || '';
       const shift = s.custom_data?.shift || '';
       const notes = s.notes || '';
@@ -476,7 +477,7 @@ export const ProductSummaryView: React.FC<ProductSummaryViewProps> = ({
                   filteredSales.map((sale) => {
                     const oppNumber = sale.custom_data?.opportunity_number || sale.id.slice(0, 8);
                     const candidate = sale.custom_data?.candidate_name || sale.client_name;
-                    const fdi = sale.custom_data?.fdi_channel || 'Vestibular';
+                    const fdi = getSaleFdiDisplay(sale);
                     const mod = sale.custom_data?.modality || 'Presencial';
                     const shift = sale.custom_data?.shift || 'Noite';
                     const parcela = sale.custom_data?.parcela_leve || 'Sem parcelas';
@@ -617,7 +618,7 @@ export const ProductSummaryView: React.FC<ProductSummaryViewProps> = ({
               <div className="flex justify-between py-1.5 border-b border-gray-100">
                 <span className="text-gray-500">Produto / Canal (FDI):</span>
                 <span className="font-semibold text-blue-700">
-                  {selectedSaleDetail.custom_data?.fdi_channel || 'Vestibular'}
+                  {getSaleFdiDisplay(selectedSaleDetail)}
                 </span>
               </div>
 

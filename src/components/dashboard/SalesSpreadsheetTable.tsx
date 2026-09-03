@@ -21,7 +21,7 @@ import { Sale, MainProductType } from '../../types';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { EditSaleModal } from '../sales/EditSaleModal';
-import { getSaleDateBr, getTodayBrDate } from '../../lib/salesMapper';
+import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay } from '../../lib/salesMapper';
 
 interface SalesSpreadsheetTableProps {
   onOpenNewSaleModal?: () => void;
@@ -90,7 +90,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
     // Format date DD/MM/YYYY - Strictly based on Sale Date (Data da Venda)
     const dateStr = getSaleDateBr(sale);
 
-    const fdi = sale.custom_data?.fdi_channel || 'Simplificada';
+    const fdi = getSaleFdiDisplay(sale);
     const modality = sale.custom_data?.modality || 'Presencial';
     const shift = sale.custom_data?.shift || 'Noite';
     const parcelaLeve = sale.custom_data?.parcela_leve || 'Sem parcelas';
@@ -859,8 +859,32 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
                       </td>
 
                       {/* 5. FDI */}
-                      <td className="px-3 py-1.5 text-gray-700">
-                        {row.fdi}
+                      <td className="px-3 py-1.5 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
+                          row.fdi === 'Vestibular' 
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
+                            : row.fdi === 'ENEM' 
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                            : row.fdi === 'Transferência Externa' || row.fdi === 'Transferência'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200/60'
+                            : row.fdi === 'Simplificada'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                            : row.fdi === 'MSV'
+                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60'
+                            : row.fdi === 'Reabertura'
+                            ? 'bg-cyan-50 text-cyan-700 border border-cyan-200/60'
+                            : row.fdi === 'Técnico'
+                            ? 'bg-orange-50 text-orange-700 border border-orange-200/60'
+                            : row.fdi === 'Pós Graduação'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200/60'
+                            : row.fdi === 'Sim'
+                            ? 'bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200/60'
+                            : row.fdi === 'Não'
+                            ? 'bg-gray-100 text-gray-600 border border-gray-200/60'
+                            : 'bg-gray-50 text-gray-700 border border-gray-200/60'
+                        }`}>
+                          {row.fdi}
+                        </span>
                       </td>
 
                       {/* 6. Modalidade */}
@@ -986,7 +1010,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
               <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
                 <span className="text-[10px] text-gray-400 font-medium block">FDI & Turno</span>
                 <span className="font-semibold text-gray-800">
-                  {selectedSale.custom_data?.fdi_channel || 'Simplificada'} ({selectedSale.custom_data?.shift || 'Noite'})
+                  {getSaleFdiDisplay(selectedSale)} ({selectedSale.custom_data?.shift || 'Noite'})
                 </span>
               </div>
 

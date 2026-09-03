@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { Sale } from '../../types';
+import { getSaleFdiDisplay } from '../../lib/salesMapper';
 import { 
   ShoppingBag, 
   Search, 
@@ -31,7 +32,7 @@ export const SellerSalesHistory: React.FC = () => {
   
   const filteredSales = sellerSales.filter(s => {
     const opp = s.custom_data?.opportunity_number || '';
-    const fdi = s.custom_data?.fdi_channel || '';
+    const fdi = getSaleFdiDisplay(s);
     const mod = s.custom_data?.modality || '';
     const cand = s.custom_data?.candidate_name || s.client_name || '';
 
@@ -99,7 +100,7 @@ export const SellerSalesHistory: React.FC = () => {
                 filteredSales.map((sale) => {
                   const oppNumber = sale.custom_data?.opportunity_number || sale.id.slice(0, 8);
                   const candidate = sale.custom_data?.candidate_name || sale.client_name;
-                  const fdi = sale.custom_data?.fdi_channel || 'Vestibular';
+                  const fdi = getSaleFdiDisplay(sale);
                   const mod = sale.custom_data?.modality || (sale.product_name.includes('Presencial') ? 'Presencial' : 'Semipresencial');
                   const shift = sale.custom_data?.shift || 'Noite';
                   const parcela = sale.custom_data?.parcela_leve || 'Sem parcelas';
@@ -239,7 +240,7 @@ export const SellerSalesHistory: React.FC = () => {
               <div className="flex justify-between py-1.5 border-b border-gray-100">
                 <span className="text-slate-500">Produto / Canal (FDI):</span>
                 <span className="font-semibold text-blue-700">
-                  {selectedSale.custom_data?.fdi_channel || 'Vestibular'}
+                  {getSaleFdiDisplay(selectedSale)}
                 </span>
               </div>
 

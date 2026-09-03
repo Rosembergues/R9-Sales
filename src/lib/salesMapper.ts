@@ -125,6 +125,67 @@ export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: any; sale_da
 }
 
 /**
+ * Retorna o valor real de FDI / Canal de Captação para exibição em tabelas e relatórios.
+ * Prioriza o canal real gravado (ex: ENEM, Transferência Externa, Simplificada, Vestibular, etc.),
+ * ou o indicador booleano Sim / Não caso apenas a flag booleana esteja presente.
+ */
+export function getSaleFdiDisplay(
+  sale?: (Partial<Sale> & { fdi?: any; fdi_channel?: any; channel?: any; canal?: any; product?: any }) | null
+): string {
+  if (!sale) return 'Simplificada';
+
+  const custom = sale.custom_data || {};
+  const mainProduct = custom.main_product || (sale as any).product || (sale as any).product_name || '';
+
+  // 1. Canais e valores candidatos provenientes do registro
+  const candidateChannels = [
+    custom.fdi_channel,
+    (sale as any).fdi_channel,
+    custom.channel,
+    (sale as any).channel,
+    custom.canal,
+    (sale as any).canal,
+    custom.fdi,
+    (sale as any).fdi,
+  ];
+
+  // 2. Busca por valor em string não-booleana
+  for (const val of candidateChannels) {
+    if (typeof val === 'string' && val.trim() !== '') {
+      const trimmed = val.trim();
+      const lower = trimmed.toLowerCase();
+      if (['true', 't', 'sim'].includes(lower)) {
+        return 'Sim';
+      }
+      if (['false', 'f', 'nao', 'não'].includes(lower)) {
+        return 'Não';
+      }
+      // Correção de coerência para registros legados que sofreram o bug do 'Vestibular' forçado
+      if (mainProduct === 'Curso Técnico' && (trimmed === 'Vestibular' || trimmed === 'Simplificada')) {
+        return 'Técnico';
+      }
+      if (mainProduct === 'Pós Graduação' && (trimmed === 'Vestibular' || trimmed === 'Simplificada')) {
+        return 'Pós Graduação';
+      }
+      return trimmed;
+    }
+  }
+
+  // 3. Indicador booleano explícito
+  for (const val of candidateChannels) {
+    if (typeof val === 'boolean') {
+      return val ? 'Sim' : 'Não';
+    }
+  }
+
+  // 4. Fallback contextual pelo produto principal
+  if (mainProduct === 'Curso Técnico') return 'Técnico';
+  if (mainProduct === 'Pós Graduação') return 'Pós Graduação';
+
+  return 'Simplificada';
+}
+
+/**
  * Normaliza um registro vindo do Supabase para o modelo interno Sale
  */
 export function normalizeRemoteSale(row: any): Sale {
@@ -170,10 +231,20 @@ export function normalizeRemoteSale(row: any): Sale {
     custom.modality || 
     'Presencial';
 
-  // Boolean flags
+  // Identificação precisa do canal e flags de FDI real (sem forçar 'Vestibular')
+  const detectedFdiChannel = getSaleFdiDisplay({
+    ...row,
+    custom_data: custom,
+    fdi: row.fdi,
+    fdi_channel: row.fdi_channel || custom.fdi_channel,
+    channel: row.channel || custom.channel,
+    canal: row.canal || custom.canal,
+    product: product
+  });
+
   const fdiBool = typeof row.fdi === 'boolean' 
     ? row.fdi 
-    : Boolean(custom.fdi_channel);
+    : (detectedFdiChannel === 'Sim' ? true : (detectedFdiChannel === 'Não' ? false : Boolean(detectedFdiChannel)));
 
   const lightInstallmentBool = typeof row.light_installment === 'boolean'
     ? row.light_installment
@@ -214,7 +285,7 @@ export function normalizeRemoteSale(row: any): Sale {
       main_product: product,
       modality: modality,
       shift: turn,
-      fdi_channel: custom.fdi_channel || (fdiBool ? 'Vestibular' : 'Simplificada'),
+      fdi_channel: detectedFdiChannel as any,
       parcela_leve: custom.parcela_leve || (lightInstallmentBool ? '3 parcelas' : 'Sem parcelas'),
       has_bolsa_convenio: partnerScholarshipBool,
       empresa_convenio: row.empresa_convenio || custom.empresa_convenio || '',
@@ -228,8 +299,13 @@ export function normalizeRemoteSale(row: any): Sale {
  */
 export function buildR9SalePayload(sale: Sale): Record<string, any> {
   const custom = sale.custom_data || {};
+  const channelVal = getSaleFdiDisplay(sale);
   
-  const fdiBool = Boolean(custom.fdi_channel);
+  const fdiBool = typeof custom.fdi === 'boolean'
+    ? custom.fdi
+    : (typeof (sale as any).fdi === 'boolean'
+        ? (sale as any).fdi
+        : (channelVal === 'Sim' ? true : (channelVal === 'Não' ? false : Boolean(channelVal))));
 
   const lightInstallmentBool = Boolean(
     custom.parcela_leve && custom.parcela_leve !== 'Sem parcelas'
@@ -254,6 +330,12 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
     sale_date: toValidIsoTimestamp(custom.sale_date || (sale as any).sale_date || sale.created_at),
     campaign_id: sale.campaign_id || null,
     created_at: toValidIsoTimestamp(sale.created_at),
+    custom_data: {
+      ...custom,
+      fdi_channel: channelVal,
+      collaborator_name: responsibleName,
+      seller_name: responsibleName,
+    },
   };
 }
 
@@ -263,6 +345,7 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
 export function buildStandardSalePayload(sale: Sale): Record<string, any> {
   const custom = sale.custom_data || {};
   const responsibleName = sale.seller_name || custom.collaborator_name || custom.seller_name || 'Consultor';
+  const channelVal = getSaleFdiDisplay(sale);
 
   const payload: Record<string, any> = {
     id: sale.id,
@@ -280,7 +363,12 @@ export function buildStandardSalePayload(sale: Sale): Record<string, any> {
     payment_method: sale.payment_method || 'PIX',
     status: sale.status || 'Aprovada',
     commission: Number(sale.commission) || 0,
-    custom_data: sale.custom_data || {},
+    custom_data: {
+      ...custom,
+      fdi_channel: channelVal,
+      collaborator_name: responsibleName,
+      seller_name: responsibleName,
+    },
     notes: sale.notes || '',
     created_at: toValidIsoTimestamp(sale.created_at),
   };

@@ -27,6 +27,7 @@ import {
   ParcelaLeveOption,
   SaleStatus 
 } from '../../types';
+import { getSaleFdiDisplay } from '../../lib/salesMapper';
 
 interface EditSaleModalProps {
   sale: Sale | null;
@@ -113,7 +114,8 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       setSaleDate(dateVal);
 
       setMainProduct(sale.custom_data?.main_product || 'Graduação');
-      setFdiChannel(sale.custom_data?.fdi_channel || 'Simplificada');
+      const resolvedChannel = getSaleFdiDisplay(sale);
+      setFdiChannel((resolvedChannel === 'Sim' || resolvedChannel === 'Não') ? 'Simplificada' : (resolvedChannel as any || 'Simplificada'));
       setModality(sale.custom_data?.modality || 'Presencial');
       setShift(sale.custom_data?.shift || 'Noite');
       setParcelaLeve(sale.custom_data?.parcela_leve || 'Sem parcelas');
