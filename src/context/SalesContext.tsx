@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Campaign, Sale, LeaderboardEntry, Profile, PaymentMethod, SaleStatus } from '../types';
-import { getSupabaseClient, LocalSyncEngine, INITIAL_CAMPAIGNS, INITIAL_SALES } from '../lib/supabase';
+import { supabase, getSupabaseClient, LocalSyncEngine, INITIAL_CAMPAIGNS, INITIAL_SALES } from '../lib/supabase';
 import { 
   normalizeRemoteSale, 
   buildR9SalePayload, 
@@ -111,6 +111,88 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Inscrição em Tempo Real (Realtime) na tabela 'sales' do Supabase
+  useEffect(() => {
+    const client = getSupabaseClient() || supabase;
+    if (!client) return;
+
+    console.info('🔌 [Supabase Realtime] Conectando ao canal realtime-sales para tabela public.sales...');
+
+    const channel = client
+      .channel('realtime-sales')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sales' },
+        (payload) => {
+          console.info('⚡ [Supabase Realtime] Evento recebido:', payload.eventType, payload);
+
+          if (payload.eventType === 'INSERT') {
+            try {
+              const newSale = normalizeRemoteSale(payload.new);
+              setSales((prevSales) => {
+                // Evita duplicação caso a venda já tenha sido inserida localmente
+                const exists = prevSales.some((s) => s.id === newSale.id);
+                if (exists) {
+                  const updated = prevSales.map((s) => (s.id === newSale.id ? newSale : s));
+                  LocalSyncEngine.saveSales(updated);
+                  return updated;
+                }
+                const updated = [newSale, ...prevSales];
+                LocalSyncEngine.saveSales(updated);
+                return updated;
+              });
+
+              // Atualiza o feed de atividades recentes
+              const sellerName = newSale.seller_name || 'Consultor';
+              const formattedVal = (Number(newSale.value) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+              const activityItem = {
+                id: `realtime-act-${Date.now()}`,
+                message: `${sellerName} acabou de fechar R$ ${formattedVal}!`,
+                time: 'Agora mesmo',
+                value: Number(newSale.value) || 0,
+                seller: sellerName,
+              };
+              setRecentLiveActivity((prev) => [activityItem, ...prev.slice(0, 7)]);
+            } catch (err) {
+              console.error('💥 [Supabase Realtime] Erro ao normalizar venda no INSERT:', err);
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            try {
+              const updatedSale = normalizeRemoteSale(payload.new);
+              setSales((prevSales) => {
+                const updated = prevSales.map((s) => (s.id === updatedSale.id ? updatedSale : s));
+                LocalSyncEngine.saveSales(updated);
+                return updated;
+              });
+            } catch (err) {
+              console.error('💥 [Supabase Realtime] Erro ao normalizar venda no UPDATE:', err);
+            }
+          } else if (payload.eventType === 'DELETE') {
+            try {
+              const deletedId = String(payload.old?.id || '');
+              if (deletedId) {
+                setSales((prevSales) => {
+                  const updated = prevSales.filter((s) => s.id !== deletedId);
+                  LocalSyncEngine.saveSales(updated);
+                  return updated;
+                });
+              }
+            } catch (err) {
+              console.error('💥 [Supabase Realtime] Erro ao processar DELETE:', err);
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.info('📡 [Supabase Realtime] Status da inscrição realtime-sales:', status);
+      });
+
+    return () => {
+      console.info('🔌 [Supabase Realtime] Encerrando inscrição do canal realtime-sales...');
+      client.removeChannel(channel);
+    };
+  }, []);
 
   const activeCampaigns = useMemo(() => {
     return campaigns.filter(c => c.active);
