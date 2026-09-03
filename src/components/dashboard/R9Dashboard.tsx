@@ -140,16 +140,16 @@ export const R9Dashboard: React.FC = () => {
             <PanelLeft className="w-5 h-5" />
           </button>
 
-          <div 
-            onClick={() => setActiveTab('canvas')}
-            className="flex items-center gap-2 cursor-pointer group"
-          >
-            <div className="w-8 h-8 rounded-lg bg-[#00478f] text-white font-black text-sm flex items-center justify-center shadow-xs tracking-tight">
-              R9
+          {/* Logo and Brand */}
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-center w-10 h-10 bg-blue-700 rounded-xl shadow-md shadow-blue-600/20 border border-blue-600">
+              <span className="text-white font-black text-xl font-['Space_Grotesk'] tracking-tight">R9</span>
             </div>
-            <span className="text-xl font-bold tracking-tight text-gray-900 font-['Space_Grotesk']">
-              sales
-            </span>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-extrabold text-gray-900 text-lg tracking-tight font-['Space_Grotesk']">R9 Sales</span>
+              </div>
+            </div>
           </div>
         </div>
 

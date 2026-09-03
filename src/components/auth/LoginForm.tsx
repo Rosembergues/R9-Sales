@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { Database, AlertCircle } from 'lucide-react';
-import { SupabaseSetupModal } from './common/SupabaseSetupModal';
+import { SupabaseSetupModal } from '../common/SupabaseSetupModal';
 
 interface LoginFormInputs {
   email: string;
   password: string;
 }
 
-interface LoginProps {
+interface LoginFormProps {
   onSwitchToSignUp?: () => void;
 }
 
-export default function Login({ onSwitchToSignUp }: LoginProps) {
+export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignUp }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showSupabaseModal, setShowSupabaseModal] = useState(false);
@@ -30,24 +30,14 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
     setIsLoading(true);
 
     try {
-      console.log('🚀 [Login] Submetendo credenciais para autenticação Supabase:', data.email);
-      const result = await signIn({
-        email: data.email.trim(),
-        password: data.password
-      });
-
-      if (!result.success) {
-        console.warn('⚠️ [Login] Falha na autenticação:', result.error);
-        setErrorMessage(
-          result.error === 'Invalid login credentials'
-            ? 'E-mail ou senha incorretos. Verifique suas credenciais no Supabase.'
-            : result.error || 'Erro ao realizar login. Tente novamente.'
-        );
-      } else {
-        console.log('🎉 [Login] Login realizado com sucesso no Supabase!');
+      if (!isSupabaseConnected) {
+        setShowSupabaseModal(true);
+        return;
       }
+
+      await signIn(data.email, data.password);
     } catch (err: any) {
-      console.error('❌ [Login] Erro não tratado durante o login:', err);
+      console.error('❌ [Login] Erro durante o login:', err);
       setErrorMessage(err?.message || 'Ocorreu um erro ao conectar ao serviço de autenticação.');
     } finally {
       setIsLoading(false);
@@ -57,7 +47,6 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
   return (
     <div className="min-h-screen bg-[#F8F9FA] flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8">
       <div id="login-card" className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 sm:p-10">
-        
         {/* Header Branding */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center mb-4">
@@ -65,11 +54,18 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
               <span className="text-white font-bold text-2xl font-mono">R9</span>
             </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight font-sans">Sistema R9</h1>
-          <p className="text-sm text-gray-500 mt-2">
-            Insira suas credenciais cadastradas no Supabase Auth
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-sans">Sistema R9</h1>
         </div>
+
+        {errorMessage && (
+          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3 text-red-700 text-sm">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-600" />
+            <div>
+              <p className="font-semibold">Erro de autenticação</p>
+              <p className="text-xs text-red-600 mt-0.5">{errorMessage}</p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(handleLogin)} noValidate className="space-y-5">
           <div>
@@ -130,61 +126,32 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
             )}
           </div>
 
-          {errorMessage && (
-            <div
-              id="login-error-message"
-              className="p-3.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-left"
-              role="alert"
-            >
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
           <button
-            id="submit-login-button"
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 px-4 text-sm font-semibold rounded-lg text-white bg-[#00478f] hover:bg-[#003c7d] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer mt-2"
+            className="w-full py-3 px-4 bg-blue-700 hover:bg-blue-800 text-white font-medium rounded-xl text-sm transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
           >
-            {isLoading ? 'Autenticando...' : 'Entrar'}
+            {isLoading ? 'Entrando...' : 'Entrar na Plataforma'}
           </button>
         </form>
 
-        {/* Footer switch to Register */}
-        <div className="mt-8 text-center pt-2 border-t border-gray-100">
-          <p className="text-sm text-gray-600">
-            Não tem uma conta?{' '}
-            {onSwitchToSignUp && (
-              <button
-                id="switch-to-register-btn"
-                type="button"
-                onClick={onSwitchToSignUp}
-                className="text-[#00478f] hover:text-[#003366] font-semibold transition-colors cursor-pointer inline-block"
-              >
-                Cadastre-se
-              </button>
-            )}
-          </p>
-        </div>
-
-        {/* Supabase connection indicator button */}
-        <div className="mt-5 pt-3 text-center">
-          <button
-            type="button"
-            onClick={() => setShowSupabaseModal(true)}
-            className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <Database className="w-3 h-3 text-[#00478f]" />
-            <span>{isSupabaseConnected ? 'Conexão Supabase Ativa' : 'Configurar Banco Supabase & SQL'}</span>
-          </button>
-        </div>
-
+        {onSwitchToSignUp && (
+          <div className="mt-6 text-center">
+            <button
+              onClick={onSwitchToSignUp}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Não tem uma conta? Cadastre-se
+            </button>
+          </div>
+        )}
       </div>
 
       {showSupabaseModal && (
-        <SupabaseSetupModal onClose={() => setShowSupabaseModal(false)} />
+        <SupabaseSetupModal isOpen={showSupabaseModal} onClose={() => setShowSupabaseModal(false)} />
       )}
     </div>
   );
-}
+};
+
+export default LoginForm;
