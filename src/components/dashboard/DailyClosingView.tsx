@@ -16,7 +16,9 @@ import {
   Wrench, 
   Layers,
   Edit3,
-  User
+  User,
+  Filter,
+  X
 } from 'lucide-react';
 import { EditSaleModal } from '../sales/EditSaleModal';
 import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay } from '../../lib/salesMapper';
@@ -48,6 +50,29 @@ const STANDARD_MODALITIES: ModalityDefinition[] = [
   { name: 'Técnico Presencial', category: 'Curso Técnico', tagColor: 'bg-amber-50 text-amber-700 border-amber-200' },
 ];
 
+const STANDARD_FDI_CHANNELS = [
+  'Simplificada',
+  'Vestibular',
+  'ENEM',
+  'Transferência Externa',
+  'Reabertura',
+  'MSV',
+  'Técnico',
+  'Pós Graduação',
+];
+
+const FDI_CHANNEL_CONFIG: Record<string, { bg: string; text: string; border: string; activeBorder: string; activeBg: string }> = {
+  'Vestibular': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200/70', activeBorder: 'border-blue-500 ring-2 ring-blue-500/20', activeBg: 'bg-blue-50/50' },
+  'ENEM': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200/70', activeBorder: 'border-amber-500 ring-2 ring-amber-500/20', activeBg: 'bg-amber-50/50' },
+  'Transferência Externa': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/70', activeBorder: 'border-purple-500 ring-2 ring-purple-500/20', activeBg: 'bg-purple-50/50' },
+  'Transferência': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200/70', activeBorder: 'border-purple-500 ring-2 ring-purple-500/20', activeBg: 'bg-purple-50/50' },
+  'Simplificada': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200/70', activeBorder: 'border-emerald-500 ring-2 ring-emerald-500/20', activeBg: 'bg-emerald-50/50' },
+  'MSV': { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200/70', activeBorder: 'border-indigo-500 ring-2 ring-indigo-500/20', activeBg: 'bg-indigo-50/50' },
+  'Reabertura': { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200/70', activeBorder: 'border-cyan-500 ring-2 ring-cyan-500/20', activeBg: 'bg-cyan-50/50' },
+  'Técnico': { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200/70', activeBorder: 'border-orange-500 ring-2 ring-orange-500/20', activeBg: 'bg-orange-50/50' },
+  'Pós Graduação': { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200/70', activeBorder: 'border-rose-500 ring-2 ring-rose-500/20', activeBg: 'bg-rose-50/50' },
+};
+
 export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSaleModal }) => {
   const { sales } = useSales();
 
@@ -55,6 +80,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [copiedSuccess, setCopiedSuccess] = useState(false);
   const [selectedModalityFilter, setSelectedModalityFilter] = useState<string | null>(null);
+  const [selectedFdiFilter, setSelectedFdiFilter] = useState<string | null>(null);
   const [tableSearch, setTableSearch] = useState('');
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
 
@@ -86,6 +112,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     prev.setDate(prev.getDate() - 1);
     setSelectedDate(prev);
     setSelectedModalityFilter(null);
+    setSelectedFdiFilter(null);
   };
 
   const handleNextDay = () => {
@@ -93,11 +120,13 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     next.setDate(next.getDate() + 1);
     setSelectedDate(next);
     setSelectedModalityFilter(null);
+    setSelectedFdiFilter(null);
   };
 
   const handleSetToday = () => {
     setSelectedDate(new Date());
     setSelectedModalityFilter(null);
+    setSelectedFdiFilter(null);
   };
 
   const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,6 +135,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     if (year && month && day) {
       setSelectedDate(new Date(year, month - 1, day));
       setSelectedModalityFilter(null);
+      setSelectedFdiFilter(null);
     }
   };
 
@@ -209,12 +239,53 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     return list;
   }, [extraModalities]);
 
+  // Breakdown by FDI channel
+  const fdiStats = useMemo(() => {
+    const counts: Record<string, { count: number; totalValue: number }> = {};
+
+    // Initialize all standard FDI channels with 0
+    STANDARD_FDI_CHANNELS.forEach((ch) => {
+      counts[ch] = { count: 0, totalValue: 0 };
+    });
+
+    // Populate with actual day sales
+    daySales.forEach((sale) => {
+      const fdi = getSaleFdiDisplay(sale);
+      if (!counts[fdi]) {
+        counts[fdi] = { count: 0, totalValue: 0 };
+      }
+      counts[fdi].count += 1;
+      counts[fdi].totalValue += Number(sale.value) || 0;
+    });
+
+    return counts;
+  }, [daySales]);
+
+  // Combined list of standard channels + any extra channel that appears in sales
+  const fdiList = useMemo(() => {
+    const standardSet = new Set(STANDARD_FDI_CHANNELS);
+    const extraChannels = Object.keys(fdiStats).filter(
+      (name) => !standardSet.has(name) && fdiStats[name].count > 0
+    );
+
+    const fullNames = [...STANDARD_FDI_CHANNELS, ...extraChannels];
+    return fullNames.map((name) => ({
+      name,
+      count: fdiStats[name]?.count || 0,
+      totalValue: fdiStats[name]?.totalValue || 0,
+    }));
+  }, [fdiStats]);
+
   // Filtered sales list for the detailed table below
   const filteredSales = useMemo(() => {
     let result = daySales;
 
     if (selectedModalityFilter) {
       result = result.filter((s) => normalizeModality(s.custom_data?.modality) === selectedModalityFilter);
+    }
+
+    if (selectedFdiFilter) {
+      result = result.filter((s) => getSaleFdiDisplay(s) === selectedFdiFilter);
     }
 
     if (tableSearch.trim()) {
@@ -224,12 +295,13 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
         const opp = (s.custom_data?.opportunity_number || '').toLowerCase();
         const seller = (s.seller_name || '').toLowerCase();
         const mod = normalizeModality(s.custom_data?.modality).toLowerCase();
-        return candidate.includes(q) || opp.includes(q) || seller.includes(q) || mod.includes(q);
+        const fdi = getSaleFdiDisplay(s).toLowerCase();
+        return candidate.includes(q) || opp.includes(q) || seller.includes(q) || mod.includes(q) || fdi.includes(q);
       });
     }
 
     return result;
-  }, [daySales, selectedModalityFilter, tableSearch]);
+  }, [daySales, selectedModalityFilter, selectedFdiFilter, tableSearch]);
 
   // Copy structured closing summary to clipboard (ready for WhatsApp / Telegram)
   const handleCopyClosingSummary = async () => {
@@ -267,6 +339,14 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
         text += `• ${m}: ${count}\n`;
       });
     }
+
+    // Canais de Captação (FDI)
+    text += `\n*Canais de Captação (FDI):*\n`;
+    fdiList.forEach((item) => {
+      if (item.count > 0) {
+        text += `• ${item.name}: ${item.count}\n`;
+      }
+    });
 
     text += `\n_Gerado automaticamente pelo R9 Corp_`;
 
@@ -523,6 +603,97 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
 
       </div>
 
+      {/* 2.5. BREAKDOWN BY CHANNEL (FDI) */}
+      <div className="space-y-4">
+        
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+              <span>Boletos por Canal (FDI)</span>
+            </h3>
+            <p className="text-xs text-gray-500">
+              Distribuição por canal de captação • Clique em qualquer canal para filtrar os lançamentos detalhados abaixo
+            </p>
+          </div>
+
+          {selectedFdiFilter && (
+            <button
+              onClick={() => setSelectedFdiFilter(null)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Limpar canal ({selectedFdiFilter})</span>
+            </button>
+          )}
+        </div>
+
+        {/* Responsive Grid of FDI Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
+          {fdiList.map((item) => {
+            const isSelected = selectedFdiFilter === item.name;
+            const count = item.count;
+            const percent = dayTotalCount > 0 ? Math.round((count / dayTotalCount) * 100) : 0;
+            const config = FDI_CHANNEL_CONFIG[item.name] || {
+              bg: 'bg-slate-50',
+              text: 'text-slate-700',
+              border: 'border-slate-200/70',
+              activeBorder: 'border-slate-500 ring-2 ring-slate-500/20',
+              activeBg: 'bg-slate-50/50'
+            };
+
+            return (
+              <button
+                key={item.name}
+                type="button"
+                onClick={() => setSelectedFdiFilter(isSelected ? null : item.name)}
+                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between group ${
+                  isSelected
+                    ? 'bg-blue-50/70 border-blue-400 ring-2 ring-blue-400/20 shadow-xs'
+                    : count > 0
+                    ? 'bg-white border-gray-200/80 hover:border-gray-300 hover:shadow-2xs'
+                    : 'bg-white/70 border-gray-100 hover:border-gray-200 hover:bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${config.bg} ${config.text} border ${config.border}`}
+                  >
+                    {item.name}
+                  </span>
+                  <span
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      isSelected
+                        ? 'bg-blue-600 ring-4 ring-blue-100'
+                        : count > 0
+                        ? 'bg-emerald-500'
+                        : 'bg-gray-300'
+                    }`}
+                  />
+                </div>
+
+                <div className="flex items-baseline justify-between pt-1">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className={`text-2xl font-black font-['Space_Grotesk'] ${count > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                      {count}
+                    </span>
+                    <span className="text-xs text-gray-400 font-medium">
+                      {count === 1 ? 'boleto' : 'boletos'}
+                    </span>
+                  </div>
+
+                  {count > 0 && dayTotalCount > 0 && (
+                    <span className="text-[11px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+                      {percent}%
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+      </div>
+
       {/* 3. DETAILED TABLE OF THE DAY'S SALES */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
         
@@ -535,12 +706,59 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                 ({filteredSales.length} {filteredSales.length === 1 ? 'registro' : 'registros'})
               </span>
             </h4>
-            <p className="text-xs text-gray-500">
-              {selectedModalityFilter 
-                ? `Exibindo apenas boletos da modalidade: ${selectedModalityFilter}`
-                : `Exibindo todas as modalidades na data ${selectedDateFormatted}`
-              }
-            </p>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <p className="text-xs text-gray-500">
+                {selectedModalityFilter && selectedFdiFilter ? (
+                  <>
+                    Filtrando por modalidade <strong className="text-gray-800 font-semibold">{selectedModalityFilter}</strong> e canal <strong className="text-gray-800 font-semibold">{selectedFdiFilter}</strong>
+                  </>
+                ) : selectedModalityFilter ? (
+                  <>
+                    Exibindo apenas boletos da modalidade <strong className="text-gray-800 font-semibold">{selectedModalityFilter}</strong>
+                  </>
+                ) : selectedFdiFilter ? (
+                  <>
+                    Exibindo apenas boletos do canal FDI <strong className="text-gray-800 font-semibold">{selectedFdiFilter}</strong>
+                  </>
+                ) : (
+                  `Exibindo todas as modalidades e canais na data ${selectedDateFormatted}`
+                )}
+              </p>
+
+              {(selectedModalityFilter || selectedFdiFilter) && (
+                <div className="flex items-center gap-1.5 ml-1">
+                  {selectedModalityFilter && (
+                    <button
+                      onClick={() => setSelectedModalityFilter(null)}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-md hover:bg-blue-100 transition-colors cursor-pointer"
+                      title="Remover filtro de modalidade"
+                    >
+                      <span>Modalidade: {selectedModalityFilter}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  {selectedFdiFilter && (
+                    <button
+                      onClick={() => setSelectedFdiFilter(null)}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-md hover:bg-purple-100 transition-colors cursor-pointer"
+                      title="Remover filtro de canal FDI"
+                    >
+                      <span>Canal: {selectedFdiFilter}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSelectedModalityFilter(null);
+                      setSelectedFdiFilter(null);
+                    }}
+                    className="text-[11px] text-gray-500 hover:text-gray-700 underline underline-offset-2 ml-0.5 cursor-pointer"
+                  >
+                    Limpar todos
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Search input in table */}
@@ -548,7 +766,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
             <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar aluno, consultor, oportunidade..."
+              placeholder="Buscar aluno, consultor, canal..."
               value={tableSearch}
               onChange={(e) => setTableSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 bg-gray-50 hover:bg-gray-100/70 focus:bg-white text-xs border border-gray-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
@@ -579,6 +797,11 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                   const mod = normalizeModality(sale.custom_data?.modality);
                   const shift = sale.custom_data?.shift || 'Noite';
                   const fdi = getSaleFdiDisplay(sale);
+                  const fdiConfig = FDI_CHANNEL_CONFIG[fdi] || {
+                    bg: 'bg-slate-50',
+                    text: 'text-slate-700',
+                    border: 'border-slate-200/60'
+                  };
 
                   return (
                     <tr key={sale.id} className="hover:bg-blue-50/30 transition-colors">
@@ -602,8 +825,10 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                       <td className="py-3 px-3 text-gray-600">
                         {shift}
                       </td>
-                      <td className="py-3 px-3 text-gray-600">
-                        {fdi}
+                      <td className="py-3 px-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${fdiConfig.bg} ${fdiConfig.text} border ${fdiConfig.border}`}>
+                          {fdi}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <button
@@ -623,8 +848,12 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                     <Receipt className="w-8 h-8 mx-auto text-gray-300 mb-2" />
                     <p className="font-semibold text-sm text-gray-600">Nenhum boleto encontrado nesta data</p>
                     <p className="text-xs text-gray-400 mt-1">
-                      {selectedModalityFilter
+                      {selectedModalityFilter && selectedFdiFilter
+                        ? `Não há registros com a modalidade "${selectedModalityFilter}" e canal "${selectedFdiFilter}" no dia ${selectedDateFormatted}.`
+                        : selectedModalityFilter
                         ? `Não há registros com a modalidade "${selectedModalityFilter}" no dia ${selectedDateFormatted}.`
+                        : selectedFdiFilter
+                        ? `Não há registros com o canal FDI "${selectedFdiFilter}" no dia ${selectedDateFormatted}.`
                         : `Não foram registrados boletos na data ${selectedDateFormatted}.`}
                     </p>
                   </td>
