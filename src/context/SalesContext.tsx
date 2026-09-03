@@ -338,6 +338,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const selectedSellerName = saleData.seller_name || saleData.collaborator_name || selectedSellerProfile?.name || currentUser.name;
     const selectedSellerEmail = saleData.seller_email || selectedSellerProfile?.email || currentUser.email;
 
+    const resolvedFdi = (saleData as any).fdi || saleData.custom_data?.fdi || saleData.custom_data?.fdi_channel || 'Simplificada';
+
     const newSaleId = `sale-${Date.now().toString().slice(-6)}`;
     const newSale: Sale = {
       id: newSaleId,
@@ -355,8 +357,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       payment_method: saleData.payment_method,
       status: 'Aprovada',
       commission,
+      fdi: resolvedFdi,
       custom_data: {
         ...saleData.custom_data,
+        fdi: resolvedFdi,
+        fdi_channel: resolvedFdi,
         collaborator_name: selectedSellerName,
         seller_name: selectedSellerName,
       },
@@ -442,9 +447,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const updated = sales.map(s => {
       if (s.id === saleId) {
+        const resolvedUpdatedFdi = (updatedData as any).fdi || updatedData.custom_data?.fdi || updatedData.custom_data?.fdi_channel || s.fdi || 'Simplificada';
         const mergedCustomData = updatedData.custom_data
-          ? { ...(s.custom_data || {}), ...updatedData.custom_data }
-          : s.custom_data;
+          ? { ...(s.custom_data || {}), ...updatedData.custom_data, fdi: resolvedUpdatedFdi, fdi_channel: resolvedUpdatedFdi }
+          : (s.custom_data ? { ...s.custom_data, fdi: resolvedUpdatedFdi, fdi_channel: resolvedUpdatedFdi } : { fdi: resolvedUpdatedFdi, fdi_channel: resolvedUpdatedFdi });
 
         // Recalculate commission if value or campaign changed
         const newDocValue = updatedData.value !== undefined ? Number(updatedData.value) : Number(s.value);
@@ -455,6 +461,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updatedItem = {
           ...s,
           ...updatedData,
+          fdi: resolvedUpdatedFdi,
           value: newDocValue,
           commission: updatedData.commission !== undefined ? updatedData.commission : newCommission,
           custom_data: mergedCustomData,

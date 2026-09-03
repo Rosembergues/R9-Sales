@@ -115,7 +115,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
 
       setMainProduct(sale.custom_data?.main_product || 'Graduação');
       const resolvedChannel = getSaleFdiDisplay(sale);
-      setFdiChannel((resolvedChannel === 'Sim' || resolvedChannel === 'Não') ? 'Simplificada' : (resolvedChannel as any || 'Simplificada'));
+      setFdiChannel((resolvedChannel as ProductChannelFDI) || 'Simplificada');
       setModality(sale.custom_data?.modality || 'Presencial');
       setShift(sale.custom_data?.shift || 'Noite');
       setParcelaLeve(sale.custom_data?.parcela_leve || 'Sem parcelas');
@@ -180,12 +180,14 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
         status,
         notes: notes.trim(),
         product_name: `${mainProduct} - ${modality} (${shift})`,
+        fdi: fdiChannel,
         custom_data: {
           ...(sale.custom_data || {}),
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
           sale_date: saleDate.trim(),
           main_product: mainProduct,
+          fdi: fdiChannel,
           fdi_channel: fdiChannel,
           modality,
           shift,

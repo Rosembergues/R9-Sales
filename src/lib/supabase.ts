@@ -136,7 +136,7 @@ create table if not exists public.sales (
   product text,
   turn text,
   modality text,
-  fdi boolean default false,
+  fdi text default 'Simplificada', -- Canal de captação FDI gravado como TEXT ('Simplificada', 'Vestibular', 'MSV', 'ENEM', etc.)
   light_installment boolean default false,
   partner_scholarship boolean default false,
   notes text,

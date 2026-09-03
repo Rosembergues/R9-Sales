@@ -90,7 +90,11 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
     // Format date DD/MM/YYYY - Strictly based on Sale Date (Data da Venda)
     const dateStr = getSaleDateBr(sale);
 
-    const fdi = getSaleFdiDisplay(sale);
+    // 5. FDI - texto exclusivo correspondente à opção selecionada na seção 3
+    const fdi = (typeof sale.fdi === 'string' && sale.fdi.trim() !== '' && !['true', 'false', 'sim', 'nao', 'não'].includes(sale.fdi.toLowerCase()))
+      ? sale.fdi.trim()
+      : getSaleFdiDisplay(sale);
+
     const modality = sale.custom_data?.modality || 'Presencial';
     const shift = sale.custom_data?.shift || 'Noite';
     const parcelaLeve = sale.custom_data?.parcela_leve || 'Sem parcelas';
@@ -877,11 +881,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
                             ? 'bg-orange-50 text-orange-700 border border-orange-200/60'
                             : row.fdi === 'Pós Graduação'
                             ? 'bg-rose-50 text-rose-700 border border-rose-200/60'
-                            : row.fdi === 'Sim'
-                            ? 'bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200/60'
-                            : row.fdi === 'Não'
-                            ? 'bg-gray-100 text-gray-600 border border-gray-200/60'
-                            : 'bg-gray-50 text-gray-700 border border-gray-200/60'
+                            : 'bg-slate-50 text-slate-700 border border-slate-200/60'
                         }`}>
                           {row.fdi}
                         </span>

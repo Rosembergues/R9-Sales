@@ -34,6 +34,7 @@ export interface SaleCustomData {
   sale_date?: string; // dd/MM/yyyy
   main_product?: MainProductType;
   business_unit?: 'BU Presencial' | 'BU Digital';
+  fdi?: string | ProductChannelFDI; // Texto exclusivo do canal selecionado
   fdi_channel?: ProductChannelFDI;
   modality?: ModalityType;
   shift?: ShiftType;
@@ -104,6 +105,7 @@ export interface Sale {
   payment_method: PaymentMethod;
   status: SaleStatus;
   commission: number;
+  fdi?: string | ProductChannelFDI;
   custom_data?: SaleCustomData;
   notes?: string;
   created_at: string;

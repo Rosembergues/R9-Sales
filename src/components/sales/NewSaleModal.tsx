@@ -128,8 +128,8 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
   const [saleDateIso, setSaleDateIso] = useState<string>(getTodayDateStr());
 
-  // 4. Produto/Canal (FDI)
-  const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI>('Vestibular');
+  // 4. Produto/Canal (FDI) - valor string correspondente à opção selecionada na seção 3
+  const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI>('Simplificada');
 
   // 5. Modalidade & Turno
   const [modality, setModality] = useState<ModalityType>('Presencial');
@@ -270,6 +270,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
         seller_name: chosenSellerName,
         seller_email: chosenSellerEmail,
         collaborator_name: chosenSellerName,
+        fdi: fdiChannel,
         custom_data: {
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
@@ -278,6 +279,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
           sale_date: formattedDateBr,
           main_product: mainProduct,
           business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
+          fdi: fdiChannel,
           fdi_channel: fdiChannel,
           modality: modality,
           shift: shift,
