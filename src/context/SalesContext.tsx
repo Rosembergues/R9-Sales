@@ -112,87 +112,79 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     loadData();
   }, [loadData]);
 
-  // Inscrição em Tempo Real (Realtime) na tabela 'sales' do Supabase
+  // Inscrição dedicada em Tempo Real (Realtime) na tabela 'sales' do Supabase
   useEffect(() => {
-    const client = getSupabaseClient() || supabase;
-    if (!client) return;
-
-    console.info('🔌 [Supabase Realtime] Conectando ao canal realtime-sales para tabela public.sales...');
-
-    const channel = client
-      .channel('realtime-sales')
+    const channel = supabase
+      .channel('public:sales')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sales' },
-        (payload) => {
-          console.info('⚡ [Supabase Realtime] Evento recebido:', payload.eventType, payload);
+        (payload: any) => {
+          console.log('🔄 Evento Realtime recebido:', payload);
 
           if (payload.eventType === 'INSERT') {
             try {
+              // Certifique-se de normalizar/formatar o payload.new de acordo com a tipagem do frontend
               const newSale = normalizeRemoteSale(payload.new);
-              setSales((prevSales) => {
-                // Evita duplicação caso a venda já tenha sido inserida localmente
-                const exists = prevSales.some((s) => s.id === newSale.id);
-                if (exists) {
-                  const updated = prevSales.map((s) => (s.id === newSale.id ? newSale : s));
-                  LocalSyncEngine.saveSales(updated);
-                  return updated;
+              setSales((prev) => {
+                if (prev.some((sale) => sale.id === newSale.id)) {
+                  return prev.map((sale) => (sale.id === newSale.id ? newSale : sale));
                 }
-                const updated = [newSale, ...prevSales];
-                LocalSyncEngine.saveSales(updated);
-                return updated;
+                return [newSale, ...prev];
               });
 
               // Atualiza o feed de atividades recentes
               const sellerName = newSale.seller_name || 'Consultor';
               const formattedVal = (Number(newSale.value) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-              const activityItem = {
-                id: `realtime-act-${Date.now()}`,
-                message: `${sellerName} acabou de fechar R$ ${formattedVal}!`,
-                time: 'Agora mesmo',
-                value: Number(newSale.value) || 0,
-                seller: sellerName,
-              };
-              setRecentLiveActivity((prev) => [activityItem, ...prev.slice(0, 7)]);
+              setRecentLiveActivity((prev) => [
+                {
+                  id: `realtime-act-${Date.now()}`,
+                  message: `${sellerName} acabou de fechar R$ ${formattedVal}!`,
+                  time: 'Agora mesmo',
+                  value: Number(newSale.value) || 0,
+                  seller: sellerName,
+                },
+                ...prev.slice(0, 7)
+              ]);
             } catch (err) {
-              console.error('💥 [Supabase Realtime] Erro ao normalizar venda no INSERT:', err);
+              console.error('💥 Erro ao processar INSERT do Realtime:', err);
             }
           } else if (payload.eventType === 'UPDATE') {
             try {
               const updatedSale = normalizeRemoteSale(payload.new);
-              setSales((prevSales) => {
-                const updated = prevSales.map((s) => (s.id === updatedSale.id ? updatedSale : s));
-                LocalSyncEngine.saveSales(updated);
-                return updated;
-              });
+              setSales((prev) =>
+                prev.map((sale) => (sale.id === updatedSale.id ? updatedSale : sale))
+              );
             } catch (err) {
-              console.error('💥 [Supabase Realtime] Erro ao normalizar venda no UPDATE:', err);
+              console.error('💥 Erro ao processar UPDATE do Realtime:', err);
             }
           } else if (payload.eventType === 'DELETE') {
             try {
               const deletedId = String(payload.old?.id || '');
               if (deletedId) {
-                setSales((prevSales) => {
-                  const updated = prevSales.filter((s) => s.id !== deletedId);
-                  LocalSyncEngine.saveSales(updated);
-                  return updated;
-                });
+                setSales((prev) => prev.filter((sale) => sale.id !== deletedId));
               }
             } catch (err) {
-              console.error('💥 [Supabase Realtime] Erro ao processar DELETE:', err);
+              console.error('💥 Erro ao processar DELETE do Realtime:', err);
             }
           }
         }
       )
       .subscribe((status) => {
-        console.info('📡 [Supabase Realtime] Status da inscrição realtime-sales:', status);
+        console.log('📡 Status da Inscrição Realtime:', status);
       });
 
     return () => {
-      console.info('🔌 [Supabase Realtime] Encerrando inscrição do canal realtime-sales...');
-      client.removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, []);
+
+  // Sincroniza o cache local sempre que a lista de vendas for atualizada
+  useEffect(() => {
+    if (sales.length > 0) {
+      LocalSyncEngine.saveSales(sales);
+    }
+  }, [sales]);
 
   const activeCampaigns = useMemo(() => {
     return campaigns.filter(c => c.active);
