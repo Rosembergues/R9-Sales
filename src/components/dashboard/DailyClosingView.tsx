@@ -567,7 +567,6 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                 <th className="py-3 px-3">Modalidade</th>
                 <th className="py-3 px-3">Turno</th>
                 <th className="py-3 px-3">Canal (FDI)</th>
-                <th className="py-3 px-3 text-right">Valor</th>
                 <th className="py-3 px-4 text-center">Ações</th>
               </tr>
             </thead>
@@ -580,7 +579,6 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                   const mod = normalizeModality(sale.custom_data?.modality);
                   const shift = sale.custom_data?.shift || 'Noite';
                   const fdi = sale.custom_data?.fdi_channel || 'Vestibular';
-                  const val = Number(sale.value) || 0;
 
                   return (
                     <tr key={sale.id} className="hover:bg-blue-50/30 transition-colors">
@@ -607,9 +605,6 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                       <td className="py-3 px-3 text-gray-600">
                         {fdi}
                       </td>
-                      <td className="py-3 px-3 text-right font-bold text-gray-900">
-                        R$ {val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </td>
                       <td className="py-3 px-4 text-center">
                         <button
                           onClick={() => setEditingSale(sale)}
@@ -624,7 +619,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400">
+                  <td colSpan={7} className="py-12 text-center text-gray-400">
                     <Receipt className="w-8 h-8 mx-auto text-gray-300 mb-2" />
                     <p className="font-semibold text-sm text-gray-600">Nenhum boleto encontrado nesta data</p>
                     <p className="text-xs text-gray-400 mt-1">
