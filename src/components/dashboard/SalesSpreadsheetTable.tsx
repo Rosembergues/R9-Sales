@@ -12,7 +12,6 @@ import {
   FileSpreadsheet, 
   Check, 
   Edit3, 
-  Trash2, 
   ExternalLink,
   RotateCcw,
   SlidersHorizontal,
@@ -51,15 +50,13 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
   onOpenNewSaleModal,
   onlyToday = false
 }) => {
-  const { sales, deleteSale, updateSaleStatus, clearAllSales } = useSales();
+  const { sales, deleteSale, updateSaleStatus } = useSales();
   const { currentUser } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedProductFilter, setSelectedProductFilter] = useState<'Todos' | MainProductType>('Todos');
-  const [showClearSalesConfirm, setShowClearSalesConfirm] = useState(false);
-  const [isClearingSales, setIsClearingSales] = useState(false);
   
   // Excel-like Column Filters
   const [columnFilters, setColumnFilters] = useState<ColumnFilterState>({});
@@ -495,19 +492,6 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
           <div className="text-[11px] text-gray-500 font-medium px-2 py-1 bg-gray-50 rounded-md border border-gray-200">
             <span className="font-bold text-gray-800">{processedRows.length}</span> registros
           </div>
-
-          {/* Limpar Vendas (Exclusivo Administrador) */}
-          {isAdmin && sales.length > 0 && (
-            <button
-              id="clear-sales-btn"
-              onClick={() => setShowClearSalesConfirm(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-              title="Limpar todos os lançamentos e zerar a planilha"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-red-600" />
-              <span>Limpar Vendas</span>
-            </button>
-          )}
 
           {/* Export to CSV/Excel */}
           <button
@@ -1075,45 +1059,6 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
         sale={editingSale}
         onClose={() => setEditingSale(null)}
       />
-
-      {/* MODAL DE CONFIRMAÇÃO PARA LIMPAR VENDAS */}
-      {showClearSalesConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <div className="w-12 h-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <div className="text-center">
-              <h4 className="text-base font-bold text-gray-900">Limpar Todas as Vendas?</h4>
-              <p className="text-xs text-gray-500 mt-1">
-                Esta ação removerá todos os lançamentos cadastrados na planilha e no banco de dados local. A planilha ficará completamente zerada para novos registros.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowClearSalesConfirm(false)}
-                className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  setIsClearingSales(true);
-                  await clearAllSales();
-                  setIsClearingSales(false);
-                  setShowClearSalesConfirm(false);
-                }}
-                disabled={isClearingSales}
-                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
-              >
-                {isClearingSales ? 'Limpando...' : 'Sim, Limpar Todas'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
