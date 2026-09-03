@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .bg-institucional {
+    background-color: #1e3a8a;
+  }
+  .bg-institucional:hover {
+    background-color: #172554;
+  }
+}
