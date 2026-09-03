@@ -21,6 +21,7 @@ import { Sale, MainProductType } from '../../types';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { EditSaleModal } from '../sales/EditSaleModal';
+import { getSaleDateBr, getTodayBrDate } from '../../lib/salesMapper';
 
 interface SalesSpreadsheetTableProps {
   onOpenNewSaleModal?: () => void;
@@ -86,15 +87,8 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
     const opportunity = sale.custom_data?.opportunity_number || sale.id.replace('sale-', '955');
     const candidate = sale.custom_data?.candidate_name || sale.client_name || '';
     
-    // Format date DD/MM/YYYY
-    let dateStr = sale.custom_data?.sale_date;
-    if (!dateStr) {
-      const d = new Date(sale.created_at);
-      const day = String(d.getDate()).padStart(2, '0');
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const year = d.getFullYear();
-      dateStr = `${day}/${month}/${year}`;
-    }
+    // Format date DD/MM/YYYY - Strictly based on Sale Date (Data da Venda)
+    const dateStr = getSaleDateBr(sale);
 
     const fdi = sale.custom_data?.fdi_channel || 'Simplificada';
     const modality = sale.custom_data?.modality || 'Presencial';
@@ -215,16 +209,14 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
 
   // Filtered & Sorted Sales rows
   const processedRows = useMemo(() => {
-    const today = new Date();
-    const todayFormatted = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+    const todayFormatted = getTodayBrDate();
 
     return sales
       .map(sale => getSaleRowData(sale))
       .filter(row => {
-        // Only today filter
+        // Only today filter (Strictly comparing the Sale Date)
         if (onlyToday) {
-          const isToday = row.date === todayFormatted || row.date === '02/09/2026';
-          if (!isToday) return false;
+          if (row.date !== todayFormatted) return false;
         }
 
         // Product category filter

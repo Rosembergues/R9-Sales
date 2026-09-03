@@ -62,6 +62,69 @@ export function formatIsoToBr(isoStr?: string | null): string {
 }
 
 /**
+ * Retorna a data atual de hoje no formato estrito DD/MM/YYYY
+ */
+export function getTodayBrDate(): string {
+  const today = new Date();
+  const day = String(today.getDate()).padStart(2, '0');
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const year = today.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+/**
+ * Retorna a Data da Venda no formato estrito DD/MM/YYYY.
+ * PRIORIDADE TOTAL para a Data da Venda informada no lançamento (sale_date)
+ * e NUNCA a data do registro no sistema (created_at).
+ * Se alguém subir hoje um boleto com data de ontem, esta função retorna a data de ontem!
+ */
+export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: any; sale_date?: string }): string {
+  if (!sale) return '';
+
+  // 1. Data da venda informada explicitamente no custom_data ou campo sale_date
+  const explicitSaleDate = sale.custom_data?.sale_date || (sale as any).sale_date;
+  if (explicitSaleDate && typeof explicitSaleDate === 'string') {
+    const trimmed = explicitSaleDate.trim();
+    // Formato DD/MM/YYYY
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+      const parts = trimmed.split('/');
+      return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+    }
+    // Formato YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      const [y, m, d] = trimmed.slice(0, 10).split('-');
+      return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+    }
+    // Formato ISO
+    try {
+      const parsed = new Date(trimmed);
+      if (!isNaN(parsed.getTime())) {
+        const day = String(parsed.getUTCDate()).padStart(2, '0');
+        const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+        const year = parsed.getUTCFullYear();
+        return `${day}/${month}/${year}`;
+      }
+    } catch {}
+    return trimmed;
+  }
+
+  // 2. Apenas se não houver data da venda definida (fallback para registros legados)
+  if (sale.created_at) {
+    try {
+      const d = new Date(sale.created_at);
+      if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+      }
+    } catch {}
+  }
+
+  return '';
+}
+
+/**
  * Normaliza um registro vindo do Supabase para o modelo interno Sale
  */
 export function normalizeRemoteSale(row: any): Sale {
@@ -117,7 +180,7 @@ export function normalizeRemoteSale(row: any): Sale {
     ? row.partner_scholarship
     : Boolean(custom.has_bolsa_convenio);
 
-  const rawDate = row.sale_date || custom.sale_date || row.created_at;
+  const rawDate = custom.sale_date || row.sale_date || row.created_at;
   const dateBr = typeof rawDate === 'string' && rawDate.includes('/') 
     ? rawDate 
     : formatIsoToBr(rawDate);
@@ -183,7 +246,7 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
     light_installment: lightInstallmentBool,
     partner_scholarship: partnerScholarshipBool,
     notes: sale.notes || '',
-    sale_date: toValidIsoTimestamp(custom.sale_date || sale.created_at),
+    sale_date: toValidIsoTimestamp(custom.sale_date || (sale as any).sale_date || sale.created_at),
     campaign_id: sale.campaign_id || null,
     created_at: toValidIsoTimestamp(sale.created_at),
   };

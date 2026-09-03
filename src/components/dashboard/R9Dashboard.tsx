@@ -31,6 +31,7 @@ import {
   Wrench,
   FileSpreadsheet,
   Receipt,
+  CalendarCheck,
   Trophy,
   Crown
 } from 'lucide-react';
@@ -42,8 +43,10 @@ import { GoalProgressTracker } from '../seller/GoalProgressTracker';
 import { SellerSalesHistory } from '../seller/SellerSalesHistory';
 import { ProductSummaryView } from './ProductSummaryView';
 import { SalesSpreadsheetTable } from './SalesSpreadsheetTable';
+import { DailyClosingView } from './DailyClosingView';
 import { NewSaleModal } from '../sales/NewSaleModal';
 import { MainProductType, Sale } from '../../types';
+import { getTodayBrDate, getSaleDateBr } from '../../lib/salesMapper';
 
 export const R9Dashboard: React.FC = () => {
   const { currentUser, signOut } = useAuth();
@@ -102,17 +105,11 @@ export const R9Dashboard: React.FC = () => {
   const tecnicoCount = sales.filter(s => getSaleProductType(s) === 'Curso Técnico').length;
   const totalSalesCount = sales.length;
 
-  // Computed today's sales count (Boletos do Dia)
-  const todayDateObj = new Date();
-  const todayFormatted = `${String(todayDateObj.getDate()).padStart(2, '0')}/${String(todayDateObj.getMonth() + 1).padStart(2, '0')}/${todayDateObj.getFullYear()}`;
+  // Computed today's sales count (Boletos do Dia) - Estritamente pela Data da Venda de HOJE
+  const todayFormatted = getTodayBrDate();
   const boletosDoDiaCount = sales.filter(s => {
-    const saleDate = s.custom_data?.sale_date;
-    if (saleDate) {
-      return saleDate === todayFormatted;
-    }
-    const d = new Date(s.created_at);
-    const dStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    return dStr === todayFormatted;
+    const saleDate = getSaleDateBr(s);
+    return saleDate === todayFormatted;
   }).length;
 
   // Format initials and username
@@ -340,6 +337,22 @@ export const R9Dashboard: React.FC = () => {
                     <span>Boletos do Dia</span>
                   </div>
                   <span className="text-[11px] font-bold text-gray-500">{boletosDoDiaCount}</span>
+                </button>
+
+                <button
+                  id="nav-fechamento-diario"
+                  onClick={() => setActiveTab('fechamento_diario')}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'fechamento_diario'
+                      ? 'bg-blue-50 text-blue-700 font-semibold'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <CalendarCheck className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Fechamento Diário</span>
+                  </div>
+                  <span className="text-[11px] font-bold text-indigo-600">{boletosDoDiaCount}</span>
                 </button>
 
                 <button
@@ -621,6 +634,12 @@ export const R9Dashboard: React.FC = () => {
                   onOpenNewSaleModal={() => setShowNewSaleModal(true)}
                 />
               </div>
+            )}
+
+            {activeTab === 'fechamento_diario' && (
+              <DailyClosingView 
+                onOpenNewSaleModal={() => setShowNewSaleModal(true)}
+              />
             )}
 
             {(activeTab === 'rank_semanal' || activeTab === 'rank_mensal') && (
