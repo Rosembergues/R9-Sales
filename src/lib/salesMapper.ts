@@ -296,11 +296,15 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
 
   const partnerScholarshipBool = Boolean(custom.has_bolsa_convenio);
   const responsibleName = sale.seller_name || custom.collaborator_name || custom.seller_name || 'Consultor';
+  const responsibleId = sale.seller_id || custom.seller_id || null;
+  const responsibleEmail = sale.seller_email || custom.seller_email || null;
 
   return {
     id: sale.id,
     collaborator_name: responsibleName,
     seller_name: responsibleName,
+    seller_id: responsibleId,
+    seller_email: responsibleEmail,
     candidate_name: custom.candidate_name || sale.client_name || 'Candidato',
     opportunity: custom.opportunity_number || sale.id.replace('sale-', 'OP-'),
     product: custom.main_product || sale.product_name || 'Graduação',
@@ -319,6 +323,8 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
       fdi_channel: channelVal,
       collaborator_name: responsibleName,
       seller_name: responsibleName,
+      seller_id: responsibleId,
+      seller_email: responsibleEmail,
     },
   };
 }
@@ -329,6 +335,8 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
 export function buildStandardSalePayload(sale: Sale): Record<string, any> {
   const custom = sale.custom_data || {};
   const responsibleName = sale.seller_name || custom.collaborator_name || custom.seller_name || 'Consultor';
+  const responsibleId = sale.seller_id || custom.seller_id || null;
+  const responsibleEmail = sale.seller_email || custom.seller_email || '';
   const channelVal = getSaleFdiDisplay(sale);
 
   const payload: Record<string, any> = {
@@ -337,7 +345,8 @@ export function buildStandardSalePayload(sale: Sale): Record<string, any> {
     campaign_name: sale.campaign_name || 'Captação R9',
     seller_name: responsibleName,
     collaborator_name: responsibleName,
-    seller_email: sale.seller_email || '',
+    seller_id: responsibleId,
+    seller_email: responsibleEmail,
     client_name: sale.custom_data?.candidate_name || sale.client_name || 'Candidato',
     client_document: sale.client_document || null,
     client_phone: sale.client_phone || null,
@@ -354,15 +363,12 @@ export function buildStandardSalePayload(sale: Sale): Record<string, any> {
       fdi_channel: channelVal,
       collaborator_name: responsibleName,
       seller_name: responsibleName,
+      seller_id: responsibleId,
+      seller_email: responsibleEmail,
     },
     notes: sale.notes || '',
     created_at: toValidIsoTimestamp(sale.created_at),
   };
-
-  // Se seller_id for um UUID válido, inclui no payload (senão omite para evitar erro 400 de sintaxe uuid)
-  if (isValidUuid(sale.seller_id)) {
-    payload.seller_id = sale.seller_id;
-  }
 
   return payload;
 }

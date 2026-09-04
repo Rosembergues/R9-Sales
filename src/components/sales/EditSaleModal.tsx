@@ -173,6 +173,9 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
 
     try {
       const selectedSeller = profiles.find(p => p.id === sellerId);
+      const chosenSellerName = selectedSeller?.name || sale.seller_name || 'Consultor';
+      const chosenSellerId = selectedSeller?.id || sellerId || sale.seller_id;
+      const chosenSellerEmail = selectedSeller?.email || sale.seller_email;
       
       const updatedFields: Partial<Sale> = {
         client_name: candidateName.trim(),
@@ -181,10 +184,17 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
         notes: notes.trim(),
         product_name: `${mainProduct} - ${modality} (${shift})`,
         fdi: fdiChannel,
+        seller_id: chosenSellerId,
+        seller_name: chosenSellerName,
+        seller_email: chosenSellerEmail,
         custom_data: {
           ...(sale.custom_data || {}),
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
+          collaborator_name: chosenSellerName,
+          seller_name: chosenSellerName,
+          seller_id: chosenSellerId,
+          seller_email: chosenSellerEmail,
           sale_date: saleDate.trim(),
           main_product: mainProduct,
           fdi: fdiChannel,
@@ -197,12 +207,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
         }
       };
-
-      if (selectedSeller) {
-        updatedFields.seller_id = selectedSeller.id;
-        updatedFields.seller_name = selectedSeller.name;
-        updatedFields.seller_email = selectedSeller.email;
-      }
 
       const result = await updateSale(sale.id, updatedFields);
       setIsSaving(false);

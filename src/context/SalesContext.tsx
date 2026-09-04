@@ -104,8 +104,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as any).created_by);
                 if (matchedProfile) {
                   sale.seller_name = matchedProfile.name;
-                } else if (currentUser?.name) {
-                  sale.seller_name = currentUser.name;
+                } else if (row.collaborator_name && row.collaborator_name !== 'Consultor') {
+                  sale.seller_name = row.collaborator_name;
                 }
               }
               return sale;
@@ -333,10 +333,22 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const commissionRate = campaign ? campaign.commission_rate : 5.0;
     const commission = (Number(saleData.value) * commissionRate) / 100;
 
-    const selectedSellerId = saleData.seller_id || currentUser.id;
-    const selectedSellerProfile = profiles.find(p => p.id === selectedSellerId);
-    const selectedSellerName = saleData.seller_name || saleData.collaborator_name || selectedSellerProfile?.name || currentUser.name;
-    const selectedSellerEmail = saleData.seller_email || selectedSellerProfile?.email || currentUser.email;
+    // Identifica com precisão o vendedor escolhido, sem jamais sobrescrever pela sessão ativa
+    const selectedSellerName = 
+      saleData.seller_name || 
+      saleData.collaborator_name || 
+      (saleData.seller_id ? profiles.find(p => p.id === saleData.seller_id)?.name : undefined) || 
+      currentUser.name;
+
+    const selectedSellerId = 
+      saleData.seller_id || 
+      (profiles.find(p => p.name.toLowerCase() === selectedSellerName.toLowerCase())?.id) || 
+      (selectedSellerName === currentUser.name ? currentUser.id : `seller-${selectedSellerName.toLowerCase().replace(/\s+/g, '-')}`);
+
+    const selectedSellerEmail = 
+      saleData.seller_email || 
+      (saleData.seller_id ? profiles.find(p => p.id === saleData.seller_id)?.email : undefined) || 
+      (selectedSellerName === currentUser.name ? currentUser.email : '');
 
     const resolvedFdi = (saleData as any).fdi || saleData.custom_data?.fdi || saleData.custom_data?.fdi_channel || 'Simplificada';
 
@@ -364,6 +376,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         fdi_channel: resolvedFdi,
         collaborator_name: selectedSellerName,
         seller_name: selectedSellerName,
+        seller_id: selectedSellerId,
+        seller_email: selectedSellerEmail,
       },
       notes: saleData.notes,
       created_at: new Date().toISOString(),
@@ -425,10 +439,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Live Activity Feed item
     const activityItem = {
       id: `act-${Date.now()}`,
-      message: `${currentUser.name} acabou de fechar R$ ${newSale.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}!`,
+      message: `${selectedSellerName} acabou de fechar R$ ${newSale.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}!`,
       time: 'Agora mesmo',
       value: newSale.value,
-      seller: currentUser.name,
+      seller: selectedSellerName,
     };
     setRecentLiveActivity(prev => [activityItem, ...prev.slice(0, 7)]);
 

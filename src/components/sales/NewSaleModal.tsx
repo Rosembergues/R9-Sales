@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { 
@@ -28,7 +28,8 @@ import {
   ModalityType, 
   ShiftType, 
   ParcelaLeveOption, 
-  PaymentMethod 
+  PaymentMethod,
+  Profile
 } from '../../types';
 
 interface NewSaleModalProps {
@@ -82,33 +83,84 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   initialProduct = 'Graduação'
 }) => {
   const { currentUser, profiles, refreshProfiles } = useAuth();
-  const { activeCampaigns, addSale } = useSales();
+  const { sales, activeCampaigns, addSale } = useSales();
 
-  // Consultor Responsável
+  // Consultor Responsável selecionado pelo usuário
   const [selectedSellerId, setSelectedSellerId] = useState<string>(currentUser?.id || '');
+  const [selectedSellerName, setSelectedSellerName] = useState<string>(currentUser?.name || '');
+  const [selectedSellerEmail, setSelectedSellerEmail] = useState<string>(currentUser?.email || '');
 
-  // Padrão Inteligente: usuário logado pré-selecionado e busca perfis atualizados ao abrir
+  // Ref para rastrear abertura do modal e garantir que a pré-seleção pelo usuário logado
+  // ocorra exclusivamente na transição de fechado para aberto, NUNCA sobrescrevendo
+  // uma escolha feita pelo usuário caso profiles ou currentUser atualizem durante o preenchimento.
+  const wasOpenRef = useRef(false);
+
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       refreshProfiles();
-      if (currentUser?.id) {
-        setSelectedSellerId(currentUser.id);
-      }
+      const defaultId = currentUser?.id || '';
+      const defaultName = currentUser?.name || '';
+      const defaultEmail = currentUser?.email || '';
+      setSelectedSellerId(defaultId);
+      setSelectedSellerName(defaultName);
+      setSelectedSellerEmail(defaultEmail);
     }
-  }, [isOpen, currentUser, refreshProfiles]);
+    wasOpenRef.current = isOpen;
+  }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email, refreshProfiles]);
 
-  // Lista consolidada de consultores disponíveis (tabela profiles + usuário logado se não listado)
+  // Lista consolidada de consultores disponíveis (tabela profiles + usuário logado se não listado + consultores já registrados)
   const availableConsultants = React.useMemo(() => {
-    const list = [...profiles];
+    const list: Profile[] = [...profiles];
     if (currentUser && !list.some(p => p.id === currentUser.id)) {
       list.unshift(currentUser);
     }
+
+    // Inclui consultores que tenham vendas registradas no sistema
+    if (sales && sales.length > 0) {
+      sales.forEach((s) => {
+        const sName = s.seller_name?.trim();
+        if (sName && sName !== 'Consultor' && sName !== 'Consultor R9') {
+          const alreadyExists = list.some(
+            p => p.id === s.seller_id || p.name.toLowerCase() === sName.toLowerCase()
+          );
+          if (!alreadyExists) {
+            list.push({
+              id: s.seller_id || `seller-${sName.toLowerCase().replace(/\s+/g, '-')}`,
+              name: sName,
+              email: s.seller_email || `${sName.toLowerCase().replace(/\s+/g, '.')}@r9.edu.br`,
+              role: 'seller',
+              created_at: s.created_at || new Date().toISOString(),
+              status: 'active'
+            });
+          }
+        }
+      });
+    }
+
     return list;
-  }, [profiles, currentUser]);
+  }, [profiles, currentUser, sales]);
 
   const selectedConsultant = React.useMemo(() => {
-    return availableConsultants.find(p => p.id === selectedSellerId) || currentUser;
-  }, [availableConsultants, selectedSellerId, currentUser]);
+    const byId = availableConsultants.find(p => p.id === selectedSellerId);
+    if (byId) return byId;
+
+    if (selectedSellerName) {
+      const byName = availableConsultants.find(
+        p => p.name.toLowerCase() === selectedSellerName.toLowerCase()
+      );
+      if (byName) return byName;
+      return {
+        id: selectedSellerId || `custom-${Date.now()}`,
+        name: selectedSellerName,
+        email: selectedSellerEmail,
+        role: 'seller' as const,
+        created_at: '',
+        status: 'active' as const
+      };
+    }
+
+    return currentUser;
+  }, [availableConsultants, selectedSellerId, selectedSellerName, selectedSellerEmail, currentUser]);
 
   // 1. Produto Principal
   const [mainProduct, setMainProduct] = useState<MainProductType>(initialProduct);
@@ -254,10 +306,29 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
     setIsSubmitting(true);
 
-    const chosenSeller = selectedConsultant || currentUser;
-    const chosenSellerName = chosenSeller?.name || 'Consultor R9';
-    const chosenSellerId = chosenSeller?.id || currentUser?.id || '';
-    const chosenSellerEmail = chosenSeller?.email || currentUser?.email || '';
+    // Identificação estrita do consultor selecionado no dropdown pelo usuário.
+    // Garante que o responsável enviado no payload para o Supabase (seller_name, collaborator_name ou ID)
+    // seja estritamente o valor selecionado pelo usuário no campo de seleção da interface,
+    // e nunca sobrescrito pelo ID ou nome da sessão ativa se outro consultor foi escolhido.
+    const chosenProfile = availableConsultants.find(p => p.id === selectedSellerId);
+
+    let chosenSellerName = '';
+    let chosenSellerId = selectedSellerId;
+    let chosenSellerEmail = selectedSellerEmail;
+
+    if (chosenProfile) {
+      chosenSellerName = chosenProfile.name;
+      chosenSellerId = chosenProfile.id;
+      chosenSellerEmail = chosenProfile.email;
+    } else if (selectedSellerName && selectedSellerName.trim()) {
+      chosenSellerName = selectedSellerName;
+    } else if (currentUser && selectedSellerId === currentUser.id) {
+      chosenSellerName = currentUser.name;
+      chosenSellerId = currentUser.id;
+      chosenSellerEmail = currentUser.email;
+    } else {
+      chosenSellerName = 'Consultor R9';
+    }
 
     try {
       const response = await addSale({
@@ -276,6 +347,8 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
           candidate_name: candidateName.trim(),
           collaborator_name: chosenSellerName,
           seller_name: chosenSellerName,
+          seller_id: chosenSellerId,
+          seller_email: chosenSellerEmail,
           sale_date: formattedDateBr,
           main_product: mainProduct,
           business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
@@ -456,7 +529,15 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
               <select
                 id="select-consultant"
                 value={selectedSellerId}
-                onChange={(e) => setSelectedSellerId(e.target.value)}
+                onChange={(e) => {
+                  const newId = e.target.value;
+                  setSelectedSellerId(newId);
+                  const matched = availableConsultants.find(p => p.id === newId);
+                  if (matched) {
+                    setSelectedSellerName(matched.name);
+                    setSelectedSellerEmail(matched.email);
+                  }
+                }}
                 className="w-full px-3 py-2 text-xs bg-white border border-blue-200 rounded-xl focus:outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100 transition-all font-medium text-gray-900 cursor-pointer shadow-2xs"
               >
                 {availableConsultants.length > 0 ? (
