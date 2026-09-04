@@ -355,19 +355,9 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       console.log('🚀 [Supabase DB] Upsert em lote de metas por produto na tabela public.goals:', batchPayload);
 
       // 1. Batch upsert directly to Supabase public.goals table
-      let { error: upsertError } = await supabase
+      const { error: upsertError } = await supabase
         .from('goals')
-        .upsert(batchPayload, { onConflict: 'user_id,type' });
-
-      if (upsertError) {
-        // Fallback: tenta upsert utilizando a restrição primária padrão da tabela
-        const retryResult = await supabase
-          .from('goals')
-          .upsert(batchPayload);
-        if (!retryResult.error) {
-          upsertError = null;
-        }
-      }
+        .upsert(batchPayload, { onConflict: 'user_id,type,reference_start' });
 
       if (upsertError) {
         console.error('❌ [Supabase DB] Erro no upsert de metas:', upsertError);
