@@ -250,8 +250,10 @@ export function normalizeRemoteSale(row: any): Sale {
     id: String(row.id),
     campaign_id: row.campaign_id || '',
     campaign_name: row.campaign_name || 'Captação 2026',
-    seller_id: row.seller_id || '',
+    seller_id: row.seller_id || (row as any).collaborator_id || custom.seller_id || custom.collaborator_id || '',
+    collaborator_id: (row as any).collaborator_id || row.seller_id || custom.collaborator_id || custom.seller_id || '',
     seller_name: collaborator,
+    collaborator_name: collaborator,
     seller_email: row.seller_email || '',
     client_name: candidate,
     client_document: row.client_document || '',
@@ -295,9 +297,9 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
   );
 
   const partnerScholarshipBool = Boolean(custom.has_bolsa_convenio);
-  const responsibleName = sale.seller_name || custom.collaborator_name || custom.seller_name || 'Consultor';
-  const responsibleId = sale.seller_id || custom.seller_id || null;
-  const responsibleEmail = sale.seller_email || custom.seller_email || null;
+  const responsibleName = sale.seller_name || sale.collaborator_name || custom.collaborator_name || custom.seller_name || 'Consultor';
+  const responsibleId = sale.seller_id || (sale as any).collaborator_id || custom.seller_id || custom.collaborator_id || null;
+  const responsibleEmail = sale.seller_email !== undefined && sale.seller_email !== null ? sale.seller_email : (custom.seller_email || null);
 
   return {
     id: sale.id,
@@ -322,6 +324,7 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
       fdi: channelVal,
       fdi_channel: channelVal,
       collaborator_name: responsibleName,
+      collaborator_id: responsibleId,
       seller_name: responsibleName,
       seller_id: responsibleId,
       seller_email: responsibleEmail,
@@ -334,9 +337,9 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
  */
 export function buildStandardSalePayload(sale: Sale): Record<string, any> {
   const custom = sale.custom_data || {};
-  const responsibleName = sale.seller_name || custom.collaborator_name || custom.seller_name || 'Consultor';
-  const responsibleId = sale.seller_id || custom.seller_id || null;
-  const responsibleEmail = sale.seller_email || custom.seller_email || '';
+  const responsibleName = sale.seller_name || sale.collaborator_name || custom.collaborator_name || custom.seller_name || 'Consultor';
+  const responsibleId = sale.seller_id || (sale as any).collaborator_id || custom.seller_id || custom.collaborator_id || null;
+  const responsibleEmail = sale.seller_email !== undefined && sale.seller_email !== null ? sale.seller_email : (custom.seller_email || '');
   const channelVal = getSaleFdiDisplay(sale);
 
   const payload: Record<string, any> = {
@@ -362,6 +365,7 @@ export function buildStandardSalePayload(sale: Sale): Record<string, any> {
       fdi: channelVal,
       fdi_channel: channelVal,
       collaborator_name: responsibleName,
+      collaborator_id: responsibleId,
       seller_name: responsibleName,
       seller_id: responsibleId,
       seller_email: responsibleEmail,

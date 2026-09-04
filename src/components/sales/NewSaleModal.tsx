@@ -306,31 +306,40 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
     setIsSubmitting(true);
 
-    // Identificação estrita do consultor selecionado no dropdown pelo usuário.
-    // Garante que o responsável enviado no payload para o Supabase (seller_name, collaborator_name ou ID)
-    // seja estritamente o valor selecionado pelo usuário no campo de seleção da interface,
-    // e nunca sobrescrito pelo ID ou nome da sessão ativa se outro consultor foi escolhido.
-    const chosenProfile = availableConsultants.find(p => p.id === selectedSellerId);
+    // 2. Recupera os dados exatos do consultor selecionado no campo de responsável na lista de perfis/equipe
+    const chosenProfile = profiles.find(p => p.id === selectedSellerId) ||
+                          availableConsultants.find(p => p.id === selectedSellerId) ||
+                          (selectedSellerName ? profiles.find(p => p.name.toLowerCase() === selectedSellerName.toLowerCase()) : undefined) ||
+                          (selectedSellerName ? availableConsultants.find(p => p.name.toLowerCase() === selectedSellerName.toLowerCase()) : undefined);
+
+    const isSelfSelected = Boolean(currentUser && selectedSellerId === currentUser.id);
 
     let chosenSellerName = '';
     let chosenSellerId = selectedSellerId;
-    let chosenSellerEmail = selectedSellerEmail;
+    let chosenSellerEmail = '';
 
     if (chosenProfile) {
       chosenSellerName = chosenProfile.name;
       chosenSellerId = chosenProfile.id;
-      chosenSellerEmail = chosenProfile.email;
-    } else if (selectedSellerName && selectedSellerName.trim()) {
-      chosenSellerName = selectedSellerName;
-    } else if (currentUser && selectedSellerId === currentUser.id) {
+      chosenSellerEmail = chosenProfile.email || '';
+    } else if (isSelfSelected && currentUser) {
       chosenSellerName = currentUser.name;
       chosenSellerId = currentUser.id;
-      chosenSellerEmail = currentUser.email;
+      chosenSellerEmail = currentUser.email || '';
+    } else if (selectedSellerName && selectedSellerName.trim()) {
+      chosenSellerName = selectedSellerName.trim();
+      chosenSellerEmail = selectedSellerEmail || '';
     } else {
       chosenSellerName = 'Consultor R9';
+      chosenSellerEmail = '';
     }
 
     try {
+      // 3. Modifica o payload para garantir estritamente os dados do consultor selecionado:
+      // seller_id & collaborator_id: [ID UUID do consultor selecionado]
+      // seller_name: [Nome do consultor selecionado]
+      // collaborator_name: [Nome do consultor selecionado]
+      // seller_email: [Email do consultor selecionado]
       const response = await addSale({
         campaign_id: selectedCampaignId || activeCampaigns[0]?.id || 'camp-1',
         client_name: candidateName.trim(),
@@ -338,14 +347,16 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
         value: 1200, // Valor padrão de referência no sistema
         payment_method: 'PIX',
         seller_id: chosenSellerId,
+        collaborator_id: chosenSellerId,
         seller_name: chosenSellerName,
-        seller_email: chosenSellerEmail,
         collaborator_name: chosenSellerName,
+        seller_email: chosenSellerEmail,
         fdi: fdiChannel,
         custom_data: {
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
           collaborator_name: chosenSellerName,
+          collaborator_id: chosenSellerId,
           seller_name: chosenSellerName,
           seller_id: chosenSellerId,
           seller_email: chosenSellerEmail,

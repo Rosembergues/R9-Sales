@@ -333,22 +333,37 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const commissionRate = campaign ? campaign.commission_rate : 5.0;
     const commission = (Number(saleData.value) * commissionRate) / 100;
 
-    // Identifica com precisão o vendedor escolhido, sem jamais sobrescrever pela sessão ativa
+    // 2. Recupera os dados exatos do consultor selecionado no campo de responsável na lista de perfis/equipe
+    const selectedProfile = 
+      (saleData.seller_id ? profiles.find(p => p.id === saleData.seller_id) : undefined) ||
+      (saleData.seller_name ? profiles.find(p => p.name.toLowerCase() === saleData.seller_name!.toLowerCase()) : undefined) ||
+      (saleData.collaborator_name ? profiles.find(p => p.name.toLowerCase() === saleData.collaborator_name!.toLowerCase()) : undefined);
+
+    const isSelfSelected = Boolean(
+      currentUser && (
+        saleData.seller_id === currentUser.id ||
+        (saleData.seller_name && saleData.seller_name.toLowerCase() === currentUser.name.toLowerCase()) ||
+        (!saleData.seller_id && !saleData.seller_name && !saleData.collaborator_name)
+      )
+    );
+
+    // 3. Garante que as três propriedades recebam estritamente os dados do consultor selecionado
+    // (e nunca de quem está logado, a menos que ele selecione a si mesmo)
     const selectedSellerName = 
+      selectedProfile?.name ||
       saleData.seller_name || 
       saleData.collaborator_name || 
-      (saleData.seller_id ? profiles.find(p => p.id === saleData.seller_id)?.name : undefined) || 
-      currentUser.name;
+      (isSelfSelected ? currentUser.name : 'Consultor');
 
     const selectedSellerId = 
+      selectedProfile?.id || 
       saleData.seller_id || 
-      (profiles.find(p => p.name.toLowerCase() === selectedSellerName.toLowerCase())?.id) || 
-      (selectedSellerName === currentUser.name ? currentUser.id : `seller-${selectedSellerName.toLowerCase().replace(/\s+/g, '-')}`);
+      (isSelfSelected ? currentUser.id : `seller-${selectedSellerName.toLowerCase().replace(/\s+/g, '-')}`);
 
     const selectedSellerEmail = 
+      selectedProfile?.email || 
       saleData.seller_email || 
-      (saleData.seller_id ? profiles.find(p => p.id === saleData.seller_id)?.email : undefined) || 
-      (selectedSellerName === currentUser.name ? currentUser.email : '');
+      (isSelfSelected ? currentUser.email : '');
 
     const resolvedFdi = (saleData as any).fdi || saleData.custom_data?.fdi || saleData.custom_data?.fdi_channel || 'Simplificada';
 
@@ -358,7 +373,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       campaign_id: saleData.campaign_id,
       campaign_name: campaign ? campaign.title : 'Venda Direta',
       seller_id: selectedSellerId,
+      collaborator_id: selectedSellerId,
       seller_name: selectedSellerName,
+      collaborator_name: selectedSellerName,
       seller_email: selectedSellerEmail,
       client_name: saleData.client_name,
       client_document: saleData.client_document,
@@ -375,6 +392,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         fdi: resolvedFdi,
         fdi_channel: resolvedFdi,
         collaborator_name: selectedSellerName,
+        collaborator_id: selectedSellerId,
         seller_name: selectedSellerName,
         seller_id: selectedSellerId,
         seller_email: selectedSellerEmail,
@@ -461,10 +479,39 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const updated = sales.map(s => {
       if (s.id === saleId) {
+        // 4. Certifique-se de que se o usuário alterar o consultor em uma edição de venda,
+        // esses 4 campos sejam sobrescritos e atualizados juntos: seller_id, collaborator_id, seller_name, collaborator_name, seller_email
+        let updatedSellerName = updatedData.seller_name || updatedData.collaborator_name || s.seller_name;
+        let updatedSellerId = updatedData.seller_id || (updatedData as any).collaborator_id || s.seller_id;
+        let updatedSellerEmail = updatedData.seller_email !== undefined ? updatedData.seller_email : s.seller_email;
+
+        // Se veio indicação de troca de consultor (seller_id, collaborator_id, seller_name ou collaborator_name), busca no perfil
+        if (updatedData.seller_id || (updatedData as any).collaborator_id || updatedData.seller_name || updatedData.collaborator_name) {
+          const checkId = updatedData.seller_id || (updatedData as any).collaborator_id;
+          const matchedProfile = 
+            (checkId ? profiles.find(p => p.id === checkId) : undefined) ||
+            (updatedData.seller_name ? profiles.find(p => p.name.toLowerCase() === updatedData.seller_name!.toLowerCase()) : undefined) ||
+            (updatedData.collaborator_name ? profiles.find(p => p.name.toLowerCase() === updatedData.collaborator_name!.toLowerCase()) : undefined);
+
+          if (matchedProfile) {
+            updatedSellerName = matchedProfile.name;
+            updatedSellerId = matchedProfile.id;
+            updatedSellerEmail = matchedProfile.email || '';
+          }
+        }
+
         const resolvedUpdatedFdi = (updatedData as any).fdi || updatedData.custom_data?.fdi || updatedData.custom_data?.fdi_channel || s.fdi || 'Simplificada';
-        const mergedCustomData = updatedData.custom_data
-          ? { ...(s.custom_data || {}), ...updatedData.custom_data, fdi: resolvedUpdatedFdi, fdi_channel: resolvedUpdatedFdi }
-          : (s.custom_data ? { ...s.custom_data, fdi: resolvedUpdatedFdi, fdi_channel: resolvedUpdatedFdi } : { fdi: resolvedUpdatedFdi, fdi_channel: resolvedUpdatedFdi });
+        const mergedCustomData = {
+          ...(s.custom_data || {}),
+          ...(updatedData.custom_data || {}),
+          fdi: resolvedUpdatedFdi,
+          fdi_channel: resolvedUpdatedFdi,
+          seller_name: updatedSellerName,
+          collaborator_name: updatedSellerName,
+          seller_id: updatedSellerId,
+          collaborator_id: updatedSellerId,
+          seller_email: updatedSellerEmail,
+        };
 
         // Recalculate commission if value or campaign changed
         const newDocValue = updatedData.value !== undefined ? Number(updatedData.value) : Number(s.value);
@@ -475,6 +522,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updatedItem = {
           ...s,
           ...updatedData,
+          seller_name: updatedSellerName,
+          collaborator_name: updatedSellerName,
+          seller_id: updatedSellerId,
+          collaborator_id: updatedSellerId,
+          seller_email: updatedSellerEmail,
           fdi: resolvedUpdatedFdi,
           value: newDocValue,
           commission: updatedData.commission !== undefined ? updatedData.commission : newCommission,

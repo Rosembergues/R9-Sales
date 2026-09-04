@@ -94,7 +94,9 @@ export interface Sale {
   campaign_id: string;
   campaign_name: string;
   seller_id: string;
+  collaborator_id?: string;
   seller_name: string;
+  collaborator_name?: string;
   seller_email: string;
   client_name: string;
   client_document?: string;

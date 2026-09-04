@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { 
@@ -98,10 +98,30 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
+  // Lista de consultores disponíveis garantindo inclusão do vendedor atual
+  const availableConsultants = useMemo(() => {
+    const list = [...profiles];
+    if (sale?.seller_name && !list.some(p => p.name.toLowerCase() === sale.seller_name.toLowerCase())) {
+      list.push({
+        id: sale.seller_id || `seller-${sale.seller_name.toLowerCase().replace(/\s+/g, '-')}`,
+        name: sale.seller_name,
+        email: sale.seller_email || '',
+        role: 'seller' as const,
+        created_at: '',
+        status: 'active' as const
+      });
+    }
+    return list;
+  }, [profiles, sale?.seller_name, sale?.seller_id, sale?.seller_email]);
+
   // Load sale data when opened
   useEffect(() => {
     if (sale) {
-      setSellerId(sale.seller_id || '');
+      const matchedProfile = profiles.find(p => p.id === sale.seller_id) ||
+                            profiles.find(p => p.name.toLowerCase() === (sale.seller_name || '').toLowerCase()) ||
+                            profiles.find(p => p.name.toLowerCase() === ((sale as any).collaborator_name || '').toLowerCase());
+
+      setSellerId(matchedProfile?.id || sale.seller_id || '');
       setOpportunityNumber(sale.custom_data?.opportunity_number || sale.id.replace('sale-', '955'));
       setCandidateName(sale.custom_data?.candidate_name || sale.client_name || '');
       
@@ -129,7 +149,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       setErrorMessage(null);
       setSuccessToast(null);
     }
-  }, [sale]);
+  }, [sale, profiles]);
 
   if (!isOpen || !sale) return null;
 
@@ -172,11 +192,34 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     setErrorMessage(null);
 
     try {
-      const selectedSeller = profiles.find(p => p.id === sellerId);
-      const chosenSellerName = selectedSeller?.name || sale.seller_name || 'Consultor';
-      const chosenSellerId = selectedSeller?.id || sellerId || sale.seller_id;
-      const chosenSellerEmail = selectedSeller?.email || sale.seller_email;
-      
+      // 2. Recupera os dados exatos do consultor selecionado no campo de responsável na lista de perfis/equipe
+      const selectedSeller = availableConsultants.find(p => p.id === sellerId) ||
+                             profiles.find(p => p.id === sellerId) ||
+                             availableConsultants.find(p => p.name.toLowerCase() === sellerId.toLowerCase()) ||
+                             profiles.find(p => p.name.toLowerCase() === sellerId.toLowerCase());
+
+      const isSelfSelected = Boolean(currentUser && sellerId === currentUser.id);
+
+      let chosenSellerName = '';
+      let chosenSellerId = sellerId;
+      let chosenSellerEmail = '';
+
+      if (selectedSeller) {
+        chosenSellerName = selectedSeller.name;
+        chosenSellerId = selectedSeller.id;
+        chosenSellerEmail = selectedSeller.email || '';
+      } else if (isSelfSelected && currentUser) {
+        chosenSellerName = currentUser.name;
+        chosenSellerId = currentUser.id;
+        chosenSellerEmail = currentUser.email || '';
+      } else {
+        chosenSellerName = sale.seller_name || 'Consultor';
+        chosenSellerId = sale.seller_id;
+        chosenSellerEmail = sale.seller_email || '';
+      }
+
+      // 3 & 4. Garante que as 4 propriedades (seller_id, seller_name, collaborator_name e seller_email)
+      // recebam estritamente os dados do consultor selecionado e sejam sobrescritas e atualizadas juntas
       const updatedFields: Partial<Sale> = {
         client_name: candidateName.trim(),
         value: Number(value) || 0,
@@ -185,13 +228,16 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
         product_name: `${mainProduct} - ${modality} (${shift})`,
         fdi: fdiChannel,
         seller_id: chosenSellerId,
+        collaborator_id: chosenSellerId,
         seller_name: chosenSellerName,
+        collaborator_name: chosenSellerName,
         seller_email: chosenSellerEmail,
         custom_data: {
           ...(sale.custom_data || {}),
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
           collaborator_name: chosenSellerName,
+          collaborator_id: chosenSellerId,
           seller_name: chosenSellerName,
           seller_id: chosenSellerId,
           seller_email: chosenSellerEmail,
@@ -305,11 +351,11 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <select
                 value={sellerId}
                 onChange={(e) => setSellerId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
               >
-                {profiles.map(p => (
+                {availableConsultants.map(p => (
                   <option key={p.id} value={p.id}>
-                    {p.name} ({p.role === 'admin' ? 'Admin' : 'Membro'} • {p.email})
+                    {p.name} {p.id === currentUser?.id ? '(Você - Logado)' : ''} ({p.role === 'admin' ? 'Admin' : 'Consultor'}{p.email ? ` • ${p.email}` : ''})
                   </option>
                 ))}
               </select>
