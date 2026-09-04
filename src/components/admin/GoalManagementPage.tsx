@@ -245,6 +245,10 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       const referenceStart = `${selectedYear}-${monthPadded}-${startDayStr}`;
       const referenceEnd = `${selectedYear}-${monthPadded}-${lastDayPadded}`;
 
+      // Tratamento (de-para) rigoroso para satisfazer a check constraint 'goals_type_check':
+      // Se o filtro atual for mensal ('mensal'), envia exatamente 'month'. Se for semanal ('semanal'), envia exatamente 'week'.
+      const apiType: 'month' | 'week' = goalType === 'mensal' ? 'month' : 'week';
+
       // Build batch upsert payload for public.goals
       const batchPayload = activeConsultants.map(c => {
         const existing = savedGoalsMap[c.id];
@@ -253,7 +257,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         return {
           id: existing?.id || crypto.randomUUID(),
           user_id: c.id,
-          type: goalType, // 'semanal' ou 'mensal'
+          type: apiType, // estritamente 'month' ou 'week'
           target_value: targetValue,
           reference_start: referenceStart,
           reference_end: referenceEnd,
@@ -278,7 +282,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       const updatedLocalGoals: Goal[] = [...currentLocalGoals];
 
       batchPayload.forEach(item => {
-        const idx = updatedLocalGoals.findIndex(g => g.user_id === item.user_id && g.type === item.type);
+        const idx = updatedLocalGoals.findIndex(g => g.user_id === item.user_id && (g.type === item.type || (item.type === 'month' && g.type === 'mensal') || (item.type === 'week' && g.type === 'semanal')));
         const goalRecord: Goal = {
           id: item.id,
           user_id: item.user_id,
