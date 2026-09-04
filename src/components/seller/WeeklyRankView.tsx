@@ -18,6 +18,13 @@ import {
   Award
 } from 'lucide-react';
 
+interface UserGoalData {
+  target_graduacao: number;
+  target_pos: number;
+  target_tecnico: number;
+  target_total: number;
+}
+
 interface WeeklyLeaderboardEntry {
   seller_id: string;
   name: string;
@@ -25,7 +32,14 @@ interface WeeklyLeaderboardEntry {
   avatar_url?: string;
   total_sales: number;
   target: number;
+  target_graduacao: number;
+  target_pos: number;
+  target_tecnico: number;
+  target_total: number;
   percentage_reached: number;
+  percentage_graduacao: number;
+  percentage_pos: number;
+  percentage_tecnico: number;
   has_target: boolean;
   position: number;
   graduacao_count: number;
@@ -49,12 +63,34 @@ function parseDate(dateStr: string): Date | null {
   return isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseGoalData(g: any): UserGoalData {
+  const rawTargetValue = Number(g.target_value) || 0;
+  const rawTargetTotal = Number(g.target_total) || 0;
+  const targetTotal = rawTargetTotal > 0 ? rawTargetTotal : Math.round(rawTargetValue);
+
+  const hasSpecificTargets = g.target_graduacao !== undefined || g.target_pos !== undefined || g.target_tecnico !== undefined;
+  
+  const targetGraduacao = hasSpecificTargets
+    ? (Number(g.target_graduacao) || 0)
+    : (targetTotal > 0 ? targetTotal : 0);
+  const targetPos = Number(g.target_pos) || 0;
+  const targetTecnico = Number(g.target_tecnico) || 0;
+  const finalTotal = targetTotal > 0 ? targetTotal : (targetGraduacao + targetPos + targetTecnico);
+
+  return {
+    target_graduacao: targetGraduacao,
+    target_pos: targetPos,
+    target_tecnico: targetTecnico,
+    target_total: finalTotal
+  };
+}
+
 export const WeeklyRankView: React.FC = () => {
   const { sales: contextSales } = useSales();
   const { profiles, currentUser } = useAuth();
 
   const [isLoading, setIsLoading] = useState(false);
-  const [goalsMap, setGoalsMap] = useState<Record<string, number>>({});
+  const [goalsMap, setGoalsMap] = useState<Record<string, UserGoalData>>({});
   const [remoteSales, setRemoteSales] = useState<Sale[] | null>(null);
 
   // Current week boundaries (Monday 00:00:00.000 to Sunday 23:59:59.999)
@@ -81,13 +117,13 @@ export const WeeklyRankView: React.FC = () => {
         .in('type', ['semanal', 'week']);
 
       const localGoals = LocalSyncEngine.getGoals();
-      const newGoalsMap: Record<string, number> = {};
+      const newGoalsMap: Record<string, UserGoalData> = {};
 
       // Seed from local sync engine
       if (localGoals && localGoals.length > 0) {
         localGoals.forEach(g => {
           if (g.type === 'semanal' || (g.type as string) === 'week') {
-            newGoalsMap[g.user_id] = Number(g.target_value) || 0;
+            newGoalsMap[g.user_id] = parseGoalData(g);
           }
         });
       }
@@ -96,7 +132,7 @@ export const WeeklyRankView: React.FC = () => {
       if (!goalsError && goalsData && goalsData.length > 0) {
         goalsData.forEach((g: any) => {
           if (g.user_id) {
-            newGoalsMap[g.user_id] = Number(g.target_value) || 0;
+            newGoalsMap[g.user_id] = parseGoalData(g);
           }
         });
       }
@@ -222,14 +258,20 @@ export const WeeklyRankView: React.FC = () => {
         return p.includes('Técnico');
       }).length;
 
-      // 2. Goal calculation: fetch from goalsMap
-      const rawTarget = goalsMap[consultant.id];
-      const target = rawTarget !== undefined && rawTarget > 0 ? rawTarget : 0;
-      const hasTarget = target > 0;
+      // 2. Goal calculation: fetch from public.goals (goalsMap)
+      const userGoal = goalsMap[consultant.id];
+      const targetGrad = userGoal?.target_graduacao ?? 0;
+      const targetPos = userGoal?.target_pos ?? 0;
+      const targetTec = userGoal?.target_tecnico ?? 0;
+      const targetTotal = userGoal?.target_total ?? (targetGrad + targetPos + targetTec);
+      const hasTarget = targetTotal > 0;
 
-      // Formula: (Total de Vendas / Meta Definida) * 100
-      // Tratamento de Meta Zero: 0% sem quebrar
-      const percentageReached = hasTarget ? Math.round((totalCount / target) * 100) : 0;
+      // Formula: (Total de Vendas / Meta Total) * 100 e Graduação isolada
+      // Tratamento de Meta Zero: 0% sem quebrar ou dividir por zero
+      const percentageReached = targetTotal > 0 ? Math.round((totalCount / targetTotal) * 100) : 0;
+      const percentageGraduacao = targetGrad > 0 ? Math.round((graduacaoCount / targetGrad) * 100) : 0;
+      const percentagePos = targetPos > 0 ? Math.round((posCount / targetPos) * 100) : 0;
+      const percentageTecnico = targetTec > 0 ? Math.round((tecnicoCount / targetTec) * 100) : 0;
 
       return {
         seller_id: consultant.id,
@@ -237,8 +279,15 @@ export const WeeklyRankView: React.FC = () => {
         email: consultant.email,
         avatar_url: consultant.avatar_url,
         total_sales: totalCount,
-        target,
+        target: targetTotal,
+        target_graduacao: targetGrad,
+        target_pos: targetPos,
+        target_tecnico: targetTec,
+        target_total: targetTotal,
         percentage_reached: percentageReached,
+        percentage_graduacao: percentageGraduacao,
+        percentage_pos: percentagePos,
+        percentage_tecnico: percentageTecnico,
         has_target: hasTarget,
         position: 1,
         graduacao_count: graduacaoCount,
@@ -266,7 +315,7 @@ export const WeeklyRankView: React.FC = () => {
 
   // Total metrics of the week
   const totalWeeklySales = weeklySales.length;
-  const totalWeeklyGoals: number = (Object.values(goalsMap) as number[]).reduce((acc: number, val: number) => acc + (Number(val) || 0), 0);
+  const totalWeeklyGoals: number = (Object.values(goalsMap) as UserGoalData[]).reduce((acc: number, val: UserGoalData) => acc + (Number(val.target_total) || 0), 0);
   const overallWeekPercentage = totalWeeklyGoals > 0 
     ? Math.round((totalWeeklySales / totalWeeklyGoals) * 100) 
     : 0;
@@ -335,7 +384,7 @@ export const WeeklyRankView: React.FC = () => {
         </div>
       </div>
 
-      {/* Top 3 Podium Visual Cards com Progresso da Meta Integrado */}
+      {/* Top 3 Podium Visual Cards com Progresso da Meta Integrado (Graduação Flagship na Barra Colorida) */}
       {topThree.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end pt-2">
           
@@ -358,43 +407,43 @@ export const WeeklyRankView: React.FC = () => {
                 {topThree[1].total_sales} <span className="text-sm font-semibold text-slate-500">{topThree[1].total_sales === 1 ? 'Boleto' : 'Boletos'}</span>
               </div>
 
-              {/* Goal Progress Card */}
+              {/* Goal Progress Card: Flagship Graduação na barra de progresso */}
               <div className="w-full mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-left space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700">Progresso da Meta:</span>
-                  {topThree[1].has_target ? (
-                    <span className="font-black text-emerald-600">
-                      {topThree[1].percentage_reached}%
+                  <span className="font-bold text-slate-700">Meta Graduação (Principal):</span>
+                  {topThree[1].target_graduacao > 0 ? (
+                    <span className="font-black text-blue-700">
+                      {topThree[1].percentage_graduacao}%
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-400 italic">Sem meta</span>
                   )}
                 </div>
 
-                {topThree[1].has_target ? (
+                {topThree[1].target_graduacao > 0 ? (
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(topThree[1].percentage_reached, 100)}%` }}
+                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(topThree[1].percentage_graduacao, 100)}%` }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-500 text-right font-medium">
-                      {topThree[1].total_sales}/{topThree[1].target} boletos
+                      {topThree[1].graduacao_count}/{topThree[1].target_graduacao} boletos graduação
                     </div>
                   </>
                 ) : (
-                  <div className="text-[11px] text-slate-400">Meta não cadastrada no painel</div>
+                  <div className="text-[11px] text-slate-400">Meta de graduação não definida</div>
                 )}
               </div>
 
-              {/* Product breakdown */}
-              <div className="flex items-center gap-1.5 text-xs text-slate-600 mt-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-                <span>Grad: <strong className="text-slate-800">{topThree[1].graduacao_count}</strong></span>
+              {/* Product breakdown (Pós e Técnico visíveis em formato textual/resumido) */}
+              <div className="w-full flex items-center justify-between text-xs text-slate-600 mt-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                <span>Grad: <strong className="text-slate-900">{topThree[1].graduacao_count}/{topThree[1].target_graduacao > 0 ? topThree[1].target_graduacao : 0}</strong></span>
                 <span>•</span>
-                <span>Pós: <strong className="text-slate-800">{topThree[1].pos_count}</strong></span>
+                <span>Pós: <strong className="text-purple-700">{topThree[1].pos_count}/{topThree[1].target_pos > 0 ? topThree[1].target_pos : 0}</strong></span>
                 <span>•</span>
-                <span>Téc: <strong className="text-slate-800">{topThree[1].tecnico_count}</strong></span>
+                <span>Téc: <strong className="text-amber-700">{topThree[1].tecnico_count}/{topThree[1].target_tecnico > 0 ? topThree[1].target_tecnico : 0}</strong></span>
               </div>
             </div>
           )}
@@ -419,43 +468,43 @@ export const WeeklyRankView: React.FC = () => {
                 {topThree[0].total_sales} <span className="text-base font-semibold text-amber-700">{topThree[0].total_sales === 1 ? 'Boleto' : 'Boletos'}</span>
               </div>
 
-              {/* Goal Progress Card */}
+              {/* Goal Progress Card: Flagship Graduação na barra de progresso */}
               <div className="w-full mt-3 p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 text-left space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-800">Progresso da Meta:</span>
-                  {topThree[0].has_target ? (
-                    <span className="font-black text-emerald-700 text-sm">
-                      {topThree[0].percentage_reached}%
+                  <span className="font-bold text-slate-800">Meta Graduação (Principal):</span>
+                  {topThree[0].target_graduacao > 0 ? (
+                    <span className="font-black text-blue-700 text-sm">
+                      {topThree[0].percentage_graduacao}%
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-400 italic">Sem meta</span>
                   )}
                 </div>
 
-                {topThree[0].has_target ? (
+                {topThree[0].target_graduacao > 0 ? (
                   <>
-                    <div className="w-full h-2.5 bg-amber-200/80 rounded-full overflow-hidden">
+                    <div className="w-full h-2.5 bg-blue-100 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(topThree[0].percentage_reached, 100)}%` }}
+                        className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(topThree[0].percentage_graduacao, 100)}%` }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-600 text-right font-semibold">
-                      {topThree[0].total_sales}/{topThree[0].target} boletos
+                      {topThree[0].graduacao_count}/{topThree[0].target_graduacao} boletos graduação
                     </div>
                   </>
                 ) : (
-                  <div className="text-[11px] text-slate-400">Meta não cadastrada no painel</div>
+                  <div className="text-[11px] text-slate-400">Meta de graduação não definida</div>
                 )}
               </div>
 
-              {/* Product breakdown */}
-              <div className="flex items-center gap-2 text-xs text-slate-700 mt-3 bg-amber-50/70 px-3.5 py-1.5 rounded-lg border border-amber-200/70">
-                <span>Graduação: <strong className="text-slate-900">{topThree[0].graduacao_count}</strong></span>
+              {/* Product breakdown (Pós e Técnico visíveis em formato textual/resumido) */}
+              <div className="w-full flex items-center justify-between text-xs text-slate-700 mt-3 bg-amber-50/70 px-3.5 py-1.5 rounded-lg border border-amber-200/70">
+                <span>Graduação: <strong className="text-slate-900">{topThree[0].graduacao_count}/{topThree[0].target_graduacao > 0 ? topThree[0].target_graduacao : 0}</strong></span>
                 <span>•</span>
-                <span>Pós: <strong className="text-slate-900">{topThree[0].pos_count}</strong></span>
+                <span>Pós: <strong className="text-purple-700">{topThree[0].pos_count}/{topThree[0].target_pos > 0 ? topThree[0].target_pos : 0}</strong></span>
                 <span>•</span>
-                <span>Técnico: <strong className="text-slate-900">{topThree[0].tecnico_count}</strong></span>
+                <span>Técnico: <strong className="text-amber-700">{topThree[0].tecnico_count}/{topThree[0].target_tecnico > 0 ? topThree[0].target_tecnico : 0}</strong></span>
               </div>
             </div>
           )}
@@ -479,43 +528,43 @@ export const WeeklyRankView: React.FC = () => {
                 {topThree[2].total_sales} <span className="text-sm font-semibold text-slate-500">{topThree[2].total_sales === 1 ? 'Boleto' : 'Boletos'}</span>
               </div>
 
-              {/* Goal Progress Card */}
+              {/* Goal Progress Card: Flagship Graduação na barra de progresso */}
               <div className="w-full mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-left space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700">Progresso da Meta:</span>
-                  {topThree[2].has_target ? (
-                    <span className="font-black text-emerald-600">
-                      {topThree[2].percentage_reached}%
+                  <span className="font-bold text-slate-700">Meta Graduação (Principal):</span>
+                  {topThree[2].target_graduacao > 0 ? (
+                    <span className="font-black text-blue-700">
+                      {topThree[2].percentage_graduacao}%
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-400 italic">Sem meta</span>
                   )}
                 </div>
 
-                {topThree[2].has_target ? (
+                {topThree[2].target_graduacao > 0 ? (
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(topThree[2].percentage_reached, 100)}%` }}
+                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(topThree[2].percentage_graduacao, 100)}%` }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-500 text-right font-medium">
-                      {topThree[2].total_sales}/{topThree[2].target} boletos
+                      {topThree[2].graduacao_count}/{topThree[2].target_graduacao} boletos graduação
                     </div>
                   </>
                 ) : (
-                  <div className="text-[11px] text-slate-400">Meta não cadastrada no painel</div>
+                  <div className="text-[11px] text-slate-400">Meta de graduação não definida</div>
                 )}
               </div>
 
-              {/* Product breakdown */}
-              <div className="flex items-center gap-1.5 text-xs text-slate-600 mt-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-                <span>Grad: <strong className="text-slate-800">{topThree[2].graduacao_count}</strong></span>
+              {/* Product breakdown (Pós e Técnico visíveis em formato textual/resumido) */}
+              <div className="w-full flex items-center justify-between text-xs text-slate-600 mt-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                <span>Grad: <strong className="text-slate-900">{topThree[2].graduacao_count}/{topThree[2].target_graduacao > 0 ? topThree[2].target_graduacao : 0}</strong></span>
                 <span>•</span>
-                <span>Pós: <strong className="text-slate-800">{topThree[2].pos_count}</strong></span>
+                <span>Pós: <strong className="text-purple-700">{topThree[2].pos_count}/{topThree[2].target_pos > 0 ? topThree[2].target_pos : 0}</strong></span>
                 <span>•</span>
-                <span>Téc: <strong className="text-slate-800">{topThree[2].tecnico_count}</strong></span>
+                <span>Téc: <strong className="text-amber-700">{topThree[2].tecnico_count}/{topThree[2].target_tecnico > 0 ? topThree[2].target_tecnico : 0}</strong></span>
               </div>
             </div>
           )}
@@ -541,10 +590,10 @@ export const WeeklyRankView: React.FC = () => {
                 <th className="py-3 px-4 sm:px-6 w-16">Posição</th>
                 <th className="py-3 px-4">Consultor</th>
                 <th className="py-3 px-4 font-bold text-slate-900">Total Boletos</th>
-                <th className="py-3 px-4 hidden sm:table-cell">Graduação</th>
-                <th className="py-3 px-4 hidden sm:table-cell">Pós-Graduação</th>
-                <th className="py-3 px-4 hidden sm:table-cell">Técnico</th>
-                <th className="py-3 px-4 sm:px-6 text-right">Progresso da Meta</th>
+                <th className="py-3 px-4 hidden sm:table-cell min-w-[130px]">Graduação</th>
+                <th className="py-3 px-4 hidden sm:table-cell min-w-[130px]">Pós-Graduação</th>
+                <th className="py-3 px-4 hidden sm:table-cell min-w-[130px]">Técnico</th>
+                <th className="py-3 px-4 sm:px-6 text-right min-w-[180px]">Progresso da Meta</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -564,7 +613,7 @@ export const WeeklyRankView: React.FC = () => {
                     <td className="py-3.5 px-4 sm:px-6 font-bold">
                       <div className="flex items-center gap-1.5">
                         {seller.position === 1 ? (
-                          <span className="w-6 h-6 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xs shadow-xs">
+                          <span className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center font-black text-xs shadow-xs">
                             1
                           </span>
                         ) : seller.position === 2 ? (
@@ -605,36 +654,84 @@ export const WeeklyRankView: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Graduação */}
-                    <td className="py-3.5 px-4 hidden sm:table-cell text-slate-700 font-semibold">
-                      {seller.graduacao_count}
+                    {/* Graduação: Indicador Duplo (fração + mini barra) */}
+                    <td className="py-3.5 px-4 hidden sm:table-cell">
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                          <span className="font-bold text-slate-900">{seller.graduacao_count}</span>
+                          <span className="text-slate-400 font-medium">/{seller.target_graduacao > 0 ? seller.target_graduacao : 0}</span>
+                          {seller.target_graduacao > 0 && (
+                            <span className="text-[10px] text-blue-600 font-bold ml-0.5">
+                              ({seller.percentage_graduacao}%)
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-16 sm:w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(seller.percentage_graduacao, 100)}%` }}
+                          />
+                        </div>
+                      </div>
                     </td>
 
-                    {/* Pós */}
-                    <td className="py-3.5 px-4 hidden sm:table-cell text-slate-700 font-semibold">
-                      {seller.pos_count}
+                    {/* Pós-Graduação: Indicador Duplo (fração + mini barra) */}
+                    <td className="py-3.5 px-4 hidden sm:table-cell">
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                          <span className="font-bold text-slate-900">{seller.pos_count}</span>
+                          <span className="text-slate-400 font-medium">/{seller.target_pos > 0 ? seller.target_pos : 0}</span>
+                          {seller.target_pos > 0 && (
+                            <span className="text-[10px] text-purple-600 font-bold ml-0.5">
+                              ({seller.percentage_pos}%)
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-16 sm:w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-purple-600 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(seller.percentage_pos, 100)}%` }}
+                          />
+                        </div>
+                      </div>
                     </td>
 
-                    {/* Técnico */}
-                    <td className="py-3.5 px-4 hidden sm:table-cell text-slate-700 font-semibold">
-                      {seller.tecnico_count}
+                    {/* Técnico: Indicador Duplo (fração + mini barra) */}
+                    <td className="py-3.5 px-4 hidden sm:table-cell">
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                          <span className="font-bold text-slate-900">{seller.tecnico_count}</span>
+                          <span className="text-slate-400 font-medium">/{seller.target_tecnico > 0 ? seller.target_tecnico : 0}</span>
+                          {seller.target_tecnico > 0 && (
+                            <span className="text-[10px] text-amber-600 font-bold ml-0.5">
+                              ({seller.percentage_tecnico}%)
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-16 sm:w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-amber-500 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(seller.percentage_tecnico, 100)}%` }}
+                          />
+                        </div>
+                      </div>
                     </td>
 
-                    {/* PROGRESSO DA META: Barra preenchida, % e proporção numérica */}
+                    {/* PROGRESSO DA META: Grande Consolidador Geral (Total / target_total) com barra maior */}
                     <td className="py-3.5 px-4 sm:px-6 text-right">
                       {seller.has_target ? (
                         <div className="inline-block space-y-1 text-right">
-                          <div className="flex items-center justify-end gap-2 text-[11px]">
-                            <span className={`font-bold ${
+                          <div className="flex items-center justify-end gap-2 text-xs">
+                            <span className={`font-black ${
                               seller.percentage_reached >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
                             }`}>
                               {seller.percentage_reached}%
                             </span>
-                            <span className="text-slate-500 font-medium">
-                              ({seller.total_sales}/{seller.target} boletos)
+                            <span className="text-slate-500 font-medium text-[11px]">
+                              ({seller.total_sales}/{seller.target_total} total)
                             </span>
                           </div>
-                          <div className="w-28 sm:w-36 h-2 bg-slate-100 rounded-full overflow-hidden ml-auto">
+                          <div className="w-28 sm:w-36 h-2.5 bg-slate-100 rounded-full overflow-hidden ml-auto">
                             <div
                               className={`h-full rounded-full transition-all duration-300 ${
                                 seller.percentage_reached >= 100
@@ -646,10 +743,11 @@ export const WeeklyRankView: React.FC = () => {
                           </div>
                         </div>
                       ) : (
-                        <div className="text-right">
-                          <span className="text-xs text-slate-400 italic">
-                            0% (Sem meta)
-                          </span>
+                        <div className="inline-block space-y-1 text-right">
+                          <div className="text-xs text-slate-400 font-medium">
+                            0% ({seller.total_sales}/0 total)
+                          </div>
+                          <div className="w-28 sm:w-36 h-2.5 bg-slate-100 rounded-full overflow-hidden ml-auto" />
                         </div>
                       )}
                     </td>

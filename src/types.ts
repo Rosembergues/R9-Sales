@@ -121,6 +121,10 @@ export interface LeaderboardEntry {
   total_sales: number;
   total_value?: number;
   target: number;
+  target_graduacao?: number;
+  target_pos?: number;
+  target_tecnico?: number;
+  target_total?: number;
   percentage_reached: number;
   position: number;
   rank_tier: 'Bronze' | 'Prata' | 'Ouro' | 'Diamante';
@@ -144,7 +148,11 @@ export interface Goal {
   id: string;
   user_id: string;
   type: GoalType;
-  target_value: number;
+  target_value?: number;
+  target_graduacao?: number;
+  target_pos?: number;
+  target_tecnico?: number;
+  target_total?: number;
   reference_start?: string;
   reference_end?: string;
   created_at?: string;

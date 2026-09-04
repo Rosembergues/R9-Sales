@@ -42,6 +42,14 @@ const MONTHS = [
 
 const YEARS = [2025, 2026, 2027, 2028];
 
+export interface ConsultantGoalValues {
+  id?: string;
+  target_graduacao: number;
+  target_pos: number;
+  target_tecnico: number;
+  target_total: number;
+}
+
 export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackToPlanner }) => {
   const { profiles, refreshProfiles } = useAuth();
   
@@ -52,17 +60,19 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   const [goalType, setGoalType] = useState<GoalType>('mensal');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Goals state: map of user_id -> target_value (integer quantity of sales/boletos)
-  const [goalsValues, setGoalsValues] = useState<Record<string, number>>({});
+  // Goals state: map of user_id -> 3 product targets + target_total
+  const [goalsValues, setGoalsValues] = useState<Record<string, ConsultantGoalValues>>({});
   // Baseline saved goals for dirty detection: map of user_id -> saved target_value
-  const [savedGoalsMap, setSavedGoalsMap] = useState<Record<string, { id?: string; target_value: number }>>({});
+  const [savedGoalsMap, setSavedGoalsMap] = useState<Record<string, ConsultantGoalValues>>({});
   
   // UI states
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  const [bulkValue, setBulkValue] = useState<number>(goalType === 'mensal' ? 30 : 8);
+  const [bulkGrad, setBulkGrad] = useState<number>(goalType === 'mensal' ? 20 : 5);
+  const [bulkPos, setBulkPos] = useState<number>(goalType === 'mensal' ? 5 : 2);
+  const [bulkTec, setBulkTec] = useState<number>(goalType === 'mensal' ? 5 : 1);
 
   // Filter only active consultants/profiles
   const activeConsultants = useMemo(() => {
@@ -83,16 +93,61 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   }, [activeConsultants, searchTerm]);
 
   // Helper to determine initial goal volume for consultant
-  const getInitialDefaultVolume = useCallback((consultantTargetMonthly?: number, type: GoalType = goalType) => {
+  const getInitialDefaultGoal = useCallback((consultantTargetMonthly?: number, type: GoalType = goalType): ConsultantGoalValues => {
     if (type === 'mensal') {
-      // If a previous target was stored as monetary (e.g. >= 1000), convert or fallback to 30 sales
       if (consultantTargetMonthly && consultantTargetMonthly > 0 && consultantTargetMonthly < 1000) {
-        return Math.round(consultantTargetMonthly);
+        const tot = Math.round(consultantTargetMonthly);
+        const grad = Math.max(0, Math.round(tot * 0.7));
+        const pos = Math.max(0, Math.round(tot * 0.2));
+        const tec = Math.max(0, tot - grad - pos);
+        return {
+          target_graduacao: grad,
+          target_pos: pos,
+          target_tecnico: tec,
+          target_total: tot
+        };
       }
-      return 30;
+      return {
+        target_graduacao: 20,
+        target_pos: 5,
+        target_tecnico: 5,
+        target_total: 30
+      };
     }
-    return 8; // Weekly default volume
+    return {
+      target_graduacao: 5,
+      target_pos: 2,
+      target_tecnico: 1,
+      target_total: 8
+    };
   }, [goalType]);
+
+  // Parse helper for database records
+  const parseGoalRecord = useCallback((g: any): ConsultantGoalValues => {
+    const rawTotal = g.target_total !== undefined && g.target_total !== null
+      ? Number(g.target_total)
+      : (Number(g.target_value) || 0);
+
+    const rawGrad = g.target_graduacao !== undefined && g.target_graduacao !== null
+      ? Number(g.target_graduacao)
+      : (g.target_pos || g.target_tecnico ? 0 : rawTotal);
+
+    const rawPos = Number(g.target_pos) || 0;
+    const rawTec = Number(g.target_tecnico) || 0;
+
+    const grad = Math.max(0, Math.round(rawGrad));
+    const pos = Math.max(0, Math.round(rawPos));
+    const tec = Math.max(0, Math.round(rawTec));
+    const tot = (grad + pos + tec > 0) ? (grad + pos + tec) : Math.max(0, Math.round(rawTotal));
+
+    return {
+      id: g.id,
+      target_graduacao: grad,
+      target_pos: pos,
+      target_tecnico: tec,
+      target_total: tot
+    };
+  }, []);
 
   // Load goals from Supabase and LocalSyncEngine for the selected period & type
   const loadGoals = useCallback(async () => {
@@ -108,25 +163,23 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       // 2. Check local fallback goals
       const localGoals = LocalSyncEngine.getGoals();
 
-      const newSavedMap: Record<string, { id?: string; target_value: number }> = {};
-      const newValuesMap: Record<string, number> = {};
+      const newSavedMap: Record<string, ConsultantGoalValues> = {};
+      const newValuesMap: Record<string, ConsultantGoalValues> = {};
 
       // Seed with default quantity based on active consultants
       activeConsultants.forEach(c => {
-        const defaultVal = getInitialDefaultVolume(c.target_monthly, goalType);
-        newSavedMap[c.id] = { target_value: defaultVal };
-        newValuesMap[c.id] = defaultVal;
+        const defaultGoal = getInitialDefaultGoal(c.target_monthly, goalType);
+        newSavedMap[c.id] = { ...defaultGoal };
+        newValuesMap[c.id] = { ...defaultGoal };
       });
 
       // Merge local fallback if available
       if (localGoals && localGoals.length > 0) {
         localGoals.forEach(g => {
           if (g.type === goalType || typesToMatch.includes(g.type)) {
-            const rawVal = Number(g.target_value) || 0;
-            // Sanitize in case old monetary values exist
-            const volumeVal = rawVal >= 1000 ? (goalType === 'mensal' ? 30 : 8) : Math.round(rawVal);
-            newSavedMap[g.user_id] = { id: g.id, target_value: volumeVal };
-            newValuesMap[g.user_id] = volumeVal;
+            const parsed = parseGoalRecord(g);
+            newSavedMap[g.user_id] = parsed;
+            newValuesMap[g.user_id] = { ...parsed };
           }
         });
       }
@@ -135,10 +188,9 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       if (!error && remoteGoals && remoteGoals.length > 0) {
         remoteGoals.forEach((g: any) => {
           if (g.user_id) {
-            const rawVal = Number(g.target_value) || 0;
-            const volumeVal = rawVal >= 1000 ? (goalType === 'mensal' ? 30 : 8) : Math.round(rawVal);
-            newSavedMap[g.user_id] = { id: g.id, target_value: volumeVal };
-            newValuesMap[g.user_id] = volumeVal;
+            const parsed = parseGoalRecord(g);
+            newSavedMap[g.user_id] = parsed;
+            newValuesMap[g.user_id] = { ...parsed };
           }
         });
       }
@@ -150,12 +202,14 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     } finally {
       setIsLoading(false);
     }
-  }, [goalType, activeConsultants, getInitialDefaultVolume]);
+  }, [goalType, activeConsultants, getInitialDefaultGoal, parseGoalRecord]);
 
   // Reload whenever goalType, month, or activeConsultants change, and subscribe to Realtime
   useEffect(() => {
     loadGoals();
-    setBulkValue(goalType === 'mensal' ? 30 : 8);
+    setBulkGrad(goalType === 'mensal' ? 20 : 5);
+    setBulkPos(goalType === 'mensal' ? 5 : 2);
+    setBulkTec(goalType === 'mensal' ? 5 : 1);
 
     // Inscrição Realtime no canal do Supabase para a tabela 'goals'
     const channel = supabase
@@ -186,34 +240,60 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     }
   }, [toast]);
 
-  // Handle target value changes for a specific user (pure integer quantity)
-  const handleValueChange = (userId: string, value: number) => {
+  // Handle target value changes for a specific user and product
+  // Automatically updates target_total = target_graduacao + target_pos + target_tecnico
+  const handleProductValueChange = (userId: string, field: 'target_graduacao' | 'target_pos' | 'target_tecnico', value: number) => {
     const intVal = Math.max(0, Math.round(value));
-    setGoalsValues(prev => ({
-      ...prev,
-      [userId]: intVal
-    }));
+    setGoalsValues(prev => {
+      const current = prev[userId] || getInitialDefaultGoal(undefined, goalType);
+      const updated = {
+        ...current,
+        [field]: intVal
+      };
+      // Soma automática dos 3 produtos
+      updated.target_total = updated.target_graduacao + updated.target_pos + updated.target_tecnico;
+      return {
+        ...prev,
+        [userId]: updated
+      };
+    });
   };
 
   // Check if any consultant has modified goal
   const hasUnsavedChanges = useMemo(() => {
     return activeConsultants.some(c => {
-      const current = goalsValues[c.id] ?? 0;
-      const saved = savedGoalsMap[c.id]?.target_value ?? getInitialDefaultVolume(c.target_monthly, goalType);
-      return current !== saved;
+      const current = goalsValues[c.id];
+      const saved = savedGoalsMap[c.id];
+      if (!current || !saved) return false;
+      return (
+        current.target_graduacao !== saved.target_graduacao ||
+        current.target_pos !== saved.target_pos ||
+        current.target_tecnico !== saved.target_tecnico ||
+        current.target_total !== saved.target_total
+      );
     });
-  }, [activeConsultants, goalsValues, savedGoalsMap, goalType, getInitialDefaultVolume]);
+  }, [activeConsultants, goalsValues, savedGoalsMap]);
 
   // Calculate team aggregates (pure volume of sales/boletos)
   const teamMetrics = useMemo(() => {
     let totalTarget = 0;
     let totalSaved = 0;
+    let totalGraduacao = 0;
+    let totalPos = 0;
+    let totalTecnico = 0;
 
     activeConsultants.forEach(c => {
-      const val = goalsValues[c.id] ?? 0;
-      const savedVal = savedGoalsMap[c.id]?.target_value ?? 0;
-      totalTarget += val;
-      totalSaved += savedVal;
+      const val = goalsValues[c.id];
+      const savedVal = savedGoalsMap[c.id];
+      if (val) {
+        totalTarget += val.target_total;
+        totalGraduacao += val.target_graduacao;
+        totalPos += val.target_pos;
+        totalTecnico += val.target_tecnico;
+      }
+      if (savedVal) {
+        totalSaved += savedVal.target_total;
+      }
     });
 
     const averageTarget = activeConsultants.length > 0 
@@ -225,13 +305,16 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     return {
       totalTarget,
       totalSaved,
+      totalGraduacao,
+      totalPos,
+      totalTecnico,
       averageTarget,
       diff,
       consultantCount: activeConsultants.length
     };
   }, [activeConsultants, goalsValues, savedGoalsMap]);
 
-  // Save metas with batch upsert on public.goals (saving integer sales volume)
+  // Save metas with batch upsert on public.goals (saving 4 columns: target_graduacao, target_pos, target_tecnico, target_total)
   const handleSaveGoals = async () => {
     setIsSaving(true);
     setToast(null);
@@ -246,26 +329,33 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       const referenceEnd = `${selectedYear}-${monthPadded}-${lastDayPadded}`;
 
       // Tratamento (de-para) rigoroso para satisfazer a check constraint 'goals_type_check':
-      // Se o filtro atual for mensal ('mensal'), envia exatamente 'month'. Se for semanal ('semanal'), envia exatamente 'week'.
       const apiType: 'month' | 'week' = goalType === 'mensal' ? 'month' : 'week';
 
-      // Build batch upsert payload for public.goals
+      // Build batch upsert payload for public.goals with all 4 product columns
       const batchPayload = activeConsultants.map(c => {
         const existing = savedGoalsMap[c.id];
-        const targetValue = Math.round(Number(goalsValues[c.id] ?? getInitialDefaultVolume(c.target_monthly, goalType)));
+        const userGoal = goalsValues[c.id] || getInitialDefaultGoal(c.target_monthly, goalType);
+        const targetGraduacao = Math.max(0, Math.round(userGoal.target_graduacao));
+        const targetPos = Math.max(0, Math.round(userGoal.target_pos));
+        const targetTecnico = Math.max(0, Math.round(userGoal.target_tecnico));
+        const targetTotal = targetGraduacao + targetPos + targetTecnico;
         
         return {
           id: existing?.id || crypto.randomUUID(),
           user_id: c.id,
           type: apiType, // estritamente 'month' ou 'week'
-          target_value: targetValue,
+          target_value: targetTotal, // retrocompatibilidade
+          target_graduacao: targetGraduacao,
+          target_pos: targetPos,
+          target_tecnico: targetTecnico,
+          target_total: targetTotal,
           reference_start: referenceStart,
           reference_end: referenceEnd,
           updated_at: new Date().toISOString(),
         };
       });
 
-      console.log('🚀 [Supabase DB] Upsert em lote de volume de vendas na tabela public.goals:', batchPayload);
+      console.log('🚀 [Supabase DB] Upsert em lote de metas por produto na tabela public.goals:', batchPayload);
 
       // 1. Batch upsert directly to Supabase public.goals table
       const { error: upsertError } = await supabase
@@ -287,7 +377,11 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
           id: item.id,
           user_id: item.user_id,
           type: item.type as GoalType,
-          target_value: item.target_value,
+          target_value: item.target_total,
+          target_graduacao: item.target_graduacao,
+          target_pos: item.target_pos,
+          target_tecnico: item.target_tecnico,
+          target_total: item.target_total,
           reference_start: item.reference_start,
           reference_end: item.reference_end,
           updated_at: item.updated_at,
@@ -308,7 +402,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
           try {
             await supabase
               .from('profiles')
-              .update({ target_monthly: item.target_value })
+              .update({ target_monthly: item.target_total })
               .eq('id', item.user_id);
           } catch (e) {
             console.warn('Sync profile target error:', e);
@@ -318,18 +412,21 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       }
 
       // Update baseline map
-      const updatedSavedMap: Record<string, { id?: string; target_value: number }> = {};
+      const updatedSavedMap: Record<string, ConsultantGoalValues> = {};
       batchPayload.forEach(item => {
         updatedSavedMap[item.user_id] = {
           id: item.id,
-          target_value: item.target_value
+          target_graduacao: item.target_graduacao,
+          target_pos: item.target_pos,
+          target_tecnico: item.target_tecnico,
+          target_total: item.target_total
         };
       });
       setSavedGoalsMap(updatedSavedMap);
 
       setToast({
         type: 'success',
-        message: `Metas de vendas (${goalType.toUpperCase()}) salvas no Supabase! Total: ${teamMetrics.totalTarget} vendas.`
+        message: `Metas por produto (${goalType.toUpperCase()}) salvas com sucesso! Total da equipe: ${teamMetrics.totalTarget} vendas.`
       });
     } catch (err: any) {
       console.error('💥 Erro ao salvar metas de vendas:', err);
@@ -342,26 +439,37 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     }
   };
 
-  // Bulk set all consultants to the same integer sales volume
-  const handleApplyBulkGoal = (value: number) => {
-    const intVal = Math.max(0, Math.round(value));
-    const updated: Record<string, number> = {};
+  // Bulk set all consultants with specific product goals
+  const handleApplyBulkGoal = (grad: number, pos: number, tec: number) => {
+    const safeGrad = Math.max(0, Math.round(grad));
+    const safePos = Math.max(0, Math.round(pos));
+    const safeTec = Math.max(0, Math.round(tec));
+    const safeTotal = safeGrad + safePos + safeTec;
+
+    const updated: Record<string, ConsultantGoalValues> = {};
     activeConsultants.forEach(c => {
-      updated[c.id] = intVal;
+      const existingId = savedGoalsMap[c.id]?.id;
+      updated[c.id] = {
+        id: existingId,
+        target_graduacao: safeGrad,
+        target_pos: safePos,
+        target_tecnico: safeTec,
+        target_total: safeTotal
+      };
     });
     setGoalsValues(prev => ({ ...prev, ...updated }));
     setBulkModalOpen(false);
     setToast({
       type: 'info',
-      message: `Meta uniforme de ${intVal} vendas/boletos aplicada a todos os consultores.`
+      message: `Meta de ${safeTotal} vendas (Grad: ${safeGrad}, Pós: ${safePos}, Téc: ${safeTec}) aplicada a todos os consultores.`
     });
   };
 
   // Quick reset to saved values
   const handleResetToSaved = () => {
-    const reverted: Record<string, number> = {};
+    const reverted: Record<string, ConsultantGoalValues> = {};
     activeConsultants.forEach(c => {
-      reverted[c.id] = savedGoalsMap[c.id]?.target_value ?? getInitialDefaultVolume(c.target_monthly, goalType);
+      reverted[c.id] = savedGoalsMap[c.id] ?? getInitialDefaultGoal(c.target_monthly, goalType);
     });
     setGoalsValues(reverted);
     setToast({
@@ -676,16 +784,23 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               </span>
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Edite a quantidade de vendas/boletos da meta de cada consultor no campo abaixo. Os valores serão persistidos na tabela <code className="text-xs font-mono text-gray-700 bg-gray-100 px-1 py-0.5 rounded">public.goals</code>.
+              Edite a meta de cada produto (Graduação, Pós, Técnico). O sistema calcula a soma automática e persiste em <code className="text-xs font-mono text-gray-700 bg-gray-100 px-1 py-0.5 rounded">public.goals</code>.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handleApplyBulkGoal(goalType === 'mensal' ? 30 : 8)}
+              onClick={() => setBulkModalOpen(true)}
+              className="text-[11px] font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200 transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Definir em Lote</span>
+            </button>
+            <button
+              onClick={() => handleApplyBulkGoal(goalType === 'mensal' ? 20 : 5, goalType === 'mensal' ? 5 : 2, goalType === 'mensal' ? 5 : 1)}
               className="text-[11px] font-semibold text-gray-600 hover:text-blue-700 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg border border-gray-200 transition-colors cursor-pointer"
             >
-              Aplicar Padrão ({goalType === 'mensal' ? '30 vendas' : '8 vendas'})
+              Padrão ({goalType === 'mensal' ? '30 vendas' : '8 vendas'})
             </button>
           </div>
         </div>
@@ -697,7 +812,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               <tr className="border-b border-gray-200/80 bg-gray-50/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                 <th className="py-3 px-4">Consultor</th>
                 <th className="py-3 px-4">Meta Atual Salva</th>
-                <th className="py-3 px-4 min-w-[260px]">Nova Meta (Qtd de Vendas)</th>
+                <th className="py-3 px-4 min-w-[320px]">Metas por Produto (Graduação, Pós, Técnico)</th>
                 <th className="py-3 px-4 text-center">Participação na Equipe</th>
                 <th className="py-3 px-4 text-right">Status</th>
               </tr>
@@ -713,13 +828,18 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                 </tr>
               ) : (
                 displayedConsultants.map(c => {
-                  const currentValue = goalsValues[c.id] ?? getInitialDefaultVolume(c.target_monthly, goalType);
-                  const savedValue = savedGoalsMap[c.id]?.target_value ?? getInitialDefaultVolume(c.target_monthly, goalType);
-                  const isModified = currentValue !== savedValue;
+                  const currentValue = goalsValues[c.id] || getInitialDefaultGoal(c.target_monthly, goalType);
+                  const savedValue = savedGoalsMap[c.id] || getInitialDefaultGoal(c.target_monthly, goalType);
+                  const isModified = (
+                    currentValue.target_graduacao !== savedValue.target_graduacao ||
+                    currentValue.target_pos !== savedValue.target_pos ||
+                    currentValue.target_tecnico !== savedValue.target_tecnico ||
+                    currentValue.target_total !== savedValue.target_total
+                  );
 
                   // Percentage of team goal
                   const pct = teamMetrics.totalTarget > 0 
-                    ? Math.round((currentValue / teamMetrics.totalTarget) * 100) 
+                    ? Math.round((currentValue.target_total / teamMetrics.totalTarget) * 100) 
                     : 0;
 
                   const initials = c.name
@@ -759,59 +879,91 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
 
                       {/* 2. Meta Atual Salva (Volume de Vendas) */}
                       <td className="py-3.5 px-4 text-gray-600 font-medium">
-                        <span className="bg-gray-100/80 px-2.5 py-1 rounded-md text-xs font-mono font-semibold">
-                          {savedValue.toLocaleString('pt-BR')} vendas
-                        </span>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="bg-gray-100/80 px-2.5 py-1 rounded-md text-xs font-mono font-bold text-gray-900">
+                              {savedValue.target_total.toLocaleString('pt-BR')} vendas
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1.5">
+                            <span>Grad: <strong className="text-gray-600">{savedValue.target_graduacao}</strong></span>
+                            <span>•</span>
+                            <span>Pós: <strong className="text-gray-600">{savedValue.target_pos}</strong></span>
+                            <span>•</span>
+                            <span>Téc: <strong className="text-gray-600">{savedValue.target_tecnico}</strong></span>
+                          </div>
+                        </div>
                       </td>
 
-                      {/* 3. Input Nova Meta (Qtd de Vendas) com Botões de Ajuste Rápido */}
+                      {/* 3. Input Nova Meta: 3 inputs numéricos lado a lado com soma automática */}
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="relative w-32">
+                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                          {/* Graduação Input */}
+                          <div className="flex flex-col">
+                            <label htmlFor={`goal-grad-${c.id}`} className="text-[10px] font-bold text-blue-700 mb-0.5">
+                              Graduação
+                            </label>
                             <input
-                              id={`goal-input-${c.id}`}
+                              id={`goal-grad-${c.id}`}
                               type="number"
                               min="0"
                               step="1"
-                              value={currentValue}
-                              onChange={e => handleValueChange(c.id, Number(e.target.value) || 0)}
-                              className={`w-full px-3 py-1.5 text-xs font-bold font-mono rounded-xl border outline-none transition-all ${
-                                isModified
-                                  ? 'border-amber-400 bg-amber-50/50 text-gray-900 focus:ring-2 focus:ring-amber-400/30'
-                                  : 'border-gray-200 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
-                              }`}
+                              value={currentValue.target_graduacao}
+                              onChange={e => handleProductValueChange(c.id, 'target_graduacao', Number(e.target.value) || 0)}
+                              className="w-18 sm:w-20 px-2 py-1.5 text-xs font-bold font-mono text-center rounded-xl border border-gray-200 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all shadow-2xs"
+                              placeholder="0"
                             />
-                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-medium pointer-events-none">
-                              unid
-                            </span>
                           </div>
 
-                          {/* Practical Volume Increment Buttons */}
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleValueChange(c.id, currentValue + 1)}
-                              className="px-2 py-1 text-[11px] font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
-                              title="Adicionar 1 venda"
+                          {/* Pós Input */}
+                          <div className="flex flex-col">
+                            <label htmlFor={`goal-pos-${c.id}`} className="text-[10px] font-bold text-purple-700 mb-0.5">
+                              Pós
+                            </label>
+                            <input
+                              id={`goal-pos-${c.id}`}
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={currentValue.target_pos}
+                              onChange={e => handleProductValueChange(c.id, 'target_pos', Number(e.target.value) || 0)}
+                              className="w-16 sm:w-18 px-2 py-1.5 text-xs font-bold font-mono text-center rounded-xl border border-gray-200 bg-white text-gray-900 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none transition-all shadow-2xs"
+                              placeholder="0"
+                            />
+                          </div>
+
+                          {/* Técnico Input */}
+                          <div className="flex flex-col">
+                            <label htmlFor={`goal-tec-${c.id}`} className="text-[10px] font-bold text-amber-700 mb-0.5">
+                              Técnico
+                            </label>
+                            <input
+                              id={`goal-tec-${c.id}`}
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={currentValue.target_tecnico}
+                              onChange={e => handleProductValueChange(c.id, 'target_tecnico', Number(e.target.value) || 0)}
+                              className="w-16 sm:w-18 px-2 py-1.5 text-xs font-bold font-mono text-center rounded-xl border border-gray-200 bg-white text-gray-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all shadow-2xs"
+                              placeholder="0"
+                            />
+                          </div>
+
+                          {/* Totalizador automático */}
+                          <div className="flex flex-col justify-end">
+                            <span className="text-[10px] font-bold text-slate-500 mb-0.5">
+                              Total
+                            </span>
+                            <div 
+                              className={`px-2.5 py-1.5 rounded-xl border font-mono font-black text-xs text-center min-w-[54px] shadow-2xs ${
+                                isModified 
+                                  ? 'bg-amber-50 border-amber-300 text-amber-900 ring-1 ring-amber-300' 
+                                  : 'bg-slate-100 border-slate-200 text-slate-800'
+                              }`}
+                              title="Soma automática: Graduação + Pós + Técnico"
                             >
-                              +1
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleValueChange(c.id, currentValue + 5)}
-                              className="px-2 py-1 text-[11px] font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
-                              title="Adicionar 5 vendas"
-                            >
-                              +5
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleValueChange(c.id, currentValue + 10)}
-                              className="px-2 py-1 text-[11px] font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors cursor-pointer"
-                              title="Adicionar 10 vendas"
-                            >
-                              +10
-                            </button>
+                              {currentValue.target_total}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -863,7 +1015,12 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                     {teamMetrics.totalSaved.toLocaleString('pt-BR')} vendas
                   </td>
                   <td className="py-3 px-4 font-mono text-blue-700 text-sm">
-                    {teamMetrics.totalTarget.toLocaleString('pt-BR')} vendas
+                    <div className="flex flex-col">
+                      <span>{teamMetrics.totalTarget.toLocaleString('pt-BR')} vendas totais</span>
+                      <span className="text-[10px] text-gray-500 font-medium">
+                        Grad: {teamMetrics.totalGraduacao} • Pós: {teamMetrics.totalPos} • Téc: {teamMetrics.totalTecnico}
+                      </span>
+                    </div>
                   </td>
                   <td className="py-3 px-4 text-center text-gray-500">
                     100%
@@ -885,7 +1042,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
 
       </div>
 
-      {/* 5. MODAL: DEFINIR META EM LOTE (QUANTIDADE) */}
+      {/* 5. MODAL: DEFINIR META EM LOTE (POR PRODUTO) */}
       {bulkModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-xl max-w-md w-full p-6 space-y-4">
@@ -896,59 +1053,93 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               </div>
               <div>
                 <h3 className="text-base font-bold text-gray-900 font-['Space_Grotesk']">
-                  Definir Meta em Lote
+                  Definir Meta em Lote por Produto
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Aplique uma quantidade uniforme de vendas para todos os {activeConsultants.length} consultores ativos.
+                  Aplique metas uniformes de Graduação, Pós e Técnico para todos os {activeConsultants.length} consultores.
                 </p>
               </div>
             </div>
 
-            <div className="space-y-2 pt-2">
-              <label htmlFor="bulk-goal-input" className="text-xs font-semibold text-gray-700">
-                Quantidade de Vendas por Consultor
-              </label>
-              <div className="relative">
-                <input
-                  id="bulk-goal-input"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={bulkValue}
-                  onChange={e => setBulkValue(Number(e.target.value) || 0)}
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                  placeholder="Ex: 30"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
-                  vendas / consultor
-                </span>
+            <div className="space-y-3 pt-2">
+              {/* Graduação Bulk Input */}
+              <div>
+                <label htmlFor="bulk-grad-input" className="text-xs font-semibold text-blue-700 block mb-1">
+                  Meta Graduação (por consultor)
+                </label>
+                <div className="relative">
+                  <input
+                    id="bulk-grad-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={bulkGrad}
+                    onChange={e => setBulkGrad(Number(e.target.value) || 0)}
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                    placeholder="Ex: 20"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
+                    vendas
+                  </span>
+                </div>
               </div>
 
-              {/* Quick Choice Pills */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {[5, 10, 15, 20, 25, 30, 40, 50].map(val => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setBulkValue(val)}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
-                      bulkValue === val 
-                        ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold' 
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {val} vendas
-                  </button>
-                ))}
+              {/* Pós Bulk Input */}
+              <div>
+                <label htmlFor="bulk-pos-input" className="text-xs font-semibold text-purple-700 block mb-1">
+                  Meta Pós-Graduação (por consultor)
+                </label>
+                <div className="relative">
+                  <input
+                    id="bulk-pos-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={bulkPos}
+                    onChange={e => setBulkPos(Number(e.target.value) || 0)}
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold text-gray-900 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none"
+                    placeholder="Ex: 5"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
+                    vendas
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 flex items-start gap-2">
-              <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-              <span>
-                Isso resultará em um volume total da equipe estimado em{' '}
-                <strong>{(bulkValue * activeConsultants.length).toLocaleString('pt-BR')} vendas/boletos</strong> para {selectedMonthObj?.label}/{selectedYear}.
-              </span>
+              {/* Técnico Bulk Input */}
+              <div>
+                <label htmlFor="bulk-tec-input" className="text-xs font-semibold text-amber-700 block mb-1">
+                  Meta Técnico (por consultor)
+                </label>
+                <div className="relative">
+                  <input
+                    id="bulk-tec-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={bulkTec}
+                    onChange={e => setBulkTec(Number(e.target.value) || 0)}
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold text-gray-900 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none"
+                    placeholder="Ex: 5"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
+                    vendas
+                  </span>
+                </div>
+              </div>
+
+              {/* Total Summary */}
+              <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <p>
+                    Meta Total por consultor: <strong>{bulkGrad + bulkPos + bulkTec} vendas</strong>
+                  </p>
+                  <p className="mt-0.5 text-blue-800">
+                    Volume total estimado da equipe: <strong>{((bulkGrad + bulkPos + bulkTec) * activeConsultants.length).toLocaleString('pt-BR')} vendas</strong> ({selectedMonthObj?.label}/{selectedYear}).
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
@@ -961,7 +1152,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               </button>
               <button
                 type="button"
-                onClick={() => handleApplyBulkGoal(bulkValue)}
+                onClick={() => handleApplyBulkGoal(bulkGrad, bulkPos, bulkTec)}
                 className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
               >
                 Aplicar a Todos
