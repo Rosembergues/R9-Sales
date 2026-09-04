@@ -426,12 +426,13 @@ export const WeeklyRankView: React.FC = () => {
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          topThree[1].percentage_graduacao >= 100
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                            : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
-                        }`}
-                        style={{ width: `${Math.min(topThree[1].percentage_graduacao, 100)}%` }}
+                        className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500 bg-no-repeat"
+                        style={{ 
+                          width: `${Math.min(topThree[1].percentage_graduacao, 100)}%`,
+                          backgroundSize: topThree[1].percentage_graduacao > 0 
+                            ? `${(100 / Math.min(topThree[1].percentage_graduacao, 100)) * 100}% 100%` 
+                            : '100% 100%'
+                        }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-500 text-right font-medium">
@@ -491,14 +492,15 @@ export const WeeklyRankView: React.FC = () => {
 
                 {topThree[0].target_graduacao > 0 ? (
                   <>
-                    <div className="w-full h-2.5 bg-amber-100 rounded-full overflow-hidden">
+                    <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          topThree[0].percentage_graduacao >= 100
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                            : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
-                        }`}
-                        style={{ width: `${Math.min(topThree[0].percentage_graduacao, 100)}%` }}
+                        className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500 bg-no-repeat"
+                        style={{ 
+                          width: `${Math.min(topThree[0].percentage_graduacao, 100)}%`,
+                          backgroundSize: topThree[0].percentage_graduacao > 0 
+                            ? `${(100 / Math.min(topThree[0].percentage_graduacao, 100)) * 100}% 100%` 
+                            : '100% 100%'
+                        }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-600 text-right font-semibold">
@@ -559,12 +561,13 @@ export const WeeklyRankView: React.FC = () => {
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          topThree[2].percentage_graduacao >= 100
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                            : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
-                        }`}
-                        style={{ width: `${Math.min(topThree[2].percentage_graduacao, 100)}%` }}
+                        className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500 bg-no-repeat"
+                        style={{ 
+                          width: `${Math.min(topThree[2].percentage_graduacao, 100)}%`,
+                          backgroundSize: topThree[2].percentage_graduacao > 0 
+                            ? `${(100 / Math.min(topThree[2].percentage_graduacao, 100)) * 100}% 100%` 
+                            : '100% 100%'
+                        }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-500 text-right font-medium">
@@ -751,12 +754,13 @@ export const WeeklyRankView: React.FC = () => {
                           </div>
                           <div className="w-28 sm:w-36 h-2.5 bg-slate-100 rounded-full overflow-hidden ml-auto">
                             <div
-                              className={`h-full rounded-full transition-all duration-300 ${
-                                seller.percentage_reached >= 100
-                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                                  : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
-                              }`}
-                              style={{ width: `${Math.min(seller.percentage_reached, 100)}%` }}
+                              className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500 bg-no-repeat"
+                              style={{ 
+                                width: `${Math.min(seller.percentage_reached, 100)}%`,
+                                backgroundSize: seller.percentage_reached > 0 
+                                  ? `${(100 / Math.min(seller.percentage_reached, 100)) * 100}% 100%` 
+                                  : '100% 100%'
+                              }}
                             />
                           </div>
                         </div>
