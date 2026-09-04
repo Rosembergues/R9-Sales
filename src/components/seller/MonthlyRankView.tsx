@@ -75,7 +75,7 @@ export const MonthlyRankView: React.FC = () => {
       const { data: goalsData, error: goalsError } = await supabase
         .from('goals')
         .select('*')
-        .eq('type', 'mensal');
+        .in('type', ['mensal', 'month']);
 
       const localGoals = LocalSyncEngine.getGoals();
       const newGoalsMap: Record<string, number> = {};
@@ -83,7 +83,7 @@ export const MonthlyRankView: React.FC = () => {
       // Seed from local sync engine
       if (localGoals && localGoals.length > 0) {
         localGoals.forEach(g => {
-          if (g.type === 'mensal') {
+          if (g.type === 'mensal' || (g.type as string) === 'month') {
             const rawVal = Number(g.target_value) || 0;
             // Sanitize in case old monetary targets exist (>=1000)
             newGoalsMap[g.user_id] = rawVal >= 1000 ? 30 : Math.round(rawVal);

@@ -136,13 +136,15 @@ export interface SupabaseConfig {
   connected: boolean;
 }
 
-export type GoalType = 'semanal' | 'mensal';
+export type GoalType = 'semanal' | 'mensal' | 'week' | 'month';
 
 export interface Goal {
   id: string;
   user_id: string;
   type: GoalType;
   target_value: number;
+  reference_start?: string;
+  reference_end?: string;
   created_at?: string;
   updated_at?: string;
   month?: number;

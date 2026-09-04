@@ -78,7 +78,7 @@ export const WeeklyRankView: React.FC = () => {
       const { data: goalsData, error: goalsError } = await supabase
         .from('goals')
         .select('*')
-        .eq('type', 'semanal');
+        .in('type', ['semanal', 'week']);
 
       const localGoals = LocalSyncEngine.getGoals();
       const newGoalsMap: Record<string, number> = {};
@@ -86,7 +86,7 @@ export const WeeklyRankView: React.FC = () => {
       // Seed from local sync engine
       if (localGoals && localGoals.length > 0) {
         localGoals.forEach(g => {
-          if (g.type === 'semanal') {
+          if (g.type === 'semanal' || (g.type as string) === 'week') {
             newGoalsMap[g.user_id] = Number(g.target_value) || 0;
           }
         });

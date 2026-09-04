@@ -99,10 +99,11 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     setIsLoading(true);
     try {
       // 1. Check existing records in Supabase public.goals table
+      const typesToMatch = goalType === 'mensal' ? ['mensal', 'month'] : ['semanal', 'week'];
       const { data: remoteGoals, error } = await supabase
         .from('goals')
         .select('*')
-        .eq('type', goalType);
+        .in('type', typesToMatch);
 
       // 2. Check local fallback goals
       const localGoals = LocalSyncEngine.getGoals();
@@ -120,7 +121,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       // Merge local fallback if available
       if (localGoals && localGoals.length > 0) {
         localGoals.forEach(g => {
-          if (g.type === goalType) {
+          if (g.type === goalType || typesToMatch.includes(g.type)) {
             const rawVal = Number(g.target_value) || 0;
             // Sanitize in case old monetary values exist
             const volumeVal = rawVal >= 1000 ? (goalType === 'mensal' ? 30 : 8) : Math.round(rawVal);
@@ -236,6 +237,14 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     setToast(null);
 
     try {
+      // 3. Use os filtros de 'Mês' e 'Ano' atualmente selecionados na interface para calcular o primeiro dia do mês (reference_start) e o último dia do mês (reference_end)
+      const monthPadded = String(selectedMonth).padStart(2, '0');
+      const startDayStr = '01';
+      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+      const lastDayPadded = String(lastDay).padStart(2, '0');
+      const referenceStart = `${selectedYear}-${monthPadded}-${startDayStr}`;
+      const referenceEnd = `${selectedYear}-${monthPadded}-${lastDayPadded}`;
+
       // Build batch upsert payload for public.goals
       const batchPayload = activeConsultants.map(c => {
         const existing = savedGoalsMap[c.id];
@@ -246,6 +255,8 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
           user_id: c.id,
           type: goalType, // 'semanal' ou 'mensal'
           target_value: targetValue,
+          reference_start: referenceStart,
+          reference_end: referenceEnd,
           updated_at: new Date().toISOString(),
         };
       });
@@ -256,6 +267,11 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       const { error: upsertError } = await supabase
         .from('goals')
         .upsert(batchPayload, { onConflict: 'id' });
+
+      if (upsertError) {
+        console.error('❌ [Supabase DB] Erro no upsert de metas:', upsertError);
+        throw upsertError;
+      }
 
       // 2. Persist locally in LocalSyncEngine for instantaneous fallback & offline resilience
       const currentLocalGoals = LocalSyncEngine.getGoals();
@@ -268,6 +284,8 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
           user_id: item.user_id,
           type: item.type as GoalType,
           target_value: item.target_value,
+          reference_start: item.reference_start,
+          reference_end: item.reference_end,
           updated_at: item.updated_at,
           month: selectedMonth,
           year: selectedYear,
@@ -305,23 +323,15 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       });
       setSavedGoalsMap(updatedSavedMap);
 
-      if (upsertError) {
-        console.warn('⚠️ [Supabase DB] Aviso no upsert de metas (dados salvos localmente):', upsertError.message);
-        setToast({
-          type: 'success',
-          message: `Metas de ${teamMetrics.totalTarget} vendas salvas e sincronizadas com sucesso!`
-        });
-      } else {
-        setToast({
-          type: 'success',
-          message: `Metas de vendas (${goalType.toUpperCase()}) salvas no Supabase! Total: ${teamMetrics.totalTarget} vendas.`
-        });
-      }
+      setToast({
+        type: 'success',
+        message: `Metas de vendas (${goalType.toUpperCase()}) salvas no Supabase! Total: ${teamMetrics.totalTarget} vendas.`
+      });
     } catch (err: any) {
       console.error('💥 Erro ao salvar metas de vendas:', err);
       setToast({
         type: 'error',
-        message: 'Ocorreu um erro ao processar o salvamento das metas. Tente novamente.'
+        message: err?.message ? `Erro ao salvar metas: ${err.message}` : 'Ocorreu um erro ao processar o salvamento das metas. Tente novamente.'
       });
     } finally {
       setIsSaving(false);
