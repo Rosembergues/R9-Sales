@@ -39,11 +39,11 @@ function parseDate(dateStr: string): Date | null {
   const trimmed = dateStr.trim();
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
     const [d, m, y] = trimmed.split('/').map(Number);
-    return new Date(y, m - 1, d);
+    return new Date(y, m - 1, d, 12, 0, 0);
   }
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
     const [y, m, d] = trimmed.slice(0, 10).split('-').map(Number);
-    return new Date(y, m - 1, d);
+    return new Date(y, m - 1, d, 12, 0, 0);
   }
   const parsed = new Date(trimmed);
   return isNaN(parsed.getTime()) ? null : parsed;
@@ -57,13 +57,13 @@ export const WeeklyRankView: React.FC = () => {
   const [goalsMap, setGoalsMap] = useState<Record<string, number>>({});
   const [remoteSales, setRemoteSales] = useState<Sale[] | null>(null);
 
-  // Current week boundaries (Monday to Sunday)
+  // Current week boundaries (Monday 00:00:00.000 to Sunday 23:59:59.999)
   const weekRange = useMemo(() => {
     const now = new Date();
     const day = now.getDay();
     const diffToMonday = (day === 0 ? -6 : 1) - day;
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday, 0, 0, 0);
-    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6, 23, 59, 59);
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday, 0, 0, 0, 0);
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6, 23, 59, 59, 999);
 
     const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
     const label = `Semana Atual (${fmt(monday)} a ${fmt(sunday)})`;
@@ -102,10 +102,17 @@ export const WeeklyRankView: React.FC = () => {
       }
       setGoalsMap(newGoalsMap);
 
-      // Query latest sales from Supabase
+      // 1 & 2. Query latest sales from Supabase within current week
+      // Limite de data inclui 23:59:59.999 do domingo e preserva fuso horário convertendo para ISO UTC
+      const startIso = weekRange.start.toISOString();
+      const endIso = weekRange.end.toISOString();
+
       const { data: salesData, error: salesError } = await supabase
         .from('sales')
-        .select('*');
+        .select('*')
+        .gte('created_at', startIso)
+        .lte('created_at', endIso)
+        .order('created_at', { ascending: false });
 
       if (!salesError && salesData) {
         setRemoteSales(salesData as Sale[]);
@@ -115,45 +122,71 @@ export const WeeklyRankView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [weekRange]);
 
+  // 4. Inscrição Realtime no canal do Supabase para as tabelas 'goals' e 'sales'
   useEffect(() => {
     loadData();
 
-    // Inscrição Realtime no canal do Supabase para a tabela 'goals'
-    const channel = supabase
-      .channel('public:goals')
+    const goalsChannel = supabase
+      .channel('public:goals-weekly-sync')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'goals' },
         (payload: any) => {
           console.log('🔄 Evento Realtime recebido na tabela goals (WeeklyRankView):', payload);
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || !payload.eventType) {
-            loadData();
-          }
+          loadData();
+        }
+      )
+      .subscribe();
+
+    const salesChannel = supabase
+      .channel('public:sales-weekly-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sales' },
+        (payload: any) => {
+          console.log('🔄 Evento Realtime recebido na tabela sales (WeeklyRankView):', payload);
+          loadData();
         }
       )
       .subscribe();
 
     return () => {
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
+      goalsChannel.unsubscribe();
+      supabase.removeChannel(goalsChannel);
+      salesChannel.unsubscribe();
+      supabase.removeChannel(salesChannel);
     };
   }, [loadData]);
 
-  // Use remote sales if available, otherwise context sales
+  // Unifica vendas remotas com as do contexto para não omitir nenhum registro local
   const salesToUse = useMemo(() => {
-    return remoteSales || contextSales;
+    if (!remoteSales) return contextSales;
+    const map = new Map<string, Sale>();
+    contextSales.forEach(s => map.set(s.id, s));
+    remoteSales.forEach(s => map.set(s.id, s));
+    return Array.from(map.values());
   }, [remoteSales, contextSales]);
 
   // Filter sales within the current week
   const weeklySales = useMemo(() => {
     return salesToUse.filter(sale => {
-      if (sale.status === 'Em Análise') return false;
+      // 3. Remoção de Filtros Errados: NÃO ocultar vendas com status 'Em Análise' nem filtros arbitrários
       const saleDateStr = getSaleDateBr(sale);
       const parsed = parseDate(saleDateStr);
-      if (!parsed) return true; // Include if date parsing is ambiguous to prevent loss
-      return parsed >= weekRange.start && parsed <= weekRange.end;
+
+      const createdAtDate = sale.created_at ? new Date(sale.created_at) : null;
+      const isCreatedAtInWeek = createdAtDate && !isNaN(createdAtDate.getTime())
+        ? createdAtDate >= weekRange.start && createdAtDate <= weekRange.end
+        : false;
+
+      const isSaleDateInWeek = parsed
+        ? parsed >= weekRange.start && parsed <= weekRange.end
+        : false;
+
+      if (!parsed && !isCreatedAtInWeek) return true; // Include if date parsing is ambiguous to prevent loss
+      return isSaleDateInWeek || isCreatedAtInWeek;
     });
   }, [salesToUse, weekRange]);
 

@@ -42,11 +42,11 @@ function parseDate(dateStr: string): Date | null {
   const trimmed = dateStr.trim();
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
     const [d, m, y] = trimmed.split('/').map(Number);
-    return new Date(y, m - 1, d);
+    return new Date(y, m - 1, d, 12, 0, 0);
   }
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
     const [y, m, d] = trimmed.slice(0, 10).split('-').map(Number);
-    return new Date(y, m - 1, d);
+    return new Date(y, m - 1, d, 12, 0, 0);
   }
   const parsed = new Date(trimmed);
   return isNaN(parsed.getTime()) ? null : parsed;
@@ -66,6 +66,14 @@ export const MonthlyRankView: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
 
   const monthLabel = `${MONTH_NAMES[selectedMonth - 1]} de ${selectedYear}`;
+
+  // Month range boundaries (01 00:00:00.000 to last day 23:59:59.999)
+  const monthRange = useMemo(() => {
+    const startOfMonth = new Date(selectedYear, selectedMonth - 1, 1, 0, 0, 0, 0);
+    const lastDayNumber = new Date(selectedYear, selectedMonth, 0).getDate();
+    const endOfMonth = new Date(selectedYear, selectedMonth - 1, lastDayNumber, 23, 59, 59, 999);
+    return { start: startOfMonth, end: endOfMonth, lastDay: lastDayNumber };
+  }, [selectedMonth, selectedYear]);
 
   // 1. Fetch monthly goals from public.goals and latest sales
   const loadData = useCallback(async () => {
@@ -102,10 +110,17 @@ export const MonthlyRankView: React.FC = () => {
       }
       setGoalsMap(newGoalsMap);
 
-      // Query latest sales from Supabase
+      // 1 & 2. Query latest sales from Supabase for selected month
+      // Limite de data inclui 23:59:59.999 do último dia e preserva fuso horário com ISO UTC
+      const startIso = monthRange.start.toISOString();
+      const endIso = monthRange.end.toISOString();
+
       const { data: salesData, error: salesError } = await supabase
         .from('sales')
-        .select('*');
+        .select('*')
+        .gte('created_at', startIso)
+        .lte('created_at', endIso)
+        .order('created_at', { ascending: false });
 
       if (!salesError && salesData) {
         setRemoteSales(salesData as Sale[]);
@@ -115,47 +130,72 @@ export const MonthlyRankView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [monthRange]);
 
+  // 4. Inscrição Realtime no canal do Supabase para as tabelas 'goals' e 'sales'
   useEffect(() => {
     loadData();
 
-    // Inscrição Realtime no canal do Supabase para a tabela 'goals'
-    const channel = supabase
-      .channel('public:goals')
+    const channelId = `monthly-sync-${selectedMonth}-${selectedYear}`;
+    const goalsChannel = supabase
+      .channel(`public:goals-${channelId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'goals' },
         (payload: any) => {
           console.log('🔄 Evento Realtime recebido na tabela goals (MonthlyRankView):', payload);
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || !payload.eventType) {
-            loadData();
-          }
+          loadData();
+        }
+      )
+      .subscribe();
+
+    const salesChannel = supabase
+      .channel(`public:sales-${channelId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sales' },
+        (payload: any) => {
+          console.log('🔄 Evento Realtime recebido na tabela sales (MonthlyRankView):', payload);
+          loadData();
         }
       )
       .subscribe();
 
     return () => {
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
+      goalsChannel.unsubscribe();
+      supabase.removeChannel(goalsChannel);
+      salesChannel.unsubscribe();
+      supabase.removeChannel(salesChannel);
     };
-  }, [loadData]);
+  }, [loadData, selectedMonth, selectedYear]);
 
-  // Use remote sales if available, otherwise context sales
+  // Unifica vendas remotas com as do contexto para não omitir nenhum registro local
   const salesToUse = useMemo(() => {
-    return remoteSales || contextSales;
+    if (!remoteSales) return contextSales;
+    const map = new Map<string, Sale>();
+    contextSales.forEach(s => map.set(s.id, s));
+    remoteSales.forEach(s => map.set(s.id, s));
+    return Array.from(map.values());
   }, [remoteSales, contextSales]);
 
   // Filter sales within the selected month and year
   const monthlySales = useMemo(() => {
     return salesToUse.filter(sale => {
-      if (sale.status === 'Em Análise') return false;
+      // 3. Remoção de Filtros Errados: NÃO ocultar vendas com status 'Em Análise' nem filtros arbitrários
       const saleDateStr = getSaleDateBr(sale);
       const parsed = parseDate(saleDateStr);
-      if (!parsed) return true; // Include if date parsing is ambiguous to prevent data omission
-      const saleMonth = parsed.getMonth() + 1;
-      const saleYear = parsed.getFullYear();
-      return saleMonth === selectedMonth && saleYear === selectedYear;
+
+      const createdAtDate = sale.created_at ? new Date(sale.created_at) : null;
+      const isCreatedAtInMonth = createdAtDate && !isNaN(createdAtDate.getTime())
+        ? (createdAtDate.getMonth() + 1 === selectedMonth && createdAtDate.getFullYear() === selectedYear)
+        : false;
+
+      const isSaleDateInMonth = parsed
+        ? (parsed.getMonth() + 1 === selectedMonth && parsed.getFullYear() === selectedYear)
+        : false;
+
+      if (!parsed && !isCreatedAtInMonth) return true; // Include if date parsing is ambiguous to prevent data omission
+      return isSaleDateInMonth || isCreatedAtInMonth;
     });
   }, [salesToUse, selectedMonth, selectedYear]);
 
