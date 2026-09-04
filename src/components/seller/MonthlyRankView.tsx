@@ -428,7 +428,9 @@ export const MonthlyRankView: React.FC = () => {
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-700">Meta Graduação (Principal):</span>
                   {topThree[1].target_graduacao > 0 ? (
-                    <span className="font-black text-blue-700">
+                    <span className={`font-black ${
+                      topThree[1].percentage_graduacao >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
+                    }`}>
                       {topThree[1].percentage_graduacao}%
                     </span>
                   ) : (
@@ -440,7 +442,11 @@ export const MonthlyRankView: React.FC = () => {
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-300"
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          topThree[1].percentage_graduacao >= 100
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                            : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
+                        }`}
                         style={{ width: `${Math.min(topThree[1].percentage_graduacao, 100)}%` }}
                       />
                     </div>
@@ -489,7 +495,9 @@ export const MonthlyRankView: React.FC = () => {
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-800">Meta Graduação (Principal):</span>
                   {topThree[0].target_graduacao > 0 ? (
-                    <span className="font-black text-blue-700 text-sm">
+                    <span className={`font-black text-sm ${
+                      topThree[0].percentage_graduacao >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
+                    }`}>
                       {topThree[0].percentage_graduacao}%
                     </span>
                   ) : (
@@ -499,9 +507,13 @@ export const MonthlyRankView: React.FC = () => {
 
                 {topThree[0].target_graduacao > 0 ? (
                   <>
-                    <div className="w-full h-2.5 bg-blue-100 rounded-full overflow-hidden">
+                    <div className="w-full h-2.5 bg-purple-100/80 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full transition-all duration-300"
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          topThree[0].percentage_graduacao >= 100
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                            : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
+                        }`}
                         style={{ width: `${Math.min(topThree[0].percentage_graduacao, 100)}%` }}
                       />
                     </div>
@@ -549,7 +561,9 @@ export const MonthlyRankView: React.FC = () => {
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-700">Meta Graduação (Principal):</span>
                   {topThree[2].target_graduacao > 0 ? (
-                    <span className="font-black text-blue-700">
+                    <span className={`font-black ${
+                      topThree[2].percentage_graduacao >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
+                    }`}>
                       {topThree[2].percentage_graduacao}%
                     </span>
                   ) : (
@@ -561,7 +575,11 @@ export const MonthlyRankView: React.FC = () => {
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-300"
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          topThree[2].percentage_graduacao >= 100
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                            : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
+                        }`}
                         style={{ width: `${Math.min(topThree[2].percentage_graduacao, 100)}%` }}
                       />
                     </div>
@@ -752,7 +770,7 @@ export const MonthlyRankView: React.FC = () => {
                               className={`h-full rounded-full transition-all duration-300 ${
                                 seller.percentage_reached >= 100
                                   ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                                  : 'bg-gradient-to-r from-purple-500 to-emerald-500'
+                                  : 'bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500'
                               }`}
                               style={{ width: `${Math.min(seller.percentage_reached, 100)}%` }}
                             />
