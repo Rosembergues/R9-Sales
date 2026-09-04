@@ -151,10 +151,30 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     }
   }, [goalType, activeConsultants, getInitialDefaultVolume]);
 
-  // Reload whenever goalType, month, or activeConsultants change
+  // Reload whenever goalType, month, or activeConsultants change, and subscribe to Realtime
   useEffect(() => {
     loadGoals();
     setBulkValue(goalType === 'mensal' ? 30 : 8);
+
+    // Inscrição Realtime no canal do Supabase para a tabela 'goals'
+    const channel = supabase
+      .channel('public:goals')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'goals' },
+        (payload: any) => {
+          console.log('🔄 Evento Realtime recebido na tabela goals (GoalManagementPage):', payload);
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || !payload.eventType) {
+            loadGoals();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
   }, [goalType, selectedMonth, selectedYear, activeConsultants.length, loadGoals]);
 
   // Auto-dismiss toast

@@ -119,6 +119,26 @@ export const WeeklyRankView: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    // Inscrição Realtime no canal do Supabase para a tabela 'goals'
+    const channel = supabase
+      .channel('public:goals')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'goals' },
+        (payload: any) => {
+          console.log('🔄 Evento Realtime recebido na tabela goals (WeeklyRankView):', payload);
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || !payload.eventType) {
+            loadData();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
   }, [loadData]);
 
   // Use remote sales if available, otherwise context sales
