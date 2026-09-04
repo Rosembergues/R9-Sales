@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import { Profile, Campaign, Sale } from '../types';
+import { Profile, Campaign, Sale, Goal } from '../types';
 import { 
   supabase, 
   getSupabaseClient, 
@@ -16,6 +16,7 @@ const LOCAL_PROFILES_KEY = 'salesflow_profiles_v4';
 const LOCAL_CAMPAIGNS_KEY = 'salesflow_campaigns_v1';
 const LOCAL_SALES_KEY = 'salesflow_sales_v3';
 const LOCAL_CURRENT_USER_KEY = 'salesflow_current_user_v4';
+const LOCAL_GOALS_KEY = 'salesflow_goals_v1';
 
 export const INITIAL_CAMPAIGNS: Campaign[] = [
   {
@@ -382,6 +383,29 @@ export class LocalSyncEngine {
       localStorage.removeItem(LOCAL_CURRENT_USER_KEY);
     } catch (e) {
       console.error('Failed to reset profiles locally', e);
+    }
+  }
+
+  static getGoals(): Goal[] {
+    try {
+      const stored = localStorage.getItem(LOCAL_GOALS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  static saveGoals(goals: Goal[]) {
+    try {
+      localStorage.setItem(LOCAL_GOALS_KEY, JSON.stringify(goals));
+    } catch (e) {
+      console.error('Failed to save goals locally', e);
     }
   }
 }

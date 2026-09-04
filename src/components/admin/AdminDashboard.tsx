@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { UsersProfilesTable } from './UsersProfilesTable';
 import { CampaignsManager } from './CampaignsManager';
 import { AnalyticsOverview } from './AnalyticsOverview';
-import { Users, FileSpreadsheet, TrendingUp, ShieldCheck, Sparkles } from 'lucide-react';
+import { GoalManagementPage } from './GoalManagementPage';
+import { Users, FileSpreadsheet, TrendingUp, ShieldCheck, Sparkles, Target } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'users' | 'campaigns' | 'analytics'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'goals' | 'campaigns' | 'analytics'>('users');
 
   return (
     <div className="space-y-6">
@@ -25,6 +26,19 @@ export const AdminDashboard: React.FC = () => {
           >
             <Users className="w-4 h-4" />
             <span>Gestão de Usuários & Perfis</span>
+          </button>
+
+          <button
+            id="admin-tab-goals"
+            onClick={() => setActiveTab('goals')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+              activeTab === 'goals'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Target className="w-4 h-4" />
+            <span>Metas de Vendas</span>
           </button>
 
           <button
@@ -64,6 +78,7 @@ export const AdminDashboard: React.FC = () => {
       {/* Tab Content */}
       <div className="animate-in fade-in duration-200">
         {activeTab === 'users' && <UsersProfilesTable />}
+        {activeTab === 'goals' && <GoalManagementPage />}
         {activeTab === 'campaigns' && <CampaignsManager />}
         {activeTab === 'analytics' && <AnalyticsOverview />}
       </div>

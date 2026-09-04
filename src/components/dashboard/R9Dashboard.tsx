@@ -33,11 +33,13 @@ import {
   Receipt,
   CalendarCheck,
   Trophy,
-  Crown
+  Crown,
+  Target
 } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
 import { AnalyticsOverview } from '../admin/AnalyticsOverview';
+import { GoalManagementPage } from '../admin/GoalManagementPage';
 import { LiveTeamLeaderboard } from '../seller/LiveTeamLeaderboard';
 import { GoalProgressTracker } from '../seller/GoalProgressTracker';
 import { SellerSalesHistory } from '../seller/SellerSalesHistory';
@@ -76,7 +78,7 @@ export const R9Dashboard: React.FC = () => {
 
   // Security guard: Non-admin or member view mode cannot view admin team management
   useEffect(() => {
-    if ((!isActualAdmin || viewRole === 'membro') && activeTab === 'equipe') {
+    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas')) {
       setActiveTab('canvas');
     }
   }, [isActualAdmin, viewRole, activeTab]);
@@ -479,6 +481,24 @@ export const R9Dashboard: React.FC = () => {
                     perfis
                   </span>
                 </button>
+
+                <button
+                  id="nav-gerenciar-metas"
+                  onClick={() => setActiveTab('metas')}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'metas'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Target className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Gerenciamento de Metas</span>
+                  </div>
+                  <span className="text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                    metas
+                  </span>
+                </button>
               </div>
             )}
 
@@ -676,6 +696,30 @@ export const R9Dashboard: React.FC = () => {
                     <h3 className="text-base font-bold text-slate-900">Acesso Restrito a Administradores</h3>
                     <p className="text-xs text-slate-500">
                       A aba de administração e gerenciamento de equipe é restrita exclusivamente a administradores.
+                    </p>
+                    <button
+                      onClick={() => setActiveTab('canvas')}
+                      className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                    >
+                      Voltar ao Painel
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'metas' && (
+              <div className="animate-in fade-in duration-200">
+                {isActualAdmin && viewRole === 'admin' ? (
+                  <GoalManagementPage onBackToPlanner={() => setActiveTab('canvas')} />
+                ) : (
+                  <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center max-w-md mx-auto my-12 space-y-4">
+                    <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                      <Shield className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900">Acesso Restrito a Administradores</h3>
+                    <p className="text-xs text-slate-500">
+                      A aba de gerenciamento de metas é restrita exclusivamente a administradores.
                     </p>
                     <button
                       onClick={() => setActiveTab('canvas')}
