@@ -41,6 +41,8 @@ import { CampaignsManager } from '../admin/CampaignsManager';
 import { AnalyticsOverview } from '../admin/AnalyticsOverview';
 import { GoalManagementPage } from '../admin/GoalManagementPage';
 import { LiveTeamLeaderboard } from '../seller/LiveTeamLeaderboard';
+import { WeeklyRankView } from '../seller/WeeklyRankView';
+import { MonthlyRankView } from '../seller/MonthlyRankView';
 import { GoalProgressTracker } from '../seller/GoalProgressTracker';
 import { SellerSalesHistory } from '../seller/SellerSalesHistory';
 import { ProductSummaryView } from './ProductSummaryView';
@@ -662,9 +664,15 @@ export const R9Dashboard: React.FC = () => {
               />
             )}
 
-            {(activeTab === 'rank_semanal' || activeTab === 'rank_mensal') && (
+            {activeTab === 'rank_semanal' && (
               <div className="space-y-6 animate-in fade-in duration-200">
-                <LiveTeamLeaderboard period={activeTab === 'rank_mensal' ? 'mensal' : 'semanal'} />
+                <WeeklyRankView />
+              </div>
+            )}
+
+            {activeTab === 'rank_mensal' && (
+              <div className="space-y-6 animate-in fade-in duration-200">
+                <MonthlyRankView />
               </div>
             )}
 
