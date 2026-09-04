@@ -62,7 +62,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
 
   // Goals state: map of user_id -> 3 product targets + target_total
   const [goalsValues, setGoalsValues] = useState<Record<string, ConsultantGoalValues>>({});
-  // Baseline saved goals for dirty detection: map of user_id -> saved target_value
+  // Baseline saved goals for dirty detection: map of user_id -> saved target_total
   const [savedGoalsMap, setSavedGoalsMap] = useState<Record<string, ConsultantGoalValues>>({});
   
   // UI states
@@ -126,7 +126,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   const parseGoalRecord = useCallback((g: any): ConsultantGoalValues => {
     const rawTotal = g.target_total !== undefined && g.target_total !== null
       ? Number(g.target_total)
-      : (Number(g.target_value) || 0);
+      : 0;
 
     const rawGrad = g.target_graduacao !== undefined && g.target_graduacao !== null
       ? Number(g.target_graduacao)
@@ -331,9 +331,9 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       // Tratamento (de-para) rigoroso para satisfazer a check constraint 'goals_type_check':
       const apiType: 'month' | 'week' = goalType === 'mensal' ? 'month' : 'week';
 
-      // Build batch upsert payload for public.goals with all 4 product columns
+      // Build batch upsert payload for public.goals with strictly valid columns:
+      // user_id, type, reference_start, reference_end, target_graduacao, target_pos, target_tecnico, target_total
       const batchPayload = activeConsultants.map(c => {
-        const existing = savedGoalsMap[c.id];
         const userGoal = goalsValues[c.id] || getInitialDefaultGoal(c.target_monthly, goalType);
         const targetGraduacao = Math.max(0, Math.round(userGoal.target_graduacao));
         const targetPos = Math.max(0, Math.round(userGoal.target_pos));
@@ -341,26 +341,33 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         const targetTotal = targetGraduacao + targetPos + targetTecnico;
         
         return {
-          id: existing?.id || crypto.randomUUID(),
           user_id: c.id,
           type: apiType, // estritamente 'month' ou 'week'
-          target_value: targetTotal, // retrocompatibilidade
+          reference_start: referenceStart,
+          reference_end: referenceEnd,
           target_graduacao: targetGraduacao,
           target_pos: targetPos,
           target_tecnico: targetTecnico,
           target_total: targetTotal,
-          reference_start: referenceStart,
-          reference_end: referenceEnd,
-          updated_at: new Date().toISOString(),
         };
       });
 
       console.log('🚀 [Supabase DB] Upsert em lote de metas por produto na tabela public.goals:', batchPayload);
 
       // 1. Batch upsert directly to Supabase public.goals table
-      const { error: upsertError } = await supabase
+      let { error: upsertError } = await supabase
         .from('goals')
-        .upsert(batchPayload, { onConflict: 'id' });
+        .upsert(batchPayload, { onConflict: 'user_id,type' });
+
+      if (upsertError) {
+        // Fallback: tenta upsert utilizando a restrição primária padrão da tabela
+        const retryResult = await supabase
+          .from('goals')
+          .upsert(batchPayload);
+        if (!retryResult.error) {
+          upsertError = null;
+        }
+      }
 
       if (upsertError) {
         console.error('❌ [Supabase DB] Erro no upsert de metas:', upsertError);
@@ -372,19 +379,19 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       const updatedLocalGoals: Goal[] = [...currentLocalGoals];
 
       batchPayload.forEach(item => {
+        const existing = savedGoalsMap[item.user_id];
         const idx = updatedLocalGoals.findIndex(g => g.user_id === item.user_id && (g.type === item.type || (item.type === 'month' && g.type === 'mensal') || (item.type === 'week' && g.type === 'semanal')));
         const goalRecord: Goal = {
-          id: item.id,
+          id: existing?.id || crypto.randomUUID(),
           user_id: item.user_id,
           type: item.type as GoalType,
-          target_value: item.target_total,
+          target_total: item.target_total,
           target_graduacao: item.target_graduacao,
           target_pos: item.target_pos,
           target_tecnico: item.target_tecnico,
-          target_total: item.target_total,
           reference_start: item.reference_start,
           reference_end: item.reference_end,
-          updated_at: item.updated_at,
+          updated_at: new Date().toISOString(),
           month: selectedMonth,
           year: selectedYear,
         };
@@ -414,8 +421,9 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       // Update baseline map
       const updatedSavedMap: Record<string, ConsultantGoalValues> = {};
       batchPayload.forEach(item => {
+        const existing = savedGoalsMap[item.user_id];
         updatedSavedMap[item.user_id] = {
-          id: item.id,
+          id: existing?.id,
           target_graduacao: item.target_graduacao,
           target_pos: item.target_pos,
           target_tecnico: item.target_tecnico,
