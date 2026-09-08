@@ -15,7 +15,10 @@ import {
   CalendarRange, 
   CheckCircle2,
   Sparkles,
-  Award
+  Award,
+  ChevronLeft,
+  ChevronRight,
+  Calendar
 } from 'lucide-react';
 
 interface UserGoalData {
@@ -93,18 +96,71 @@ export const WeeklyRankView: React.FC = () => {
   const [goalsMap, setGoalsMap] = useState<Record<string, UserGoalData>>({});
   const [remoteSales, setRemoteSales] = useState<Sale[] | null>(null);
 
-  // Current week boundaries (Monday 00:00:00.000 to Sunday 23:59:59.999)
+  // Navigation across previous and current weeks (0 = current, -1 = last week, -2 = 2 weeks ago...)
+  const [weekOffset, setWeekOffset] = useState<number>(0);
+
+  const handlePrevWeek = () => {
+    setWeekOffset(prev => prev - 1);
+  };
+
+  const handleNextWeek = () => {
+    setWeekOffset(prev => Math.min(prev + 1, 0));
+  };
+
+  const handleCurrentWeek = () => {
+    setWeekOffset(0);
+  };
+
+  // Week boundaries shifted by weekOffset (Monday 00:00:00.000 to Sunday 23:59:59.999)
   const weekRange = useMemo(() => {
     const now = new Date();
-    const day = now.getDay();
+    // Shift date by weekOffset * 7 days
+    const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (weekOffset * 7));
+    const day = targetDate.getDay();
     const diffToMonday = (day === 0 ? -6 : 1) - day;
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday, 0, 0, 0, 0);
+    const monday = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + diffToMonday, 0, 0, 0, 0);
     const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6, 23, 59, 59, 999);
 
-    const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = `Semana Atual (${fmt(monday)} a ${fmt(sunday)})`;
-    return { start: monday, end: sunday, label };
-  }, []);
+    const fmtShort = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const shortLabel = `${fmtShort(monday)} a ${fmtShort(sunday)}`;
+
+    const months = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    const startDay = monday.getDate();
+    const endDay = sunday.getDate();
+    const startMonth = months[monday.getMonth()];
+    const endMonth = months[sunday.getMonth()];
+    const startYear = monday.getFullYear();
+    const endYear = sunday.getFullYear();
+
+    let fullLabel = '';
+    if (startYear !== endYear) {
+      fullLabel = `${startDay} de ${startMonth} de ${startYear} a ${endDay} de ${endMonth} de ${endYear}`;
+    } else if (startMonth !== endMonth) {
+      fullLabel = `${startDay} de ${startMonth} a ${endDay} de ${endMonth} de ${endYear}`;
+    } else {
+      fullLabel = `${startDay} a ${endDay} de ${endMonth} de ${endYear}`;
+    }
+
+    let statusText = 'Semana Atual';
+    if (weekOffset === -1) {
+      statusText = 'Semana Anterior';
+    } else if (weekOffset < -1) {
+      statusText = `${Math.abs(weekOffset)} semanas atrás`;
+    }
+
+    return { 
+      start: monday, 
+      end: sunday, 
+      label: weekOffset === 0 ? `Semana Atual (${shortLabel})` : `${statusText} (${shortLabel})`,
+      shortLabel,
+      fullLabel,
+      statusText,
+      isCurrent: weekOffset === 0
+    };
+  }, [weekOffset]);
 
   // 1. Fetch weekly goals from public.goals and latest sales
   const loadData = useCallback(async () => {
@@ -205,7 +261,7 @@ export const WeeklyRankView: React.FC = () => {
     return Array.from(map.values());
   }, [remoteSales, contextSales]);
 
-  // Filter sales within the current week
+  // Filter sales within the selected week
   const weeklySales = useMemo(() => {
     return salesToUse.filter(sale => {
       // 3. Remoção de Filtros Errados: NÃO ocultar vendas com status 'Em Análise' nem filtros arbitrários
@@ -221,10 +277,10 @@ export const WeeklyRankView: React.FC = () => {
         ? parsed >= weekRange.start && parsed <= weekRange.end
         : false;
 
-      if (!parsed && !isCreatedAtInWeek) return true; // Include if date parsing is ambiguous to prevent loss
+      if (!parsed && !createdAtDate) return weekOffset === 0; // Include if date parsing is ambiguous only on current week
       return isSaleDateInWeek || isCreatedAtInWeek;
     });
-  }, [salesToUse, weekRange]);
+  }, [salesToUse, weekRange, weekOffset]);
 
   // Build weekly leaderboard joined with public.goals
   const leaderboard = useMemo<WeeklyLeaderboardEntry[]>(() => {
@@ -324,38 +380,91 @@ export const WeeklyRankView: React.FC = () => {
     <div className="space-y-6">
       
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 border border-amber-200/80 flex items-center justify-center shadow-2xs">
               <Trophy className="w-4 h-4" />
             </div>
             <h2 className="text-xl font-bold text-slate-900 font-['Space_Grotesk'] tracking-tight">
               Ranking Semanal da Equipe
             </h2>
-            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <CalendarRange className="w-3 h-3" />
-              {weekRange.label}
-            </span>
+            {weekRange.isCurrent ? (
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Semana Vigente
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                Histórico ({weekRange.statusText})
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Classificação oficial e progresso das metas individuais e coletivas definidas para a semana vigente.
+            {weekRange.isCurrent
+              ? 'Classificação oficial e progresso das metas individuais e coletivas definidas para a semana vigente.'
+              : `Exibindo histórico de classificação e vendas da semana de ${weekRange.fullLabel}.`}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Navegador de Semana (controle no estilo do topo: < Hoje > | Data) */}
+          <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-700 font-medium shadow-xs">
+            <button
+              onClick={handlePrevWeek}
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer"
+              title="Semana anterior"
+              aria-label="Semana anterior"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              onClick={handleCurrentWeek}
+              disabled={weekRange.isCurrent}
+              className={`px-2 py-0.5 rounded text-xs transition-all ${
+                weekRange.isCurrent
+                  ? 'font-bold text-gray-900 cursor-default bg-white shadow-2xs border border-gray-200/60'
+                  : 'font-semibold text-blue-600 hover:text-blue-800 hover:bg-blue-50 cursor-pointer'
+              }`}
+              title={weekRange.isCurrent ? 'Semana atual' : 'Clique para voltar para a semana atual (Hoje)'}
+            >
+              Hoje
+            </button>
+
+            <button
+              onClick={handleNextWeek}
+              disabled={weekRange.isCurrent}
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              title={weekRange.isCurrent ? 'Semana atual é a mais recente' : 'Próxima semana'}
+              aria-label="Próxima semana"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
+            <span className="text-gray-300">|</span>
+
+            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap hidden sm:inline">
+              {weekRange.fullLabel}
+            </span>
+            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap sm:hidden">
+              {weekRange.shortLabel}
+            </span>
+          </div>
+
           <button
             onClick={loadData}
             disabled={isLoading}
             className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-            title="Atualizar ranking e metas"
+            title="Atualizar dados da semana selecionada"
           >
             <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
             <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-            <span>Classificação por Boletos</span>
+            <span className="hidden sm:inline">Classificação por Boletos</span>
+            <span className="sm:hidden">Boletos</span>
           </div>
         </div>
       </div>
@@ -363,7 +472,9 @@ export const WeeklyRankView: React.FC = () => {
       {/* Summary Highlights */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
-          <span className="text-xs text-slate-500 font-medium">Boletos Confirmados na Semana</span>
+          <span className="text-xs text-slate-500 font-medium">
+            {weekRange.isCurrent ? 'Boletos Confirmados na Semana' : `Boletos Confirmados (${weekRange.shortLabel})`}
+          </span>
           <div className="text-2xl font-black text-slate-900 font-['Space_Grotesk'] mt-1">
             {totalWeeklySales} <span className="text-xs font-semibold text-slate-500">vendas</span>
           </div>
@@ -597,7 +708,7 @@ export const WeeklyRankView: React.FC = () => {
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-xs">
         <div className="px-6 py-4 bg-slate-50/75 border-b border-slate-200 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Tabela Geral de Classificação Semanal
+            Tabela Geral de Classificação Semanal ({weekRange.shortLabel})
           </span>
           <span className="text-xs text-slate-500 font-medium">
             Total de {leaderboard.length} consultores avaliados

@@ -3,9 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { 
   Calendar, 
-  LayoutGrid, 
   ChevronLeft, 
-  ChevronRight, 
   Shield, 
   User, 
   LogOut, 
@@ -60,7 +58,6 @@ export const R9Dashboard: React.FC = () => {
   const isActualAdmin = currentUser?.role === 'admin';
 
   // Navigation & View States
-  const [periodMode, setPeriodMode] = useState<'semana' | 'mes'>('semana');
   const [viewRole, setViewRole] = useState<'admin' | 'membro'>(
     currentUser?.role === 'admin' ? 'admin' : 'membro'
   );
@@ -155,50 +152,6 @@ export const R9Dashboard: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Center: Period selector & Date range */}
-        <div className="hidden md:flex items-center gap-3">
-          
-          {/* Semana / Mês toggle pill */}
-          <div className="inline-flex rounded-lg bg-gray-100 p-0.5 border border-gray-200/80 text-xs font-medium">
-            <button
-              onClick={() => setPeriodMode('semana')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
-                periodMode === 'semana'
-                  ? 'bg-white text-gray-900 shadow-xs font-semibold'
-                  : 'text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Semana</span>
-            </button>
-            <button
-              onClick={() => setPeriodMode('mes')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
-                periodMode === 'mes'
-                  ? 'bg-white text-gray-900 shadow-xs font-semibold'
-                  : 'text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Mês</span>
-            </button>
-          </div>
-
-          {/* Date range navigator pill */}
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-700 font-medium shadow-xs">
-            <button className="p-0.5 text-gray-400 hover:text-gray-800 rounded transition-colors cursor-pointer">
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-            <span className="px-1 font-semibold text-gray-900">Hoje</span>
-            <button className="p-0.5 text-gray-400 hover:text-gray-800 rounded transition-colors cursor-pointer">
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-600">30 de Agosto a 5 de Setembro de 2026</span>
-          </div>
-
         </div>
 
         {/* Right: Role View Selector & Logout */}
