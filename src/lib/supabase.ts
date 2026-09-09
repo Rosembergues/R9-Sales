@@ -97,6 +97,7 @@ export const SUPABASE_SQL_SCHEMA = `-- =========================================
 
 -- 1. Habilitar extensões
 create extension if not exists "uuid-ossp";
+create extension if not exists "pgcrypto";
 
 -- 2. Tabela de Perfis de Usuários (Profiles)
 create table if not exists public.profiles (
@@ -112,7 +113,23 @@ create table if not exists public.profiles (
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 3. Tabela de Campanhas e Formulários Dinâmicos (Campaigns)
+-- 3. Tabela de Metas por Produto (Goals)
+create table if not exists public.goals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  type text not null check (type in ('month', 'week', 'mensal', 'semanal')),
+  reference_start date not null,
+  reference_end date not null,
+  target_graduacao integer default 0 check (target_graduacao >= 0),
+  target_pos integer default 0 check (target_pos >= 0),
+  target_tecnico integer default 0 check (target_tecnico >= 0),
+  target_total integer default 0 check (target_total >= 0),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint goals_user_type_ref_unique unique (user_id, type, reference_start)
+);
+
+-- 4. Tabela de Campanhas e Formulários Dinâmicos (Campaigns)
 create table if not exists public.campaigns (
   id text primary key default ('camp-' || substr(md5(random()::text), 1, 10)),
   title text not null,
@@ -125,10 +142,11 @@ create table if not exists public.campaigns (
   end_date date not null,
   fields jsonb default '[]'::jsonb,
   created_by uuid references public.profiles(id),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null default timezone('utc'::text, now())
 );
 
--- 4. Tabela de Vendas e Lançamentos (Sales)
+-- 5. Tabela de Vendas e Lançamentos (Sales)
 create table if not exists public.sales (
   id text primary key,
   collaborator_name text,
@@ -144,11 +162,16 @@ create table if not exists public.sales (
   sale_date timestamp with time zone default timezone('utc'::text, now()),
   campaign_id text,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null default timezone('utc'::text, now()),
   -- Colunas complementares opcionais para compatibilidade total
   seller_id text,
+  collaborator_id text,
   seller_name text,
   seller_email text,
   client_name text,
+  client_document text,
+  client_phone text,
+  client_email text,
   product_name text,
   value numeric default 1200,
   payment_method text default 'PIX',
@@ -157,28 +180,23 @@ create table if not exists public.sales (
   custom_data jsonb default '{}'::jsonb
 );
 
--- 5. Habilitar Row Level Security (RLS)
+-- 6. Habilitar Row Level Security (RLS) nas Tabelas Críticas
 alter table public.profiles enable row level security;
-alter table public.campaigns enable row level security;
+alter table public.goals enable row level security;
 alter table public.sales enable row level security;
+alter table public.campaigns enable row level security;
 
--- Políticas para Sales
-drop policy if exists "Leitura de vendas permitida" on public.sales;
-create policy "Leitura de vendas permitida" 
-  on public.sales for select 
-  using (true);
-
-drop policy if exists "Gravação de vendas permitida" on public.sales;
-create policy "Gravação de vendas permitida" 
-  on public.sales for all 
-  using (true)
-  with check (true);
+-- ============================================================
+-- POLÍTICAS RLS (Row Level Security)
+-- ============================================================
 
 -- Políticas para Profiles
+drop policy if exists "Perfis são visíveis por todos os autenticados" on public.profiles;
 create policy "Perfis são visíveis por todos os autenticados" 
   on public.profiles for select 
   using (auth.role() = 'authenticated');
 
+drop policy if exists "Usuários podem atualizar seus próprios perfis ou admins podem atualizar qualquer perfil" on public.profiles;
 create policy "Usuários podem atualizar seus próprios perfis ou admins podem atualizar qualquer perfil" 
   on public.profiles for update 
   using (
@@ -186,22 +204,108 @@ create policy "Usuários podem atualizar seus próprios perfis ou admins podem a
     exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
   );
 
+drop policy if exists "Admins ou registro público podem inserir perfis" on public.profiles;
 create policy "Admins ou registro público podem inserir perfis" 
   on public.profiles for insert 
   with check (true);
 
+drop policy if exists "Apenas admins podem excluir perfis" on public.profiles;
+create policy "Apenas admins podem excluir perfis" 
+  on public.profiles for delete 
+  using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
+
+-- Políticas para Goals (Metas)
+-- Leitura pública para autenticados (consultores e admins visualizam metas e ranking)
+-- Escrita EXCLUSIVA para Administradores
+drop policy if exists "Metas visíveis por todos os autenticados" on public.goals;
+create policy "Metas visíveis por todos os autenticados" 
+  on public.goals for select 
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "Apenas administradores podem gerenciar metas" on public.goals;
+create policy "Apenas administradores podem gerenciar metas" 
+  on public.goals for all 
+  using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  )
+  with check (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
+
+-- Políticas para Sales (Vendas)
+-- Leitura para todos os autenticados
+-- Inserção para consultores e admins
+-- Atualização/Exclusão restrita a administradores ou autor da venda
+drop policy if exists "Leitura de vendas permitida" on public.sales;
+create policy "Leitura de vendas permitida" 
+  on public.sales for select 
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "Usuários autenticados podem inserir vendas" on public.sales;
+create policy "Usuários autenticados podem inserir vendas" 
+  on public.sales for insert 
+  with check (auth.role() = 'authenticated');
+
+drop policy if exists "Admins ou autor podem atualizar vendas" on public.sales;
+create policy "Admins ou autor podem atualizar vendas" 
+  on public.sales for update 
+  using (
+    seller_id = auth.uid()::text or 
+    collaborator_id = auth.uid()::text or 
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
+
+drop policy if exists "Apenas administradores podem excluir vendas" on public.sales;
+create policy "Apenas administradores podem excluir vendas" 
+  on public.sales for delete 
+  using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
+
 -- Políticas para Campaigns
+drop policy if exists "Campanhas visíveis por todos os autenticados" on public.campaigns;
 create policy "Campanhas visíveis por todos os autenticados" 
   on public.campaigns for select 
   using (auth.role() = 'authenticated');
 
+drop policy if exists "Admins podem criar, editar ou excluir campanhas" on public.campaigns;
 create policy "Admins podem criar, editar ou excluir campanhas" 
   on public.campaigns for all 
   using (
     exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
   );
 
--- 6. Trigger automático para criar perfil ao criar usuário via Supabase Auth
+-- ============================================================
+-- 7. Função e Triggers de auditoria updated_at
+-- ============================================================
+create or replace function public.handle_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = timezone('utc'::text, now());
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists set_profiles_updated_at on public.profiles;
+create trigger set_profiles_updated_at
+  before update on public.profiles
+  for each row execute procedure public.handle_updated_at();
+
+drop trigger if exists set_goals_updated_at on public.goals;
+create trigger set_goals_updated_at
+  before update on public.goals
+  for each row execute procedure public.handle_updated_at();
+
+drop trigger if exists set_sales_updated_at on public.sales;
+create trigger set_sales_updated_at
+  before update on public.sales
+  for each row execute procedure public.handle_updated_at();
+
+-- ============================================================
+-- 8. Trigger automático de criação de perfil ao cadastrar no Supabase Auth
+-- ============================================================
 create or replace function public.handle_new_user() 
 returns trigger as $$
 begin
@@ -222,12 +326,34 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- Habilitar Realtime
-alter publication supabase_realtime add table public.profiles;
-alter publication supabase_realtime add table public.campaigns;
-alter publication supabase_realtime add table public.sales;
+-- ============================================================
+-- 9. Habilitar Supabase Realtime para tabelas críticas
+-- ============================================================
+do $$
+begin
+  alter publication supabase_realtime add table public.profiles;
+exception when others then null;
+end $$;
 
--- 7. Migração de Dados Históricos (Garante responsável preenchido em registros legados)
+do $$
+begin
+  alter publication supabase_realtime add table public.goals;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.campaigns;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.sales;
+exception when others then null;
+end $$;
+
+-- 10. Migração de Dados Históricos (Garante responsável preenchido em registros legados)
 update public.sales s
 set 
   collaborator_name = coalesce(
@@ -403,7 +529,14 @@ export class LocalSyncEngine {
 
   static saveGoals(goals: Goal[]) {
     try {
-      localStorage.setItem(LOCAL_GOALS_KEY, JSON.stringify(goals));
+      // Deduplica por (user_id, type, reference_start) para garantir integridade idêntica ao Supabase
+      const uniqueMap = new Map<string, Goal>();
+      goals.forEach(g => {
+        const key = `${g.user_id}_${g.type}_${g.reference_start || ''}`;
+        uniqueMap.set(key, g);
+      });
+      const deduplicated = Array.from(uniqueMap.values());
+      localStorage.setItem(LOCAL_GOALS_KEY, JSON.stringify(deduplicated));
     } catch (e) {
       console.error('Failed to save goals locally', e);
     }

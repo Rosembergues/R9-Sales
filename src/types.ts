@@ -160,3 +160,73 @@ export interface Goal {
   month?: number;
   year?: number;
 }
+
+export interface DatabaseGoalRecord {
+  id?: string;
+  user_id: string;
+  type: GoalType;
+  reference_start: string;
+  reference_end: string;
+  target_value?: number;
+  target_graduacao?: number;
+  target_pos?: number;
+  target_tecnico?: number;
+  target_total?: number;
+  created_at?: string;
+  updated_at?: string;
+  month?: number;
+  year?: number;
+}
+
+export interface UserGoalData {
+  target_total: number;
+  target_graduacao: number;
+  target_pos: number;
+  target_tecnico: number;
+}
+
+export interface ConsultantGoalValues {
+  id?: string;
+  target_graduacao: number;
+  target_pos: number;
+  target_tecnico: number;
+  target_total: number;
+}
+
+export interface RemoteSaleRow {
+  id?: string;
+  collaborator_name?: string;
+  candidate_name?: string;
+  opportunity?: string;
+  product?: string;
+  turn?: string;
+  modality?: string;
+  fdi?: string | ProductChannelFDI;
+  light_installment?: boolean;
+  partner_scholarship?: boolean;
+  notes?: string;
+  sale_date?: string;
+  campaign_id?: string;
+  created_at?: string;
+  updated_at?: string;
+  seller_id?: string;
+  collaborator_id?: string;
+  seller_name?: string;
+  seller_email?: string;
+  client_name?: string;
+  client_document?: string;
+  client_phone?: string;
+  client_email?: string;
+  product_name?: string;
+  value?: number | string;
+  payment_method?: PaymentMethod | string;
+  status?: SaleStatus | string;
+  commission?: number | string;
+  custom_data?: SaleCustomData;
+  user_name?: string;
+  created_by_name?: string;
+  fdi_channel?: string;
+  channel?: string;
+  canal?: string;
+  [key: string]: unknown;
+}

@@ -1,4 +1,14 @@
-import { Sale } from '../types';
+import { 
+  Sale, 
+  RemoteSaleRow, 
+  ProductChannelFDI, 
+  SaleCustomData,
+  PaymentMethod,
+  SaleStatus,
+  MainProductType,
+  ModalityType,
+  ShiftType
+} from '../types';
 
 /**
  * Valida se uma string é um UUID v4 válido
@@ -78,11 +88,11 @@ export function getTodayBrDate(): string {
  * e NUNCA a data do registro no sistema (created_at).
  * Se alguém subir hoje um boleto com data de ontem, esta função retorna a data de ontem!
  */
-export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: any; sale_date?: string }): string {
+export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: SaleCustomData; sale_date?: string }): string {
   if (!sale) return '';
 
   // 1. Data da venda informada explicitamente no custom_data ou campo sale_date
-  const explicitSaleDate = sale.custom_data?.sale_date || (sale as any).sale_date;
+  const explicitSaleDate = sale.custom_data?.sale_date || sale.sale_date;
   if (explicitSaleDate && typeof explicitSaleDate === 'string') {
     const trimmed = explicitSaleDate.trim();
     // Formato DD/MM/YYYY
@@ -91,7 +101,7 @@ export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: any; sale_da
       return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
     }
     // Formato YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       const [y, m, d] = trimmed.slice(0, 10).split('-');
       return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
     }
@@ -124,29 +134,38 @@ export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: any; sale_da
   return '';
 }
 
+export type SaleFdiInput = Partial<Sale> & {
+  fdi_channel?: unknown;
+  channel?: unknown;
+  canal?: unknown;
+  product?: unknown;
+};
+
 /**
  * Retorna o valor real de FDI / Canal de Captação para exibição em tabelas e relatórios.
  * Prioriza o canal real gravado (ex: ENEM, Transferência Externa, Simplificada, Vestibular, etc.),
  * ou o indicador booleano Sim / Não caso apenas a flag booleana esteja presente.
  */
 export function getSaleFdiDisplay(
-  sale?: (Partial<Sale> & { fdi?: any; fdi_channel?: any; channel?: any; canal?: any; product?: any }) | null
+  sale?: SaleFdiInput | null
 ): string {
   if (!sale) return 'Simplificada';
 
   const custom = sale.custom_data || {};
-  const mainProduct = custom.main_product || (sale as any).product || (sale as any).product_name || '';
+  const productCandidate = typeof sale.product === 'string' ? sale.product : '';
+  const productNameCandidate = typeof sale.product_name === 'string' ? sale.product_name : '';
+  const mainProduct = custom.main_product || productCandidate || productNameCandidate || '';
 
   // 1. Canais e valores candidatos provenientes do registro (priorizando campos diretos de texto)
   const candidateChannels = [
     sale.fdi,
     custom.fdi,
     custom.fdi_channel,
-    (sale as any).fdi_channel,
+    sale.fdi_channel,
     custom.channel,
-    (sale as any).channel,
+    sale.channel,
     custom.canal,
-    (sale as any).canal,
+    sale.canal,
   ];
 
   // 2. Busca por valor em string válida do canal selecionado
@@ -179,10 +198,10 @@ export function getSaleFdiDisplay(
 /**
  * Normaliza um registro vindo do Supabase para o modelo interno Sale
  */
-export function normalizeRemoteSale(row: any): Sale {
+export function normalizeRemoteSale(row: RemoteSaleRow): Sale {
   if (!row) throw new Error('Objeto vazio recebido do Supabase');
 
-  const custom = row.custom_data && typeof row.custom_data === 'object' ? row.custom_data : {};
+  const custom: SaleCustomData = row.custom_data && typeof row.custom_data === 'object' ? row.custom_data : {};
   
   const candidate = 
     row.candidate_name || 
@@ -201,7 +220,7 @@ export function normalizeRemoteSale(row: any): Sale {
 
   const opportunity = 
     row.opportunity || 
-    row.opportunity_number || 
+    (typeof row.opportunity_number === 'string' ? row.opportunity_number : undefined) || 
     custom.opportunity_number || 
     (row.id ? String(row.id).replace('sale-', 'OP-') : 'OP-000');
 
@@ -213,7 +232,7 @@ export function normalizeRemoteSale(row: any): Sale {
 
   const turn = 
     row.turn || 
-    row.shift || 
+    (typeof row.shift === 'string' ? row.shift : undefined) || 
     custom.shift || 
     'Noite';
 
@@ -224,7 +243,6 @@ export function normalizeRemoteSale(row: any): Sale {
 
   // Identificação precisa do canal textual para FDI (sem forçar 'Vestibular')
   const detectedFdiChannel = getSaleFdiDisplay({
-    ...row,
     custom_data: custom,
     fdi: row.fdi,
     fdi_channel: row.fdi_channel || custom.fdi_channel,
@@ -246,12 +264,15 @@ export function normalizeRemoteSale(row: any): Sale {
     ? rawDate 
     : formatIsoToBr(rawDate);
 
+  const resolvedSellerId = row.seller_id || row.collaborator_id || custom.seller_id || custom.collaborator_id || '';
+  const resolvedCollaboratorId = row.collaborator_id || row.seller_id || custom.collaborator_id || custom.seller_id || '';
+
   return {
     id: String(row.id),
     campaign_id: row.campaign_id || '',
-    campaign_name: row.campaign_name || 'Captação 2026',
-    seller_id: row.seller_id || (row as any).collaborator_id || custom.seller_id || custom.collaborator_id || '',
-    collaborator_id: (row as any).collaborator_id || row.seller_id || custom.collaborator_id || custom.seller_id || '',
+    campaign_name: (typeof row.campaign_name === 'string' ? row.campaign_name : undefined) || 'Captação 2026',
+    seller_id: resolvedSellerId,
+    collaborator_id: resolvedCollaboratorId,
     seller_name: collaborator,
     collaborator_name: collaborator,
     seller_email: row.seller_email || '',
@@ -261,8 +282,8 @@ export function normalizeRemoteSale(row: any): Sale {
     client_email: row.client_email || '',
     product_name: product,
     value: Number(row.value) || 1200,
-    payment_method: row.payment_method || 'PIX',
-    status: row.status || 'Aprovada',
+    payment_method: (row.payment_method as PaymentMethod) || 'PIX',
+    status: (row.status as SaleStatus) || 'Aprovada',
     commission: Number(row.commission) || 60,
     fdi: detectedFdiChannel,
     notes: row.notes || '',
@@ -272,14 +293,14 @@ export function normalizeRemoteSale(row: any): Sale {
       candidate_name: candidate,
       opportunity_number: opportunity,
       sale_date: dateBr,
-      main_product: product,
-      modality: modality,
-      shift: turn,
+      main_product: product as MainProductType,
+      modality: modality as ModalityType,
+      shift: turn as ShiftType,
       fdi: detectedFdiChannel,
-      fdi_channel: detectedFdiChannel as any,
+      fdi_channel: detectedFdiChannel as ProductChannelFDI,
       parcela_leve: custom.parcela_leve || (lightInstallmentBool ? '3 parcelas' : 'Sem parcelas'),
       has_bolsa_convenio: partnerScholarshipBool,
-      empresa_convenio: row.empresa_convenio || custom.empresa_convenio || '',
+      empresa_convenio: (typeof row.empresa_convenio === 'string' ? row.empresa_convenio : undefined) || custom.empresa_convenio || '',
       business_unit: custom.business_unit || (modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial')
     }
   };
@@ -288,7 +309,7 @@ export function normalizeRemoteSale(row: any): Sale {
 /**
  * Payload específico para a estrutura R9 Sales (tabela sales padrão com collaborator_name, candidate_name, etc.)
  */
-export function buildR9SalePayload(sale: Sale): Record<string, any> {
+export function buildR9SalePayload(sale: Sale): Record<string, unknown> {
   const custom = sale.custom_data || {};
   const channelVal = getSaleFdiDisplay(sale);
 
@@ -298,7 +319,7 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
 
   const partnerScholarshipBool = Boolean(custom.has_bolsa_convenio);
   const responsibleName = sale.seller_name || sale.collaborator_name || custom.collaborator_name || custom.seller_name || 'Consultor';
-  const responsibleId = sale.seller_id || (sale as any).collaborator_id || custom.seller_id || custom.collaborator_id || null;
+  const responsibleId = sale.seller_id || sale.collaborator_id || custom.seller_id || custom.collaborator_id || null;
   const responsibleEmail = sale.seller_email !== undefined && sale.seller_email !== null ? sale.seller_email : (custom.seller_email || null);
 
   return {
@@ -316,7 +337,7 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
     light_installment: lightInstallmentBool,
     partner_scholarship: partnerScholarshipBool,
     notes: sale.notes || '',
-    sale_date: toValidIsoTimestamp(custom.sale_date || (sale as any).sale_date || sale.created_at),
+    sale_date: toValidIsoTimestamp(custom.sale_date || sale.created_at),
     campaign_id: sale.campaign_id || null,
     created_at: toValidIsoTimestamp(sale.created_at),
     custom_data: {
@@ -335,14 +356,14 @@ export function buildR9SalePayload(sale: Sale): Record<string, any> {
 /**
  * Payload alternativo compatível com o schema completo/clássico
  */
-export function buildStandardSalePayload(sale: Sale): Record<string, any> {
+export function buildStandardSalePayload(sale: Sale): Record<string, unknown> {
   const custom = sale.custom_data || {};
   const responsibleName = sale.seller_name || sale.collaborator_name || custom.collaborator_name || custom.seller_name || 'Consultor';
-  const responsibleId = sale.seller_id || (sale as any).collaborator_id || custom.seller_id || custom.collaborator_id || null;
+  const responsibleId = sale.seller_id || sale.collaborator_id || custom.seller_id || custom.collaborator_id || null;
   const responsibleEmail = sale.seller_email !== undefined && sale.seller_email !== null ? sale.seller_email : (custom.seller_email || '');
   const channelVal = getSaleFdiDisplay(sale);
 
-  const payload: Record<string, any> = {
+  const payload: Record<string, unknown> = {
     id: sale.id,
     campaign_id: sale.campaign_id || null,
     campaign_name: sale.campaign_name || 'Captação R9',
@@ -383,7 +404,7 @@ export function buildStandardSalePayload(sale: Sale): Record<string, any> {
 export function logSupabaseError(
   context: string, 
   error: { message?: string; details?: string; hint?: string; code?: string } | null,
-  payloadSent?: any
+  payloadSent?: unknown
 ) {
   if (!error) return;
 

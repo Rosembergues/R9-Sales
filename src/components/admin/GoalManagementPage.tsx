@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
-import { Goal, GoalType } from '../../types';
+import { Goal, GoalType, DatabaseGoalRecord, ConsultantGoalValues } from '../../types';
 import { 
   Target, 
   Calendar, 
@@ -41,14 +41,6 @@ const MONTHS = [
 ];
 
 const YEARS = [2025, 2026, 2027, 2028];
-
-export interface ConsultantGoalValues {
-  id?: string;
-  target_graduacao: number;
-  target_pos: number;
-  target_tecnico: number;
-  target_total: number;
-}
 
 export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackToPlanner }) => {
   const { profiles, refreshProfiles } = useAuth();
@@ -123,7 +115,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   }, [goalType]);
 
   // Parse helper for database records
-  const parseGoalRecord = useCallback((g: any): ConsultantGoalValues => {
+  const parseGoalRecord = useCallback((g: DatabaseGoalRecord | Goal | Record<string, unknown>): ConsultantGoalValues => {
     const rawTotal = g.target_total !== undefined && g.target_total !== null
       ? Number(g.target_total)
       : 0;
@@ -141,7 +133,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     const tot = (grad + pos + tec > 0) ? (grad + pos + tec) : Math.max(0, Math.round(rawTotal));
 
     return {
-      id: g.id,
+      id: typeof g.id === 'string' ? g.id : undefined,
       target_graduacao: grad,
       target_pos: pos,
       target_tecnico: tec,
@@ -186,7 +178,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
 
       // Overwrite with Supabase records if available
       if (!error && remoteGoals && remoteGoals.length > 0) {
-        remoteGoals.forEach((g: any) => {
+        (remoteGoals as DatabaseGoalRecord[]).forEach(g => {
           if (g.user_id) {
             const parsed = parseGoalRecord(g);
             newSavedMap[g.user_id] = parsed;
@@ -211,22 +203,31 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     setBulkPos(goalType === 'mensal' ? 5 : 2);
     setBulkTec(goalType === 'mensal' ? 5 : 1);
 
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedReload = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadGoals();
+      }, 350);
+    };
+
     // Inscrição Realtime no canal do Supabase para a tabela 'goals'
     const channel = supabase
       .channel('public:goals')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'goals' },
-        (payload: any) => {
+        (payload: { eventType?: string }) => {
           console.log('🔄 Evento Realtime recebido na tabela goals (GoalManagementPage):', payload);
           if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || !payload.eventType) {
-            loadGoals();
+            debouncedReload();
           }
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };

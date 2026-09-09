@@ -101,7 +101,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               const sale = normalizeRemoteSale(row);
               // Migração/preenchimento para registros legados sem responsável
               if (!sale.seller_name || sale.seller_name.trim() === '' || sale.seller_name === 'Consultor') {
-                const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as any).created_by);
+                const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as { created_by?: string }).created_by);
                 if (matchedProfile) {
                   sale.seller_name = matchedProfile.name;
                 } else if (row.collaborator_name && row.collaborator_name !== 'Consultor') {
@@ -191,6 +191,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
 
     return () => {
+      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, []);

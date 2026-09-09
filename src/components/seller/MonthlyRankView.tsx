@@ -3,7 +3,7 @@ import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
 import { getSaleDateBr } from '../../lib/salesMapper';
-import { Profile, Sale, Goal } from '../../types';
+import { Profile, Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
 import { 
   Crown, 
   Flame, 
@@ -15,13 +15,6 @@ import {
   Sparkles,
   Award
 } from 'lucide-react';
-
-interface UserGoalData {
-  target_graduacao: number;
-  target_pos: number;
-  target_tecnico: number;
-  target_total: number;
-}
 
 interface MonthlyLeaderboardEntry {
   seller_id: string;
@@ -66,9 +59,9 @@ function parseDate(dateStr: string): Date | null {
   return isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function parseGoalData(g: any): UserGoalData {
-  const rawTargetValue = Number(g.target_value) || 0;
-  const rawTargetTotal = Number(g.target_total) || 0;
+function parseGoalData(g: DatabaseGoalRecord | Goal): UserGoalData {
+  const rawTargetValue = 'target_value' in g && g.target_value !== undefined ? Number(g.target_value) : 0;
+  const rawTargetTotal = g.target_total !== undefined ? Number(g.target_total) : 0;
   const targetTotal = rawTargetTotal > 0 
     ? rawTargetTotal 
     : (rawTargetValue >= 1000 ? 30 : Math.round(rawTargetValue));
@@ -137,7 +130,7 @@ export const MonthlyRankView: React.FC = () => {
 
       // Overwrite with Supabase public.goals
       if (!goalsError && goalsData && goalsData.length > 0) {
-        goalsData.forEach((g: any) => {
+        (goalsData as DatabaseGoalRecord[]).forEach(g => {
           if (g.user_id) {
             newGoalsMap[g.user_id] = parseGoalData(g);
           }
@@ -171,15 +164,23 @@ export const MonthlyRankView: React.FC = () => {
   useEffect(() => {
     loadData();
 
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedReload = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadData();
+      }, 350);
+    };
+
     const channelId = `monthly-sync-${selectedMonth}-${selectedYear}`;
     const goalsChannel = supabase
       .channel(`public:goals-${channelId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'goals' },
-        (payload: any) => {
+        (payload: { eventType?: string }) => {
           console.log('🔄 Evento Realtime recebido na tabela goals (MonthlyRankView):', payload);
-          loadData();
+          debouncedReload();
         }
       )
       .subscribe();
@@ -189,14 +190,15 @@ export const MonthlyRankView: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sales' },
-        (payload: any) => {
+        (payload: { eventType?: string }) => {
           console.log('🔄 Evento Realtime recebido na tabela sales (MonthlyRankView):', payload);
-          loadData();
+          debouncedReload();
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       goalsChannel.unsubscribe();
       supabase.removeChannel(goalsChannel);
       salesChannel.unsubscribe();
