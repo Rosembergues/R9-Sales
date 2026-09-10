@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../context/AuthContext';
-import { Database, AlertCircle } from 'lucide-react';
+import { Database, AlertCircle, Clock } from 'lucide-react';
 import { SupabaseSetupModal } from './common/SupabaseSetupModal';
 
 interface LoginFormInputs {
@@ -17,6 +17,9 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showSupabaseModal, setShowSupabaseModal] = useState(false);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(() => {
+    return localStorage.getItem('r9_session_expired_idle') === 'true';
+  });
   const { signIn, isSupabaseConnected } = useAuth();
 
   const {
@@ -26,6 +29,8 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
   } = useForm<LoginFormInputs>();
 
   const handleLogin = async (data: LoginFormInputs) => {
+    localStorage.removeItem('r9_session_expired_idle');
+    setSessionExpiredNotice(false);
     setErrorMessage('');
     setIsLoading(true);
 
@@ -70,6 +75,33 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
             Insira suas credenciais cadastradas no Supabase Auth
           </p>
         </div>
+
+        {sessionExpiredNotice && (
+          <div
+            id="session-expired-notice"
+            className="p-3.5 mb-5 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-left animate-in fade-in duration-300"
+            role="alert"
+          >
+            <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold text-amber-950">Sessão encerrada por inatividade</p>
+              <p className="mt-0.5 text-amber-800 leading-relaxed">
+                Por segurança, sua sessão foi finalizada após 3 horas sem interação. Realize login novamente para continuar.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem('r9_session_expired_idle');
+                setSessionExpiredNotice(false);
+              }}
+              className="text-amber-500 hover:text-amber-800 p-0.5 text-base leading-none cursor-pointer"
+              title="Fechar aviso"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(handleLogin)} noValidate className="space-y-5">
           <div>
