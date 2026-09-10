@@ -51,7 +51,6 @@ export function useIdleTimeout({
     isLoggingOutRef.current = true;
     clearExistingTimer();
 
-    console.warn(`⏰ [Idle Timeout] Tempo limite de inatividade atingido (${Math.round(timeoutMs / 3600000)}h). Executando logout...`);
     try {
       await onIdleRef.current();
     } catch (err) {

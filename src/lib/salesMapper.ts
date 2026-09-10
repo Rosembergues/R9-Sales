@@ -414,7 +414,7 @@ export function logSupabaseError(
   if (error.details) console.error('Detalhes:', error.details);
   if (error.hint) console.error('Dica (Hint):', error.hint);
   if (payloadSent) {
-    console.info('Objeto enviado no .insert() / .update():', payloadSent);
+    console.error('Objeto enviado no .insert() / .update():', payloadSent);
   }
   console.groupEnd();
 }

@@ -35,21 +35,17 @@ export default function Login({ onSwitchToSignUp }: LoginProps) {
     setIsLoading(true);
 
     try {
-      console.log('🚀 [Login] Submetendo credenciais para autenticação Supabase:', data.email);
       const result = await signIn({
         email: data.email.trim(),
         password: data.password
       });
 
       if (!result.success) {
-        console.warn('⚠️ [Login] Falha na autenticação:', result.error);
         setErrorMessage(
           result.error === 'Invalid login credentials'
             ? 'E-mail ou senha incorretos. Verifique suas credenciais no Supabase.'
             : result.error || 'Erro ao realizar login. Tente novamente.'
         );
-      } else {
-        console.log('🎉 [Login] Login realizado com sucesso no Supabase!');
       }
     } catch (err: any) {
       console.error('❌ [Login] Erro não tratado durante o login:', err);

@@ -40,7 +40,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const fetchAndSetUserProfile = async (userId: string, authUserMeta?: { name?: string; email?: string; role?: string }): Promise<Profile | null> => {
     try {
-      console.log('🔍 [Supabase DB] Buscando perfil do usuário logado na tabela profiles. ID:', userId);
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
@@ -52,13 +51,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (profile) {
-        console.log('👤 [Supabase DB] Perfil encontrado com sucesso:', profile.name, `[${profile.role}]`);
         setCurrentUser(profile as Profile);
         LocalSyncEngine.setCurrentUser(profile as Profile);
         return profile as Profile;
       }
-
-      console.warn('⚠️ [Supabase DB] Registro ainda não encontrado na tabela profiles para o id:', userId);
 
       // Se a trigger handle_new_user ainda estiver executando, aguarda 500ms e tenta novamente
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -69,7 +65,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .maybeSingle();
 
       if (retryProfile) {
-        console.log('👤 [Supabase DB] Perfil localizado na segunda tentativa:', retryProfile.name);
         setCurrentUser(retryProfile as Profile);
         LocalSyncEngine.setCurrentUser(retryProfile as Profile);
         return retryProfile as Profile;
@@ -88,7 +83,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           phone: '',
           target_monthly: authUserMeta.role === 'seller' ? 50000 : 0,
         };
-        console.info('ℹ️ [Supabase DB] Perfil construído a partir dos metadados da sessão Auth:', fallbackProfile);
         setCurrentUser(fallbackProfile);
         LocalSyncEngine.setCurrentUser(fallbackProfile);
         return fallbackProfile;
@@ -124,7 +118,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const initializeAuth = useCallback(async () => {
     setLoading(true);
     try {
-      console.log('🔄 [Supabase Auth] Verificando sessão ativa via getSession()...');
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError) {
@@ -132,7 +125,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (session?.user) {
-        console.log('🔑 [Supabase Auth] Sessão encontrada para:', session.user.email, `(ID: ${session.user.id})`);
         setIsSupabaseConnected(true);
         setSupabaseConfig(prev => ({ ...prev, connected: true }));
         await fetchAndSetUserProfile(session.user.id, {
@@ -141,7 +133,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: session.user.user_metadata?.role,
         });
       } else {
-        console.log('ℹ️ [Supabase Auth] Nenhuma sessão ativa detectada.');
         setCurrentUser(null);
         LocalSyncEngine.setCurrentUser(null);
       }
@@ -160,7 +151,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listener do Supabase Auth para reagir a mudanças de sessão em tempo real
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log(`🔔 [Supabase Auth] onAuthStateChange event: ${event}`, session?.user?.email);
       if (session?.user) {
         setIsSupabaseConnected(true);
         setSupabaseConfig(prev => ({ ...prev, connected: true }));
@@ -190,8 +180,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUp = async ({ name, email, password, role }: { name: string; email: string; password: string; role: UserRole }) => {
     setLoading(true);
     try {
-      console.log('📤 [Supabase Auth] Executando signUp exclusivo:', { email, name, role });
-
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -208,8 +196,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         return { success: false, error: error.message };
       }
-
-      console.log('✅ [Supabase Auth] Cadastro efetuado com sucesso! ID do usuário:', data.user?.id);
 
       // Se a sessão foi criada imediatamente (quando confirmação de e-mail é desativada)
       if (data.session?.user) {
@@ -241,8 +227,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setLoading(true);
     try {
-      console.log('🔐 [Supabase Auth] Executando login via supabase.auth.signInWithPassword para:', email);
-
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -258,8 +242,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : error.message || 'Falha ao autenticar no Supabase.',
         };
       }
-
-      console.log('✅ [Supabase Auth] Login validado com sucesso! User ID:', data.user.id);
 
       // Recupera os dados do perfil do usuário logado fazendo um select na tabela profiles filtrando pelo ID da sessão
       await fetchAndSetUserProfile(data.user.id, {
@@ -283,13 +265,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * FLUXO DE LOGOUT (SIGN OUT)
    */
   const signOut = async () => {
-    console.log('🚪 [Supabase Auth] Executando signOut...');
     try {
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('❌ [Supabase Auth] Erro ao deslogar:', error.message);
-      } else {
-        console.log('✅ [Supabase Auth] Sessão encerrada.');
       }
     } catch (err) {
       console.error('💥 [Supabase Auth] Exceção no signOut:', err);
@@ -301,7 +280,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Alteração de cargo na tabela profiles por um administrador
   const updateUserRole = async (userId: string, newRole: UserRole) => {
     try {
-      console.log(`🛡️ [Supabase DB] Atualizando papel do usuário ${userId} para ${newRole}...`);
       const { error } = await supabase
         .from('profiles')
         .update({ role: newRole, updated_at: new Date().toISOString() })
@@ -327,7 +305,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Criação de usuário por administrador via Supabase Auth
   const createUserByAdmin = async (data: { name: string; email: string; role: UserRole; phone?: string; target_monthly?: number }) => {
     try {
-      console.log('📤 [Supabase Auth] Administrador cadastrando novo usuário via signUp:', data.email);
       const tempPassword = `R9_${Math.random().toString(36).slice(-8)}!`;
 
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -346,7 +323,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: authError.message };
       }
 
-      console.log('✅ [Supabase Auth] Usuário registrado com sucesso. ID:', authData.user?.id);
       await refreshProfiles();
       return { success: true };
     } catch (err: any) {
@@ -361,7 +337,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Você não pode excluir sua própria conta conectada.' };
     }
     try {
-      console.log(`🗑️ [Supabase DB] Excluindo perfil ${userId} da tabela profiles...`);
       const { error } = await supabase.from('profiles').delete().eq('id', userId);
       if (error) {
         console.error('❌ [Supabase DB] Erro ao excluir perfil:', error.message);

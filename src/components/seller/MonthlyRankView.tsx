@@ -178,8 +178,7 @@ export const MonthlyRankView: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'goals' },
-        (payload: { eventType?: string }) => {
-          console.log('🔄 Evento Realtime recebido na tabela goals (MonthlyRankView):', payload);
+        () => {
           debouncedReload();
         }
       )
@@ -190,8 +189,7 @@ export const MonthlyRankView: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sales' },
-        (payload: { eventType?: string }) => {
-          console.log('🔄 Evento Realtime recebido na tabela sales (MonthlyRankView):', payload);
+        () => {
           debouncedReload();
         }
       )

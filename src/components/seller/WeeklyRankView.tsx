@@ -226,8 +226,7 @@ export const WeeklyRankView: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'goals' },
-        (payload: { eventType?: string }) => {
-          console.log('🔄 Evento Realtime recebido na tabela goals (WeeklyRankView):', payload);
+        () => {
           debouncedReload();
         }
       )
@@ -238,8 +237,7 @@ export const WeeklyRankView: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sales' },
-        (payload: { eventType?: string }) => {
-          console.log('🔄 Evento Realtime recebido na tabela sales (WeeklyRankView):', payload);
+        () => {
           debouncedReload();
         }
       )

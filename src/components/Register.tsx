@@ -35,11 +35,6 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
     setIsLoading(true);
 
     try {
-      console.log('🚀 [Cadastro] Submetendo novo usuário para Supabase Auth:', {
-        email: data.email,
-        name: data.name,
-      });
-
       // Todo novo usuário é cadastrado com a função padrão 'seller' (membro)
       // Promoções a Administrador são realizadas exclusivamente pelos administradores dentro do sistema
       const result = await signUp({
@@ -53,7 +48,6 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
         console.error('❌ [Cadastro] Erro retornado no cadastro:', result.error);
         setErrorMessage(result.error || 'Erro ao criar conta no Supabase. Tente novamente.');
       } else {
-        console.log('🎉 [Cadastro] Conta criada com sucesso no Supabase!');
         setSuccessMessage(
           'Conta cadastrada com sucesso! Se a confirmação de e-mail estiver ativa no seu projeto Supabase, verifique sua caixa de entrada antes de fazer login.'
         );

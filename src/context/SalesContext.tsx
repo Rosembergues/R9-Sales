@@ -119,7 +119,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         }
       } catch (err) {
-        console.warn('Supabase sales load fallback to local:', err);
+        // Fallback para armazenamento local
       }
     }
   }, []);
@@ -136,8 +136,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sales' },
         (payload: any) => {
-          console.log('🔄 Evento Realtime recebido:', payload);
-
           if (payload.eventType === 'INSERT') {
             try {
               // Certifique-se de normalizar/formatar o payload.new de acordo com a tipagem do frontend
@@ -186,9 +184,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Status da Inscrição Realtime:', status);
-      });
+      .subscribe();
 
     return () => {
       channel.unsubscribe();
@@ -304,8 +300,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         origin: { y: 0.6 },
         colors: ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#3b82f6'],
       });
-    } catch (e) {
-      console.warn('Confetti error:', e);
+    } catch {
+      // Ignora erro visual de confetti
     }
   };
 
@@ -409,9 +405,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         // Tentativa 1: Estrutura oficial da tabela R9 Sales
         const r9Payload = buildR9SalePayload(newSale);
-        console.info('📤 [Supabase Sales] Executando .insert() com formato R9:', r9Payload);
         
-        const { data: insertedData, error: insertErr } = await client
+        const { error: insertErr } = await client
           .from('sales')
           .insert(r9Payload)
           .select();
@@ -427,9 +422,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             insertErr.message?.includes('column') ||
             insertErr.message?.includes('schema cache')
           ) {
-            console.warn('🔄 Detectada divergência de colunas. Tentando insert com formato padrão alternativo...');
             const standardPayload = buildStandardSalePayload(newSale);
-            const { data: altData, error: altErr } = await client
+            const { error: altErr } = await client
               .from('sales')
               .insert(standardPayload)
               .select();
@@ -438,12 +432,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               logSupabaseError('addSale - Formato Padrão (tentativa 2)', altErr, standardPayload);
               supabaseErrorDetails = `${insertErr.message} | ${altErr.message}`;
             } else {
-              console.info('✅ [Supabase Sales] Venda inserida com sucesso (Formato Padrão):', altData);
               supabaseErrorDetails = undefined;
             }
           }
-        } else {
-          console.info('✅ [Supabase Sales] Venda inserida com sucesso no Supabase:', insertedData);
         }
       } catch (err: any) {
         console.error('💥 [Supabase Sales] Exceção inesperada no insert:', err);
@@ -639,8 +630,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (client) {
       try {
         await client.from('campaigns').insert(newCampaign);
-      } catch (err) {
-        console.warn('Supabase insert campaign fallback:', err);
+      } catch {
+        // Fallback local
       }
     }
 
@@ -668,8 +659,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (client) {
       try {
         await client.from('campaigns').update({ active: newStatus }).eq('id', campaignId);
-      } catch (err) {
-        console.warn('Supabase toggle campaign fallback:', err);
+      } catch {
+        // Fallback local
       }
     }
 
@@ -685,8 +676,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (client) {
       try {
         await client.from('campaigns').delete().eq('id', campaignId);
-      } catch (err) {
-        console.warn('Supabase delete campaign fallback:', err);
+      } catch {
+        // Fallback local
       }
     }
 

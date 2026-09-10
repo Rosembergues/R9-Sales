@@ -218,7 +218,6 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         'postgres_changes',
         { event: '*', schema: 'public', table: 'goals' },
         (payload: { eventType?: string }) => {
-          console.log('🔄 Evento Realtime recebido na tabela goals (GoalManagementPage):', payload);
           if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || !payload.eventType) {
             debouncedReload();
           }
@@ -353,8 +352,6 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         };
       });
 
-      console.log('🚀 [Supabase DB] Upsert em lote de metas por produto na tabela public.goals:', batchPayload);
-
       // 1. Batch upsert directly to Supabase public.goals table
       const { error: upsertError } = await supabase
         .from('goals')
@@ -402,8 +399,8 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               .from('profiles')
               .update({ target_monthly: item.target_total })
               .eq('id', item.user_id);
-          } catch (e) {
-            console.warn('Sync profile target error:', e);
+          } catch {
+            // Ignora erro não bloqueante de sync de perfil
           }
         }
         await refreshProfiles();

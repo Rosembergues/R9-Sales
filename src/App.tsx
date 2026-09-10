@@ -18,7 +18,6 @@ const MainLayout: React.FC = () => {
 
   // Callback de encerramento por inatividade de 3 horas
   const handleIdleLogout = useCallback(async () => {
-    console.warn('⏰ [Idle Timeout] 3 horas de inatividade atingidas. Executando logout global e redirecionamento...');
     try {
       // 1. Limpeza de estado local
       localStorage.setItem('r9_session_expired_idle', 'true');
