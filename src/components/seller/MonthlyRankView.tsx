@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
-import { getSaleDateBr } from '../../lib/salesMapper';
+import { getSaleDateBr, getRealSaleDate, normalizeRemoteSale } from '../../lib/salesMapper';
 import { Profile, Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
 import { 
   Crown, 
@@ -138,20 +138,40 @@ export const MonthlyRankView: React.FC = () => {
       }
       setGoalsMap(newGoalsMap);
 
-      // 1 & 2. Query latest sales from Supabase for selected month
-      // Limite de data inclui 23:59:59.999 do último dia e preserva fuso horário com ISO UTC
-      const startIso = monthRange.start.toISOString();
-      const endIso = monthRange.end.toISOString();
+      // 1 & 2. Consulta vendas no Supabase priorizando a data real da venda (sale_date)
+      const queryStart = new Date(monthRange.start.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      const queryEnd = new Date(monthRange.end.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-      const { data: salesData, error: salesError } = await supabase
-        .from('sales')
-        .select('*')
-        .gte('created_at', startIso)
-        .lte('created_at', endIso)
-        .order('created_at', { ascending: false });
+      let fetchedRows: any[] = [];
+      try {
+        const { data: salesData, error: salesError } = await supabase
+          .from('sales')
+          .select('*')
+          .or(`and(sale_date.gte.${queryStart},sale_date.lte.${queryEnd}),and(created_at.gte.${queryStart},created_at.lte.${queryEnd})`)
+          .order('created_at', { ascending: false });
 
-      if (!salesError && salesData) {
-        setRemoteSales(salesData as Sale[]);
+        if (!salesError && salesData) {
+          fetchedRows = salesData;
+        } else {
+          const { data: fallbackSales } = await supabase
+            .from('sales')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1000);
+          if (fallbackSales) fetchedRows = fallbackSales;
+        }
+      } catch {
+        const { data: fallbackAll } = await supabase
+          .from('sales')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1000);
+        if (fallbackAll) fetchedRows = fallbackAll;
+      }
+
+      if (fetchedRows.length > 0) {
+        const normalized = fetchedRows.map(row => normalizeRemoteSale(row));
+        setRemoteSales(normalized);
       }
     } catch (err) {
       console.error('Erro ao carregar dados do ranking mensal:', err);
@@ -213,24 +233,13 @@ export const MonthlyRankView: React.FC = () => {
     return Array.from(map.values());
   }, [remoteSales, contextSales]);
 
-  // Filter sales within the selected month and year
+  // Filter sales within the selected month and year strictly based on real sale date (sale_date)
   const monthlySales = useMemo(() => {
     return salesToUse.filter(sale => {
-      // 3. Remoção de Filtros Errados: NÃO ocultar vendas com status 'Em Análise' nem filtros arbitrários
-      const saleDateStr = getSaleDateBr(sale);
-      const parsed = parseDate(saleDateStr);
+      const saleDate = getRealSaleDate(sale);
+      if (!saleDate) return false;
 
-      const createdAtDate = sale.created_at ? new Date(sale.created_at) : null;
-      const isCreatedAtInMonth = createdAtDate && !isNaN(createdAtDate.getTime())
-        ? (createdAtDate.getMonth() + 1 === selectedMonth && createdAtDate.getFullYear() === selectedYear)
-        : false;
-
-      const isSaleDateInMonth = parsed
-        ? (parsed.getMonth() + 1 === selectedMonth && parsed.getFullYear() === selectedYear)
-        : false;
-
-      if (!parsed && !isCreatedAtInMonth) return true; // Include if date parsing is ambiguous to prevent data omission
-      return isSaleDateInMonth || isCreatedAtInMonth;
+      return saleDate.getMonth() + 1 === selectedMonth && saleDate.getFullYear() === selectedYear;
     });
   }, [salesToUse, selectedMonth, selectedYear]);
 

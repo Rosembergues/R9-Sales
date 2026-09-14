@@ -108,6 +108,7 @@ export interface Sale {
   status: SaleStatus;
   commission: number;
   fdi?: string | ProductChannelFDI;
+  sale_date?: string;
   custom_data?: SaleCustomData;
   notes?: string;
   created_at: string;

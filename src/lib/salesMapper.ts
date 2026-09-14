@@ -134,6 +134,64 @@ export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: SaleCustomDa
   return '';
 }
 
+/**
+ * Converte string de data (DD/MM/YYYY, YYYY-MM-DD ou ISO) em objeto Date local
+ * fixando o horário às 12:00:00 para evitar desvios de timezone.
+ */
+export function parseDateString(dateStr?: string | null): Date | null {
+  if (!dateStr) return null;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+
+  // Formato DD/MM/YYYY ou D/M/YYYY
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+    const [d, m, y] = trimmed.split('/').map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0, 0);
+  }
+
+  // Formato YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    const [y, m, d] = trimmed.slice(0, 10).split('-').map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0, 0);
+  }
+
+  const parsed = new Date(trimmed);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Retorna a Data real da Venda (sale_date) como objeto Date.
+ * PRIORIDADE TOTAL para a Data da Venda informada no lançamento (sale_date).
+ * Uma venda realizada no sábado e cadastrada na segunda-feira deve pertencer
+ * estritamente à semana da sua data da venda real (sábado).
+ * O campo created_at é usado estritamente como fallback para registros legados sem sale_date.
+ */
+export function getRealSaleDate(sale: Partial<Sale> & { custom_data?: SaleCustomData; sale_date?: string }): Date | null {
+  if (!sale) return null;
+
+  // 1. Data da venda informada explicitamente no custom_data ou campo sale_date direto
+  const explicitDate = sale.custom_data?.sale_date || sale.sale_date;
+  if (explicitDate && typeof explicitDate === 'string') {
+    const parsed = parseDateString(explicitDate);
+    if (parsed) return parsed;
+  }
+
+  // 2. Extração via getSaleDateBr (já normaliza e valida DD/MM/YYYY com prioridade na sale_date)
+  const brStr = getSaleDateBr(sale);
+  if (brStr) {
+    const parsed = parseDateString(brStr);
+    if (parsed) return parsed;
+  }
+
+  // 3. Fallback estrito apenas para registros legados sem nenhuma data da venda informada
+  if (sale.created_at) {
+    const createdDate = new Date(sale.created_at);
+    if (!isNaN(createdDate.getTime())) return createdDate;
+  }
+
+  return null;
+}
+
 export type SaleFdiInput = Partial<Sale> & {
   fdi_channel?: unknown;
   channel?: unknown;
@@ -286,6 +344,7 @@ export function normalizeRemoteSale(row: RemoteSaleRow): Sale {
     status: (row.status as SaleStatus) || 'Aprovada',
     commission: Number(row.commission) || 60,
     fdi: detectedFdiChannel,
+    sale_date: dateBr,
     notes: row.notes || '',
     created_at: row.created_at || new Date().toISOString(),
     custom_data: {

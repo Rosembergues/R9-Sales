@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
-import { getSaleDateBr } from '../../lib/salesMapper';
+import { getSaleDateBr, getRealSaleDate, normalizeRemoteSale } from '../../lib/salesMapper';
 import { Profile, Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
 import { 
   Trophy, 
@@ -187,20 +187,44 @@ export const WeeklyRankView: React.FC = () => {
       }
       setGoalsMap(newGoalsMap);
 
-      // 1 & 2. Query latest sales from Supabase within current week
-      // Limite de data inclui 23:59:59.999 do domingo e preserva fuso horário convertendo para ISO UTC
-      const startIso = weekRange.start.toISOString();
-      const endIso = weekRange.end.toISOString();
+      // 1 & 2. Consulta vendas no Supabase priorizando a data real da venda (sale_date)
+      // Converte as datas da semana para limites de busca com margem de 24h para fuso horário
+      const queryStart = new Date(weekRange.start.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      const queryEnd = new Date(weekRange.end.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-      const { data: salesData, error: salesError } = await supabase
-        .from('sales')
-        .select('*')
-        .gte('created_at', startIso)
-        .lte('created_at', endIso)
-        .order('created_at', { ascending: false });
+      let fetchedRows: any[] = [];
+      try {
+        const { data: salesData, error: salesError } = await supabase
+          .from('sales')
+          .select('*')
+          .or(`and(sale_date.gte.${queryStart},sale_date.lte.${queryEnd}),and(created_at.gte.${queryStart},created_at.lte.${queryEnd})`)
+          .order('created_at', { ascending: false });
 
-      if (!salesError && salesData) {
-        setRemoteSales(salesData as Sale[]);
+        if (!salesError && salesData) {
+          fetchedRows = salesData;
+        } else {
+          // Fallback resiliente caso haja erro de sintaxe no .or() ou cache do schema
+          const { data: fallbackSales, error: fallbackErr } = await supabase
+            .from('sales')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1000);
+          if (!fallbackErr && fallbackSales) {
+            fetchedRows = fallbackSales;
+          }
+        }
+      } catch {
+        const { data: fallbackAll } = await supabase
+          .from('sales')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1000);
+        if (fallbackAll) fetchedRows = fallbackAll;
+      }
+
+      if (fetchedRows.length > 0) {
+        const normalized = fetchedRows.map(row => normalizeRemoteSale(row));
+        setRemoteSales(normalized);
       }
     } catch (err) {
       console.error('Erro ao carregar dados do ranking semanal:', err);
@@ -261,26 +285,17 @@ export const WeeklyRankView: React.FC = () => {
     return Array.from(map.values());
   }, [remoteSales, contextSales]);
 
-  // Filter sales within the selected week
+  // Filter sales within the selected week strictly based on real sale date (sale_date)
+  // Regra obrigatória: A data da realização da venda (sale_date) tem prioridade total sobre a data de registro (created_at).
+  // Uma venda realizada no sábado e registrada na segunda-feira é contabilizada exclusivamente na semana do sábado.
   const weeklySales = useMemo(() => {
     return salesToUse.filter(sale => {
-      // 3. Remoção de Filtros Errados: NÃO ocultar vendas com status 'Em Análise' nem filtros arbitrários
-      const saleDateStr = getSaleDateBr(sale);
-      const parsed = parseDate(saleDateStr);
+      const saleDate = getRealSaleDate(sale);
+      if (!saleDate) return false;
 
-      const createdAtDate = sale.created_at ? new Date(sale.created_at) : null;
-      const isCreatedAtInWeek = createdAtDate && !isNaN(createdAtDate.getTime())
-        ? createdAtDate >= weekRange.start && createdAtDate <= weekRange.end
-        : false;
-
-      const isSaleDateInWeek = parsed
-        ? parsed >= weekRange.start && parsed <= weekRange.end
-        : false;
-
-      if (!parsed && !createdAtDate) return weekOffset === 0; // Include if date parsing is ambiguous only on current week
-      return isSaleDateInWeek || isCreatedAtInWeek;
+      return saleDate >= weekRange.start && saleDate <= weekRange.end;
     });
-  }, [salesToUse, weekRange, weekOffset]);
+  }, [salesToUse, weekRange]);
 
   // Build weekly leaderboard joined with public.goals
   const leaderboard = useMemo<WeeklyLeaderboardEntry[]>(() => {
