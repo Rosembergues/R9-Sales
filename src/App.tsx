@@ -9,9 +9,9 @@ import { supabase, LocalSyncEngine } from './lib/supabase';
 const MainLayout: React.FC = () => {
   const { currentUser, loading, signOut } = useAuth();
 
-  // Limpa rota de login quando autenticado
+  // Normaliza rota caso haja caminho residual (/login, hash, etc.) e garante a raiz do app
   useEffect(() => {
-    if (currentUser && window.location.pathname === '/login') {
+    if (window.location.pathname !== '/' && window.location.pathname !== '') {
       window.history.replaceState(null, '', '/');
     }
   }, [currentUser]);
@@ -30,12 +30,8 @@ const MainLayout: React.FC = () => {
     } catch (error) {
       console.error('❌ [Idle Timeout] Erro ao deslogar por inatividade:', error);
     } finally {
-      // 3. Forçar redirecionamento para a tela de login
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      } else {
-        window.location.reload();
-      }
+      // 3. Forçar redirecionamento limpo estritamente para a raiz do aplicativo (/)
+      window.location.href = '/';
     }
   }, [signOut]);
 
