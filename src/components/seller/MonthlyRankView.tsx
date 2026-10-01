@@ -13,7 +13,9 @@ import {
   TrendingUp, 
   CheckCircle2,
   Sparkles,
-  Award
+  Award,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 interface MonthlyLeaderboardEntry {
@@ -91,20 +93,56 @@ export const MonthlyRankView: React.FC = () => {
   const [goalsMap, setGoalsMap] = useState<Record<string, UserGoalData>>({});
   const [remoteSales, setRemoteSales] = useState<Sale[] | null>(null);
 
-  // Current month boundaries
-  const currentDate = new Date();
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
+  // Navigation across previous and current months (0 = current, -1 = last month, -2 = 2 months ago...)
+  const [monthOffset, setMonthOffset] = useState<number>(0);
 
-  const monthLabel = `${MONTH_NAMES[selectedMonth - 1]} de ${selectedYear}`;
+  const handlePrevMonth = () => {
+    setMonthOffset(prev => prev - 1);
+  };
 
-  // Month range boundaries (01 00:00:00.000 to last day 23:59:59.999)
+  const handleNextMonth = () => {
+    setMonthOffset(prev => Math.min(prev + 1, 0));
+  };
+
+  const handleCurrentMonth = () => {
+    setMonthOffset(0);
+  };
+
+  // Month range boundaries shifted by monthOffset (01 00:00:00.000 to last day 23:59:59.999)
   const monthRange = useMemo(() => {
-    const startOfMonth = new Date(selectedYear, selectedMonth - 1, 1, 0, 0, 0, 0);
-    const lastDayNumber = new Date(selectedYear, selectedMonth, 0).getDate();
-    const endOfMonth = new Date(selectedYear, selectedMonth - 1, lastDayNumber, 23, 59, 59, 999);
-    return { start: startOfMonth, end: endOfMonth, lastDay: lastDayNumber };
-  }, [selectedMonth, selectedYear]);
+    const now = new Date();
+    // Shift target date by monthOffset months
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth() + 1; // 1-12
+    const startOfMonth = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const lastDayNumber = new Date(year, month, 0).getDate();
+    const endOfMonth = new Date(year, month - 1, lastDayNumber, 23, 59, 59, 999);
+
+    const monthName = MONTH_NAMES[month - 1];
+    const monthLabel = `${monthName} de ${year}`;
+    const shortLabel = `${monthName.slice(0, 3)}/${String(year).slice(-2)}`;
+
+    let statusText = 'Mês Atual';
+    if (monthOffset === -1) {
+      statusText = 'Mês Anterior';
+    } else if (monthOffset < -1) {
+      statusText = `${Math.abs(monthOffset)} meses atrás`;
+    }
+
+    return { 
+      month,
+      year,
+      start: startOfMonth, 
+      end: endOfMonth, 
+      lastDay: lastDayNumber,
+      monthName,
+      monthLabel,
+      shortLabel,
+      statusText,
+      isCurrent: monthOffset === 0
+    };
+  }, [monthOffset]);
 
   // 1. Fetch monthly goals from public.goals and latest sales
   const loadData = useCallback(async () => {
@@ -172,6 +210,8 @@ export const MonthlyRankView: React.FC = () => {
       if (fetchedRows.length > 0) {
         const normalized = fetchedRows.map(row => normalizeRemoteSale(row));
         setRemoteSales(normalized);
+      } else {
+        setRemoteSales([]);
       }
     } catch (err) {
       console.error('Erro ao carregar dados do ranking mensal:', err);
@@ -192,7 +232,7 @@ export const MonthlyRankView: React.FC = () => {
       }, 350);
     };
 
-    const channelId = `monthly-sync-${selectedMonth}-${selectedYear}`;
+    const channelId = `monthly-sync-${monthRange.month}-${monthRange.year}`;
     const goalsChannel = supabase
       .channel(`public:goals-${channelId}`)
       .on(
@@ -222,7 +262,7 @@ export const MonthlyRankView: React.FC = () => {
       salesChannel.unsubscribe();
       supabase.removeChannel(salesChannel);
     };
-  }, [loadData, selectedMonth, selectedYear]);
+  }, [loadData, monthRange.month, monthRange.year]);
 
   // Unifica vendas remotas com as do contexto para não omitir nenhum registro local
   const salesToUse = useMemo(() => {
@@ -239,9 +279,9 @@ export const MonthlyRankView: React.FC = () => {
       const saleDate = getRealSaleDate(sale);
       if (!saleDate) return false;
 
-      return saleDate.getMonth() + 1 === selectedMonth && saleDate.getFullYear() === selectedYear;
+      return saleDate.getMonth() + 1 === monthRange.month && saleDate.getFullYear() === monthRange.year;
     });
-  }, [salesToUse, selectedMonth, selectedYear]);
+  }, [salesToUse, monthRange.month, monthRange.year]);
 
   // Build monthly leaderboard joined with public.goals
   const leaderboard = useMemo<MonthlyLeaderboardEntry[]>(() => {
@@ -349,9 +389,9 @@ export const MonthlyRankView: React.FC = () => {
     <div className="space-y-6">
       
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 border border-purple-200/80 flex items-center justify-center shadow-2xs">
               <Crown className="w-4 h-4" />
             </div>
@@ -360,27 +400,79 @@ export const MonthlyRankView: React.FC = () => {
             </h2>
             <span className="text-[10px] font-bold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full flex items-center gap-1">
               <CalendarDays className="w-3 h-3" />
-              {monthLabel}
+              {monthRange.isCurrent ? `Mês Atual (${monthRange.monthLabel})` : `${monthRange.statusText} (${monthRange.monthLabel})`}
             </span>
+            {!monthRange.isCurrent && (
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                Histórico
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Classificação geral e progresso das metas mensais de vendas sincronizadas da tabela <code className="text-[11px] font-mono bg-purple-50 text-purple-800 px-1 py-0.2 rounded">public.goals</code>.
+            {monthRange.isCurrent
+              ? 'Classificação geral e progresso das metas mensais de vendas sincronizadas da tabela public.goals.'
+              : `Exibindo histórico de classificação e vendas do mês de ${monthRange.monthLabel}.`}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Navegador de Mês (controle no mesmo estilo do rank semanal: < Hoje/Mês Atual > | Data) */}
+          <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-700 font-medium shadow-xs">
+            <button
+              onClick={handlePrevMonth}
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer"
+              title="Mês anterior"
+              aria-label="Mês anterior"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              onClick={handleCurrentMonth}
+              disabled={monthRange.isCurrent}
+              className={`px-2 py-0.5 rounded text-xs transition-all ${
+                monthRange.isCurrent
+                  ? 'font-bold text-gray-900 cursor-default bg-white shadow-2xs border border-gray-200/60'
+                  : 'font-semibold text-purple-600 hover:text-purple-800 hover:bg-purple-50 cursor-pointer'
+              }`}
+              title={monthRange.isCurrent ? 'Mês atual' : 'Clique para voltar para o mês atual'}
+            >
+              {monthRange.isCurrent ? 'Hoje' : 'Mês Atual'}
+            </button>
+
+            <button
+              onClick={handleNextMonth}
+              disabled={monthRange.isCurrent}
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              title={monthRange.isCurrent ? 'Mês atual é o mais recente' : 'Próximo mês'}
+              aria-label="Próximo mês"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
+            <span className="text-gray-300">|</span>
+
+            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap hidden sm:inline">
+              {monthRange.monthLabel}
+            </span>
+            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap sm:hidden">
+              {monthRange.shortLabel}
+            </span>
+          </div>
+
           <button
             onClick={loadData}
             disabled={isLoading}
             className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-            title="Atualizar ranking e metas mensais"
+            title="Atualizar dados do mês selecionado"
           >
             <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-semibold">
             <Flame className="w-3.5 h-3.5 text-purple-600 fill-purple-600" />
-            <span>Classificação por Boletos</span>
+            <span className="hidden sm:inline">Classificação por Boletos</span>
+            <span className="sm:hidden">Boletos</span>
           </div>
         </div>
       </div>
@@ -388,7 +480,9 @@ export const MonthlyRankView: React.FC = () => {
       {/* Summary Highlights */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
-          <span className="text-xs text-slate-500 font-medium">Boletos Confirmados no Mês</span>
+          <span className="text-xs text-slate-500 font-medium">
+            {monthRange.isCurrent ? 'Boletos Confirmados no Mês' : `Boletos Confirmados (${monthRange.shortLabel})`}
+          </span>
           <div className="text-2xl font-black text-slate-900 font-['Space_Grotesk'] mt-1">
             {totalMonthlySales} <span className="text-xs font-semibold text-slate-500">vendas</span>
           </div>
@@ -485,7 +579,7 @@ export const MonthlyRankView: React.FC = () => {
             <div className="p-6 pt-8 rounded-2xl bg-white border-2 border-purple-400 shadow-sm flex flex-col items-center text-center relative order-1 md:order-2 md:-translate-y-2">
               <div className="absolute -top-4 px-4 py-1 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-bold text-xs shadow-xs flex items-center gap-1">
                 <Crown className="w-3.5 h-3.5 fill-current" />
-                CAMPEÃO DO MÊS (1º LUGAR)
+                {monthRange.isCurrent ? 'CAMPEÃO DO MÊS (1º LUGAR)' : `CAMPEÃO DE ${monthRange.monthName.toUpperCase()} (1º LUGAR)`}
               </div>
               
               <h3 className="font-bold text-slate-900 text-lg flex items-center gap-1.5">
@@ -622,7 +716,7 @@ export const MonthlyRankView: React.FC = () => {
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-xs">
         <div className="px-6 py-4 bg-slate-50/75 border-b border-slate-200 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Tabela Geral de Classificação Mensal
+            {monthRange.isCurrent ? 'Tabela Geral de Classificação Mensal' : `Classificação Mensal - ${monthRange.monthLabel}`}
           </span>
           <span className="text-xs text-slate-500 font-medium">
             Total de {leaderboard.length} consultores avaliados
