@@ -15,6 +15,7 @@ export { supabase, getSupabaseClient, setSupabaseCredentials, isSupabaseConfigur
 const LOCAL_PROFILES_KEY = 'salesflow_profiles_v4';
 const LOCAL_CAMPAIGNS_KEY = 'salesflow_campaigns_v1';
 const LOCAL_SALES_KEY = 'salesflow_sales_v3';
+const LOCAL_PENDING_SALES_KEY = 'salesflow_pending_sales_v1';
 const LOCAL_CURRENT_USER_KEY = 'salesflow_current_user_v4';
 const LOCAL_GOALS_KEY = 'salesflow_goals_v1';
 
@@ -25,7 +26,6 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     description: 'Campanha de expansão comercial com bônus de 5% sobre faturamento de soluções corporativas.',
     code: 'ACELERA-Q1',
     active: true,
-    commission_rate: 5.0,
     target_amount: 250000,
     start_date: '2026-01-01',
     end_date: '2026-03-31',
@@ -61,7 +61,6 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     description: 'Foco em aquisição de novas contas para a plataforma de Inteligência e Automação de Processos.',
     code: 'CLOUD-IA-2026',
     active: true,
-    commission_rate: 6.5,
     target_amount: 180000,
     start_date: '2026-02-01',
     end_date: '2026-04-30',
@@ -136,7 +135,6 @@ create table if not exists public.campaigns (
   description text,
   code text unique not null,
   active boolean default true,
-  commission_rate numeric default 5.0,
   target_amount numeric default 100000,
   start_date date not null,
   end_date date not null,
@@ -175,10 +173,14 @@ create table if not exists public.sales (
   product_name text,
   value numeric default 1200,
   payment_method text default 'PIX',
-  status text default 'Aprovada',
-  commission numeric default 60,
   custom_data jsonb default '{}'::jsonb
 );
+
+-- Campos canônicos usados pelo aplicativo:
+-- seller_id = identificador do responsável; seller_name/email são snapshots históricos.
+-- client_name/product_name/value/payment_method são a representação canônica da venda.
+-- custom_data permanece reservado para dados específicos de campanhas/compatibilidade.
+
 
 -- 6. Habilitar Row Level Security (RLS) nas Tabelas Críticas
 alter table public.profiles enable row level security;
@@ -204,10 +206,15 @@ create policy "Usuários podem atualizar seus próprios perfis ou admins podem a
     exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
   );
 
+-- Perfis são criados exclusivamente pelo trigger handle_new_user (SECURITY DEFINER)
+-- ou por uma operação administrativa autenticada. Não permitir INSERT público.
 drop policy if exists "Admins ou registro público podem inserir perfis" on public.profiles;
-create policy "Admins ou registro público podem inserir perfis" 
-  on public.profiles for insert 
-  with check (true);
+drop policy if exists "Admins podem inserir perfis" on public.profiles;
+create policy "Admins podem inserir perfis"
+  on public.profiles for insert
+  with check (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
 
 drop policy if exists "Apenas admins podem excluir perfis" on public.profiles;
 create policy "Apenas admins podem excluir perfis" 
@@ -278,6 +285,16 @@ create policy "Admins podem criar, editar ou excluir campanhas"
   );
 
 -- ============================================================
+-- 6.1 Índices para consultas operacionais e paginação
+-- Mantém filtros/ordenação rápidos sem alterar o contrato atual da aplicação.
+create index if not exists idx_sales_created_at_desc on public.sales (created_at desc);
+create index if not exists idx_sales_sale_date_desc on public.sales (sale_date desc);
+create index if not exists idx_sales_seller_id on public.sales (seller_id);
+create index if not exists idx_sales_collaborator_id on public.sales (collaborator_id);
+create index if not exists idx_sales_campaign_id on public.sales (campaign_id);
+create index if not exists idx_sales_product_name on public.sales (product_name);
+create index if not exists idx_sales_fdi on public.sales (fdi);
+
 -- 7. Função e Triggers de auditoria updated_at
 -- ============================================================
 create or replace function public.handle_updated_at()
@@ -465,6 +482,31 @@ export class LocalSyncEngine {
     } catch (e) {
       console.error('Failed to save sales locally', e);
     }
+  }
+
+  // Fila offline: o Supabase continua sendo a fonte oficial; somente vendas
+  // que ainda não foram confirmadas no servidor ficam nesta fila temporária.
+  static getPendingSales(): Sale[] {
+    try {
+      const stored = localStorage.getItem(LOCAL_PENDING_SALES_KEY);
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  static savePendingSales(sales: Sale[]) {
+    try {
+      localStorage.setItem(LOCAL_PENDING_SALES_KEY, JSON.stringify(sales));
+    } catch (e) {
+      console.error('Failed to save pending sales locally', e);
+    }
+  }
+
+  static clearPendingSale(saleId: string) {
+    const pending = this.getPendingSales().filter(s => s.id !== saleId);
+    this.savePendingSales(pending);
   }
 
   static getCurrentUser(): Profile | null {

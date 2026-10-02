@@ -34,7 +34,7 @@ export const QuickSaleLogger: React.FC = () => {
   const [notes, setNotes] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successBanner, setSuccessBanner] = useState<{ value: number; commission: number } | null>(null);
+  const [successBanner, setSuccessBanner] = useState<{ value: number } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Set default campaign
@@ -45,9 +45,7 @@ export const QuickSaleLogger: React.FC = () => {
   }, [activeCampaigns, selectedCampaignId]);
 
   const currentCampaign = activeCampaigns.find(c => c.id === selectedCampaignId) || activeCampaigns[0];
-  const commissionRate = currentCampaign ? currentCampaign.commission_rate : 5.0;
   const numValue = Number(saleValue) || 0;
-  const calculatedCommission = (numValue * commissionRate) / 100;
 
   const handleCustomFieldChange = (fieldId: string, value: any) => {
     setCustomData(prev => ({
@@ -88,7 +86,6 @@ export const QuickSaleLogger: React.FC = () => {
     if (result.success && result.sale) {
       setSuccessBanner({
         value: result.sale.value,
-        commission: result.sale.commission,
       });
 
       // Clear form for quick next sale
@@ -138,7 +135,7 @@ export const QuickSaleLogger: React.FC = () => {
             >
               {activeCampaigns.map(c => (
                 <option key={c.id} value={c.id}>
-                  {c.title} ({c.commission_rate}% comissão)
+                  {c.title}
                 </option>
               ))}
             </select>
@@ -158,7 +155,7 @@ export const QuickSaleLogger: React.FC = () => {
                 Venda de R$ {successBanner.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} registrada com sucesso!
               </p>
               <p className="text-xs text-emerald-700">
-                Sua comissão desta venda: <strong className="text-emerald-950">R$ {successBanner.commission.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> • Metas e Ranking atualizados ao vivo!
+                Metas e Ranking atualizados ao vivo!
               </p>
             </div>
           </div>
@@ -351,20 +348,10 @@ export const QuickSaleLogger: React.FC = () => {
             className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500"
           />
         </div>
-
-        {/* Bottom bar with Live Commission and Submit button */}
+        {/* Bottom bar with seller and submit button */}
         <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-              <span className="text-slate-500 block text-[10px]">Comissão Estimada ({commissionRate}%):</span>
-              <span className="font-bold text-emerald-600 text-sm">
-                R$ {calculatedCommission.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="text-xs text-slate-500 hidden md:block">
-              Vendedor logado: <strong className="text-slate-900">{currentUser?.name}</strong>
-            </div>
+          <div className="text-xs text-slate-500">
+            Vendedor logado: <strong className="text-slate-900">{currentUser?.name}</strong>
           </div>
 
           <button

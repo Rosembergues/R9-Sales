@@ -149,20 +149,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     initializeAuth();
 
-    // Listener do Supabase Auth para reagir a mudanças de sessão em tempo real
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setIsSupabaseConnected(true);
-        setSupabaseConfig(prev => ({ ...prev, connected: true }));
-        await fetchAndSetUserProfile(session.user.id, {
-          name: session.user.user_metadata?.name,
-          email: session.user.email,
-          role: session.user.user_metadata?.role,
-        });
-        await refreshProfiles();
-      } else if (event === 'SIGNED_OUT') {
+    // Listener do Supabase Auth.
+    // IMPORTANTE: não fazemos consultas assíncronas ao Supabase diretamente
+    // dentro do callback. O Auth pode estar segurando um lock interno durante
+    // a mudança de sessão; consultar profiles dentro dele pode causar
+    // "Failed to fetch"/deadlocks intermitentes.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         LocalSyncEngine.setCurrentUser(null);
+        return;
+      }
+
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        setIsSupabaseConnected(true);
+        setSupabaseConfig(prev => ({ ...prev, connected: true }));
+
+        // Sai do callback do Auth antes de consultar profiles.
+        setTimeout(() => {
+          if (!session?.user) return;
+
+          void (async () => {
+            try {
+              await fetchAndSetUserProfile(session.user.id, {
+                name: session.user.user_metadata?.name,
+                email: session.user.email,
+                role: session.user.user_metadata?.role,
+              });
+              await refreshProfiles();
+            } catch (err) {
+              console.error('💥 [Supabase Auth] Erro ao carregar dados após mudança de sessão:', err);
+            }
+          })();
+        }, 0);
       }
     });
 

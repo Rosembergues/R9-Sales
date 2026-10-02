@@ -24,8 +24,7 @@ import {
   ProductChannelFDI, 
   ModalityType, 
   ShiftType, 
-  ParcelaLeveOption,
-  SaleStatus 
+  ParcelaLeveOption
 } from '../../types';
 import { getSaleFdiDisplay } from '../../lib/salesMapper';
 
@@ -89,7 +88,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
   const [hasBolsaConvenio, setHasBolsaConvenio] = useState(false);
   const [empresaConvenio, setEmpresaConvenio] = useState('');
   const [value, setValue] = useState<number>(0);
-  const [status, setStatus] = useState<SaleStatus>('Aprovada');
   const [notes, setNotes] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -142,7 +140,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       setHasBolsaConvenio(!!sale.custom_data?.has_bolsa_convenio);
       setEmpresaConvenio(sale.custom_data?.empresa_convenio || '');
       setValue(Number(sale.value) || 0);
-      setStatus(sale.status || 'Aprovada');
       setNotes(sale.notes || '');
 
       setConfirmDelete(false);
@@ -223,7 +220,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       const updatedFields: Partial<Sale> = {
         client_name: candidateName.trim(),
         value: Number(value) || 0,
-        status,
         notes: notes.trim(),
         product_name: `${mainProduct} - ${modality} (${shift})`,
         fdi: fdiChannel,

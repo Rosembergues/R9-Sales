@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
-import { Target, TrendingUp, Award, DollarSign, Calendar, Zap, CheckCircle } from 'lucide-react';
+import { Target, TrendingUp, DollarSign, Zap, BarChart3 } from 'lucide-react';
 
 export const GoalProgressTracker: React.FC = () => {
   const { currentUser } = useAuth();
@@ -96,44 +96,42 @@ export const GoalProgressTracker: React.FC = () => {
 
       </div>
 
-      {/* Accumulated Commission Card */}
+      {/* Period Summary */}
       <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between">
-        
         <div>
           <div className="flex items-center justify-between text-xs text-indigo-700 font-semibold mb-3">
             <span className="flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-indigo-600" />
-              Comissões Conquistadas
+              <BarChart3 className="w-4 h-4 text-indigo-600" />
+              Resumo do Período
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono font-medium border border-indigo-100">
-              Live
+              Atualizado
             </span>
           </div>
 
           <div className="text-2xl sm:text-3xl font-black text-slate-900 font-['Space_Grotesk']">
-            R$ {stats.commissionEarned.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            {stats.totalSales} {stats.totalSales === 1 ? 'venda' : 'vendas'}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Ganhos acumulados no período atual
+            Fechamentos registrados no período atual
           </p>
 
           <div className="mt-4 space-y-2 text-xs">
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-              <span className="text-slate-500">Total de Fechamentos:</span>
-              <span className="font-bold text-slate-900">{stats.totalSales}</span>
+              <span className="text-slate-500">Faturamento:</span>
+              <span className="font-bold text-slate-900">R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-              <span className="text-slate-500">Status no Ranking:</span>
-              <span className="font-bold text-amber-600">{stats.rankPosition}º Colocado</span>
+              <span className="text-slate-500">Ticket Médio:</span>
+              <span className="font-bold text-slate-900">R$ {stats.averageTicket.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
             </div>
           </div>
         </div>
 
         <div className="pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex items-center gap-1">
-          <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <span>Valores liberados automaticamente após aprovação</span>
+          <TrendingUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span>Ranking e meta são atualizados a cada nova venda</span>
         </div>
-
       </div>
 
     </div>

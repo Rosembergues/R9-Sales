@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
-import { SaleStatus } from '../../types';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -41,14 +40,11 @@ export const AnalyticsOverview: React.FC = () => {
     totalCompanyRevenue, 
     totalCompanySalesCount, 
     overallTargetPercentage, 
-    totalCompanyCommission, 
     averageTicket,
     exportSalesToCSV,
-    updateSaleStatus
   } = useSales();
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Chart data: Sales by Seller
   const sellerPerformanceData = leaderboard.map(l => ({
@@ -84,8 +80,7 @@ export const AnalyticsOverview: React.FC = () => {
       s.client_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.seller_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.product_name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    return matchesSearch;
   });
 
   return (
@@ -183,7 +178,7 @@ export const AnalyticsOverview: React.FC = () => {
             <Award className="w-4 h-4 text-rose-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 font-['Space_Grotesk']">
-            R$ {totalCompanyCommission.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
             Geradas para a equipe
@@ -292,17 +287,6 @@ export const AnalyticsOverview: React.FC = () => {
                 className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 w-48 sm:w-60 shadow-xs"
               />
             </div>
-
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-indigo-500 shadow-xs"
-            >
-              <option value="all">Todos os Status</option>
-              <option value="Aprovada">Aprovadas</option>
-              <option value="Pendente">Pendentes</option>
-              <option value="Em Análise">Em Análise</option>
-            </select>
           </div>
         </div>
 
@@ -318,7 +302,6 @@ export const AnalyticsOverview: React.FC = () => {
                   <th className="py-3.5 px-4">Produto / Serviço</th>
                   <th className="py-3.5 px-4">Valor (R$)</th>
                   <th className="py-3.5 px-4">Pagamento</th>
-                  <th className="py-3.5 px-4">Status</th>
                   <th className="py-3.5 px-4 text-right">Ação Admin</th>
                 </tr>
               </thead>
@@ -350,28 +333,6 @@ export const AnalyticsOverview: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-slate-500">
                         {sale.payment_method}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded-full font-semibold text-[10px] ${
-                          sale.status === 'Aprovada'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : sale.status === 'Pendente'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : 'bg-slate-100 text-slate-600 border border-slate-200'
-                        }`}>
-                          {sale.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <select
-                          value={sale.status}
-                          onChange={(e) => updateSaleStatus(sale.id, e.target.value as SaleStatus)}
-                          className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] text-slate-700 focus:outline-none focus:border-indigo-500"
-                        >
-                          <option value="Aprovada">Aprovar</option>
-                          <option value="Pendente">Pendente</option>
-                          <option value="Em Análise">Em Análise</option>
-                        </select>
                       </td>
                     </tr>
                   ))

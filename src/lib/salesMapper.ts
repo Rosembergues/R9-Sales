@@ -4,7 +4,6 @@ import {
   ProductChannelFDI, 
   SaleCustomData,
   PaymentMethod,
-  SaleStatus,
   MainProductType,
   ModalityType,
   ShiftType
@@ -341,8 +340,6 @@ export function normalizeRemoteSale(row: RemoteSaleRow): Sale {
     product_name: product,
     value: Number(row.value) || 1200,
     payment_method: (row.payment_method as PaymentMethod) || 'PIX',
-    status: (row.status as SaleStatus) || 'Aprovada',
-    commission: Number(row.commission) || 60,
     fdi: detectedFdiChannel,
     sale_date: dateBr,
     notes: row.notes || '',
@@ -437,8 +434,6 @@ export function buildStandardSalePayload(sale: Sale): Record<string, unknown> {
     product_name: sale.custom_data?.main_product || sale.product_name || 'Graduação',
     value: Number(sale.value) || 1200,
     payment_method: sale.payment_method || 'PIX',
-    status: sale.status || 'Aprovada',
-    commission: Number(sale.commission) || 0,
     fdi: channelVal, // TEXT
     custom_data: {
       ...custom,

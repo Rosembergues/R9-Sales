@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { Campaign, Sale, LeaderboardEntry, Profile, PaymentMethod, SaleStatus } from '../types';
+import { Campaign, Sale, LeaderboardEntry, Profile, PaymentMethod } from '../types';
 import { supabase, getSupabaseClient, LocalSyncEngine, INITIAL_CAMPAIGNS, INITIAL_SALES } from '../lib/supabase';
 import { 
   normalizeRemoteSale, 
@@ -18,7 +18,6 @@ interface SalesContextType {
   totalCompanyRevenue: number;
   totalCompanySalesCount: number;
   overallTargetPercentage: number;
-  totalCompanyCommission: number;
   averageTicket: number;
   addSale: (saleData: {
     campaign_id: string;
@@ -39,14 +38,12 @@ interface SalesContextType {
   updateSale: (saleId: string, updatedData: Partial<Sale>) => Promise<{ success: boolean; error?: string }>;
   deleteSale: (saleId: string) => Promise<{ success: boolean; error?: string }>;
   clearAllSales: () => Promise<{ success: boolean; error?: string }>;
-  updateSaleStatus: (saleId: string, status: SaleStatus) => Promise<{ success: boolean; error?: string }>;
   createCampaign: (campaignData: Omit<Campaign, 'id' | 'created_at'>) => Promise<{ success: boolean; campaign?: Campaign; error?: string }>;
   toggleCampaignStatus: (campaignId: string) => Promise<{ success: boolean; error?: string }>;
   deleteCampaign: (campaignId: string) => Promise<{ success: boolean; error?: string }>;
   getSellerStats: (sellerId: string) => {
     totalSales: number;
     totalRevenue: number;
-    commissionEarned: number;
     target: number;
     targetPercentage: number;
     rankPosition: number;
@@ -54,6 +51,15 @@ interface SalesContextType {
   };
   triggerConfetti: () => void;
   exportSalesToCSV: () => void;
+  fetchSalesPage: (params: {
+    page: number;
+    pageSize?: number;
+    searchTerm?: string;
+    productFilter?: string;
+    sortField?: string;
+    sortDirection?: 'asc' | 'desc';
+    onlyToday?: boolean;
+  }) => Promise<{ data: Sale[]; count: number; error?: string }>;
   recentLiveActivity: { id: string; message: string; time: string; value: number; seller: string }[];
 }
 
@@ -73,17 +79,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const localCampaigns = LocalSyncEngine.getCampaigns();
     const localSales = LocalSyncEngine.getSales();
 
+    // O cache local é apenas fallback inicial/offline. Quando o servidor responde,
+    // seus dados passam a ser a fonte oficial e substituem o snapshot local.
     setCampaigns(localCampaigns);
     setSales(localSales);
 
     if (client) {
       try {
-        const { data: remoteCampaigns } = await client
+        const { data: remoteCampaigns, error: campaignsError } = await client
           .from('campaigns')
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (remoteCampaigns && remoteCampaigns.length > 0) {
+        if (!campaignsError && remoteCampaigns) {
           setCampaigns(remoteCampaigns as Campaign[]);
           LocalSyncEngine.saveCampaigns(remoteCampaigns as Campaign[]);
         }
@@ -95,38 +103,45 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         if (salesError) {
           logSupabaseError('loadData - Consulta tabela sales', salesError);
-        } else if (remoteSales && remoteSales.length > 0) {
-          try {
-            const normalized = remoteSales.map(row => {
-              const sale = normalizeRemoteSale(row);
-              // Migração/preenchimento para registros legados sem responsável
-              if (!sale.seller_name || sale.seller_name.trim() === '' || sale.seller_name === 'Consultor') {
-                const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as { created_by?: string }).created_by);
-                if (matchedProfile) {
-                  sale.seller_name = matchedProfile.name;
-                } else if (row.collaborator_name && row.collaborator_name !== 'Consultor') {
-                  sale.seller_name = row.collaborator_name;
-                }
-              }
-              return sale;
-            });
+          // Mantém o cache somente quando a consulta ao servidor falha.
+          return;
+        }
 
-            // Mescla vendas locais com as remotas para nunca descartar nenhuma venda recém lançada
-            const combinedMap = new Map<string, Sale>();
-            localSales.forEach(s => combinedMap.set(s.id, s));
-            normalized.forEach(s => combinedMap.set(s.id, s));
-            const allSales = Array.from(combinedMap.values());
+        try {
+          const normalized = (remoteSales || []).map(row => {
+            const sale = normalizeRemoteSale(row);
+            if (!sale.seller_name || sale.seller_name.trim() === '' || sale.seller_name === 'Consultor') {
+              const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as { created_by?: string }).created_by);
+              if (matchedProfile) sale.seller_name = matchedProfile.name;
+              else if (row.collaborator_name && row.collaborator_name !== 'Consultor') sale.seller_name = row.collaborator_name;
+            }
+            return sale;
+          });
 
-            setSales(allSales);
-            LocalSyncEngine.saveSales(allSales);
-          } catch (normErr) {
-            console.error('Erro ao normalizar vendas do Supabase:', normErr);
-            setSales(remoteSales as Sale[]);
-            LocalSyncEngine.saveSales(remoteSales as Sale[]);
+          // Tenta primeiro sincronizar vendas que ficaram offline.
+          const pendingSales = LocalSyncEngine.getPendingSales();
+          const stillPending: Sale[] = [];
+          for (const pendingSale of pendingSales) {
+            const { error: pendingError } = await client.from('sales').insert(buildR9SalePayload(pendingSale));
+            if (pendingError) stillPending.push(pendingSale);
           }
+          LocalSyncEngine.savePendingSales(stillPending);
+
+          // Reconsulta somente quando havia itens pendentes; assim o cache nunca
+          // é tratado como uma segunda fonte de verdade.
+          let authoritative = normalized;
+          if (pendingSales.length > 0 && stillPending.length < pendingSales.length) {
+            const { data: refreshed } = await client.from('sales').select('*').order('created_at', { ascending: false });
+            if (refreshed) authoritative = refreshed.map(row => normalizeRemoteSale(row));
+          }
+
+          setSales(authoritative);
+          LocalSyncEngine.saveSales(authoritative);
+        } catch (normErr) {
+          console.error('Erro ao normalizar/sincronizar vendas do Supabase:', normErr);
         }
       } catch (err) {
-        // Fallback para armazenamento local
+        // Sem resposta do servidor: mantém o snapshot local como fallback offline.
       }
     }
   }, [profiles]);
@@ -206,6 +221,83 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [sales]);
 
+  const fetchSalesPage = useCallback(async ({
+    page,
+    pageSize = 50,
+    searchTerm = '',
+    productFilter = 'Todos',
+    sortField = 'date',
+    sortDirection = 'desc',
+    onlyToday = false,
+  }: {
+    page: number;
+    pageSize?: number;
+    searchTerm?: string;
+    productFilter?: string;
+    sortField?: string;
+    sortDirection?: 'asc' | 'desc';
+    onlyToday?: boolean;
+  }) => {
+    const client = getSupabaseClient();
+    if (!client) return { data: [], count: 0, error: 'Supabase não configurado.' };
+
+    const from = Math.max(0, (page - 1) * pageSize);
+    const to = from + pageSize - 1;
+    const sortMap: Record<string, string> = {
+      date: 'sale_date',
+      collaborator: 'seller_name',
+      candidate: 'client_name',
+      opportunity: 'opportunity',
+      fdi: 'fdi',
+      modality: 'modality',
+      shift: 'turn',
+      empresa: 'client_name',
+    };
+
+    let query = client
+      .from('sales')
+      .select('*', { count: 'exact' });
+
+    const q = searchTerm.trim();
+    if (q) {
+      const escaped = q.replace(/[%_,]/g, ' ');
+      query = query.or([
+        `seller_name.ilike.%${escaped}%`,
+        `client_name.ilike.%${escaped}%`,
+        `opportunity.ilike.%${escaped}%`,
+        `fdi.ilike.%${escaped}%`,
+        `product_name.ilike.%${escaped}%`,
+        `notes.ilike.%${escaped}%`,
+      ].join(','));
+    }
+
+    if (productFilter && productFilter !== 'Todos') {
+      const escapedProduct = productFilter.replace(/[%_,]/g, ' ');
+      query = query.or(`product_name.ilike.%${escapedProduct}%,product.ilike.%${escapedProduct}%`);
+    }
+
+    if (onlyToday) {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      query = query.gte('sale_date', start).lt('sale_date', end);
+    }
+
+    const sortColumn = sortMap[sortField] || 'sale_date';
+    query = query.order(sortColumn, { ascending: sortDirection === 'asc' });
+    if (sortColumn !== 'created_at') query = query.order('created_at', { ascending: sortDirection === 'asc' });
+    query = query.range(from, to);
+
+    const { data, count, error } = await query;
+    if (error) {
+      logSupabaseError('fetchSalesPage', error);
+      return { data: [], count: 0, error: error.message };
+    }
+
+    const normalized = (data || []).map(row => normalizeRemoteSale(row));
+    return { data: normalized, count: count || 0 };
+  }, []);
+
   const activeCampaigns = useMemo(() => {
     return campaigns.filter(c => c.active);
   }, [campaigns]);
@@ -213,16 +305,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Total metrics
   const totalCompanyRevenue = useMemo(() => {
     return sales
-      .filter(s => s.status !== 'Em Análise')
       .reduce((acc, s) => acc + (Number(s.value) || 0), 0);
   }, [sales]);
 
   const totalCompanySalesCount = useMemo(() => {
     return sales.length;
-  }, [sales]);
-
-  const totalCompanyCommission = useMemo(() => {
-    return sales.reduce((acc, s) => acc + (Number(s.commission) || 0), 0);
   }, [sales]);
 
   const averageTicket = useMemo(() => {
@@ -242,7 +329,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const result: LeaderboardEntry[] = sellerProfiles.map(seller => {
       const sName = (seller.name || '').trim().toLowerCase();
       const sellerSales = sales.filter(s => {
-        if (s.status === 'Em Análise') return false;
         const matchId = s.seller_id === seller.id;
         const matchName = (s.seller_name || '').trim().toLowerCase() === sName;
         const matchCustomName = (s.custom_data?.seller_name || '').trim().toLowerCase() === sName;
@@ -334,8 +420,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const campaign = campaigns.find(c => c.id === saleData.campaign_id);
-    const commissionRate = campaign ? campaign.commission_rate : 5.0;
-    const commission = (Number(saleData.value) * commissionRate) / 100;
 
     // 2. Recupera os dados exatos do consultor selecionado no campo de responsável na lista de perfis/equipe
     const selectedProfile = 
@@ -389,8 +473,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       product_name: saleData.product_name,
       value: Number(saleData.value),
       payment_method: saleData.payment_method,
-      status: 'Aprovada',
-      commission,
       fdi: resolvedFdi,
       sale_date: rawSaleDate,
       custom_data: {
@@ -450,6 +532,14 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         console.error('💥 [Supabase Sales] Exceção inesperada no insert:', err);
         supabaseErrorDetails = err.message || 'Erro de conexão com Supabase';
       }
+
+      if (supabaseErrorDetails) {
+        LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
+      } else {
+        LocalSyncEngine.clearPendingSale(newSale.id);
+      }
+    } else {
+      LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
     }
 
     const updatedSales = [newSale, ...sales];
@@ -515,12 +605,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           seller_email: updatedSellerEmail,
         };
 
-        // Recalculate commission if value or campaign changed
         const newDocValue = updatedData.value !== undefined ? Number(updatedData.value) : Number(s.value);
-        const campaign = campaigns.find(c => c.id === (updatedData.campaign_id || s.campaign_id));
-        const commissionRate = campaign ? campaign.commission_rate : 5.0;
-        const newCommission = (newDocValue * commissionRate) / 100;
-
         updatedItem = {
           ...s,
           ...updatedData,
@@ -531,7 +616,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           seller_email: updatedSellerEmail,
           fdi: resolvedUpdatedFdi,
           value: newDocValue,
-          commission: updatedData.commission !== undefined ? updatedData.commission : newCommission,
           custom_data: mergedCustomData,
         };
         return updatedItem;
@@ -601,31 +685,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return { success: true };
   };
 
-  const updateSaleStatus = async (saleId: string, status: SaleStatus) => {
-    const updated = sales.map(s => {
-      if (s.id === saleId) {
-        return { ...s, status };
-      }
-      return s;
-    });
-
-    setSales(updated);
-    LocalSyncEngine.saveSales(updated);
-
-    const client = getSupabaseClient();
-    if (client) {
-      try {
-        const { error: statusErr } = await client.from('sales').update({ status }).eq('id', saleId);
-        if (statusErr) {
-          logSupabaseError('updateSaleStatus', statusErr, { saleId, status });
-        }
-      } catch (err) {
-        console.error('💥 [Supabase Sales] Exceção no updateSaleStatus:', err);
-      }
-    }
-
-    return { success: true };
-  };
 
   // Create Campaign (dynamic form replacement for MS Forms)
   const createCampaign = async (campaignData: Omit<Campaign, 'id' | 'created_at'>) => {
@@ -696,9 +755,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const getSellerStats = (sellerId: string) => {
     const sellerSales = sales.filter(s => s.seller_id === sellerId);
-    const approvedSales = sellerSales.filter(s => s.status !== 'Em Análise');
+    const approvedSales = sellerSales;
     const totalRevenue = approvedSales.reduce((acc, s) => acc + (Number(s.value) || 0), 0);
-    const commissionEarned = approvedSales.reduce((acc, s) => acc + (Number(s.commission) || 0), 0);
     const sellerProfile = profiles.find(p => p.id === sellerId);
     const target = sellerProfile?.target_monthly || 50000;
     const targetPercentage = target > 0 ? Math.min(Math.round((totalRevenue / target) * 100), 100) : 0;
@@ -710,7 +768,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return {
       totalSales: approvedSales.length,
       totalRevenue,
-      commissionEarned,
       target,
       targetPercentage,
       rankPosition,
@@ -720,7 +777,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const exportSalesToCSV = () => {
     if (sales.length === 0) return;
-    const headers = ['ID', 'Data', 'Campanha', 'Vendedor', 'Email Vendedor', 'Cliente', 'Documento', 'Telefone', 'Email Cliente', 'Produto', 'Valor (R$)', 'Forma Pagamento', 'Status', 'Comissão (R$)', 'Observações'];
+    const headers = ['ID', 'Data', 'Campanha', 'Vendedor', 'Email Vendedor', 'Cliente', 'Documento', 'Telefone', 'Email Cliente', 'Produto', 'Valor (R$)', 'Forma Pagamento', 'Observações'];
     const rows = sales.map(s => [
       s.id,
       new Date(s.created_at).toLocaleDateString('pt-BR'),
@@ -734,8 +791,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       `"${s.product_name}"`,
       s.value,
       `"${s.payment_method}"`,
-      s.status,
-      s.commission,
       `"${(s.notes || '').replace(/"/g, '""')}"`,
     ]);
 
@@ -759,19 +814,18 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         totalCompanyRevenue,
         totalCompanySalesCount,
         overallTargetPercentage,
-        totalCompanyCommission,
         averageTicket,
         addSale,
         updateSale,
         deleteSale,
         clearAllSales,
-        updateSaleStatus,
         createCampaign,
         toggleCampaignStatus,
         deleteCampaign,
         getSellerStats,
         triggerConfetti,
         exportSalesToCSV,
+      fetchSalesPage,
         recentLiveActivity,
       }}
     >

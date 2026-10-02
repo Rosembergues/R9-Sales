@@ -149,14 +149,6 @@ export const CampaignsManager: React.FC = () => {
                 {/* Key Attributes */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                   <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
-                    <span className="text-slate-400 text-[10px] block">Comissão Base</span>
-                    <span className="font-bold text-indigo-700 flex items-center gap-1 mt-0.5">
-                      <Percent className="w-3.5 h-3.5" />
-                      {campaign.commission_rate}%
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
                     <span className="text-slate-400 text-[10px] block">Campos Custom</span>
                     <span className="font-bold text-slate-700 flex items-center gap-1 mt-0.5">
                       <Sliders className="w-3.5 h-3.5 text-slate-400" />

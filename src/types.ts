@@ -72,7 +72,6 @@ export interface Campaign {
   description: string;
   code: string;
   active: boolean;
-  commission_rate: number; // e.g. 5 for 5%
   target_amount: number;
   start_date: string;
   end_date: string;
@@ -86,8 +85,6 @@ export type PaymentMethod =
   | 'Cartão de Crédito' 
   | 'Boleto Bancário' 
   | 'Faturado / Transferência';
-
-export type SaleStatus = 'Aprovada' | 'Pendente' | 'Em Análise';
 
 export interface Sale {
   id: string;
@@ -105,8 +102,6 @@ export interface Sale {
   product_name: string;
   value: number;
   payment_method: PaymentMethod;
-  status: SaleStatus;
-  commission: number;
   fdi?: string | ProductChannelFDI;
   sale_date?: string;
   custom_data?: SaleCustomData;
@@ -129,7 +124,6 @@ export interface LeaderboardEntry {
   percentage_reached: number;
   position: number;
   rank_tier: 'Bronze' | 'Prata' | 'Ouro' | 'Diamante';
-  commission_earned?: number;
   recent_trend?: 'up' | 'down' | 'same';
   graduacao_count?: number;
   pos_count?: number;
@@ -221,8 +215,6 @@ export interface RemoteSaleRow {
   product_name?: string;
   value?: number | string;
   payment_method?: PaymentMethod | string;
-  status?: SaleStatus | string;
-  commission?: number | string;
   custom_data?: SaleCustomData;
   user_name?: string;
   created_by_name?: string;

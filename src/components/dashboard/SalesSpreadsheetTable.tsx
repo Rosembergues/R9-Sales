@@ -51,13 +51,19 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
   onOpenNewSaleModal,
   onlyToday = false
 }) => {
-  const { sales, deleteSale, updateSaleStatus } = useSales();
+  const { sales, deleteSale, fetchSalesPage } = useSales();
   const { currentUser } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedProductFilter, setSelectedProductFilter] = useState<'Todos' | MainProductType>('Todos');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
+  const [pageSales, setPageSales] = useState<Sale[]>([]);
+  const [totalRemoteSales, setTotalRemoteSales] = useState(0);
+  const [isPageLoading, setIsPageLoading] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
   
   // Excel-like Column Filters
   const [columnFilters, setColumnFilters] = useState<ColumnFilterState>({});
@@ -123,6 +129,35 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
     };
   };
 
+  // A página de vendas consulta somente os registros necessários no Supabase.
+  useEffect(() => {
+    let cancelled = false;
+    setIsPageLoading(true);
+    setPageError(null);
+    fetchSalesPage({
+      page: currentPage,
+      pageSize: PAGE_SIZE,
+      searchTerm,
+      productFilter: selectedProductFilter,
+      sortField,
+      sortDirection: sortDirection || 'desc',
+      onlyToday,
+    }).then(result => {
+      if (cancelled) return;
+      setPageSales(result.data);
+      setTotalRemoteSales(result.count);
+      setPageError(result.error || null);
+      setIsPageLoading(false);
+    }).catch(error => {
+      if (cancelled) return;
+      setPageSales([]);
+      setTotalRemoteSales(0);
+      setPageError(error instanceof Error ? error.message : 'Não foi possível carregar as vendas.');
+      setIsPageLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [fetchSalesPage, currentPage, searchTerm, selectedProductFilter, sortField, sortDirection, onlyToday]);
+
   // Distinct values for each column (for the Excel filter dropdowns)
   const distinctColumnValues = useMemo(() => {
     const values: { [key: string]: Set<string> } = {
@@ -139,7 +174,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
       notes: new Set()
     };
 
-    sales.forEach(sale => {
+    pageSales.forEach(sale => {
       const data = getSaleRowData(sale);
       values.collaborator.add(data.collaborator);
       values.opportunity.add(data.opportunity);
@@ -171,7 +206,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
       empresa: Array.from(values.empresa).sort(),
       notes: Array.from(values.notes).sort()
     };
-  }, [sales]);
+  }, [pageSales]);
 
   // Handle column filtering toggle
   const toggleColumnFilterValue = (columnKey: string, value: string) => {
@@ -222,7 +257,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
   const processedRows = useMemo(() => {
     const todayFormatted = getTodayBrDate();
 
-    return sales
+    return pageSales
       .map(sale => getSaleRowData(sale))
       .filter(row => {
         // Only today filter (Strictly comparing the Sale Date)
@@ -310,7 +345,19 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
         const comp = valA.localeCompare(valB, 'pt-BR', { numeric: true });
         return sortDirection === 'asc' ? comp : -comp;
       });
-  }, [sales, searchTerm, sortField, sortDirection, selectedProductFilter, columnFilters]);
+  }, [pageSales, searchTerm, sortField, sortDirection, selectedProductFilter, columnFilters]);
+
+  // Paginação é feita no Supabase; aqui apenas exibimos a página retornada.
+  const totalPages = Math.max(1, Math.ceil(totalRemoteSales / PAGE_SIZE));
+  const paginatedRows = processedRows;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedProductFilter, columnFilters, sortField, sortDirection, onlyToday]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   // Export to CSV / Excel spreadsheet format
   const exportToCSV = () => {
@@ -440,6 +487,9 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
   };
 
   const hasActiveFilters = Object.keys(columnFilters).length > 0 || searchTerm !== '' || selectedProductFilter !== 'Todos';
+
+  const pageRangeStart = totalRemoteSales === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const pageRangeEnd = Math.min(currentPage * PAGE_SIZE, totalRemoteSales);
 
   return (
     <div className="w-full space-y-3 font-sans">
@@ -811,14 +861,18 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
 
             {/* Excel-style Rows with alternating stripe coloring (#FFFFFF and #EDF5FD / #F0F7FF) */}
             <tbody className="divide-y divide-gray-200">
-              {processedRows.length === 0 ? (
+              {isPageLoading ? (
+                <tr><td colSpan={isAdmin ? 12 : 11} className="py-12 text-center text-xs text-gray-500">Carregando vendas...</td></tr>
+              ) : pageError ? (
+                <tr><td colSpan={isAdmin ? 12 : 11} className="py-12 text-center text-xs text-red-500">{pageError}</td></tr>
+              ) : paginatedRows.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 12 : 11} className="py-14 text-center text-gray-400 bg-white">
                     <div className="flex flex-col items-center justify-center space-y-2.5 max-w-sm mx-auto">
                       <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-500 flex items-center justify-center">
                         <FileSpreadsheet className="w-6 h-6" />
                       </div>
-                      {sales.length === 0 ? (
+                      {totalRemoteSales === 0 ? (
                         <>
                           <p className="text-sm font-bold text-gray-800">Planilha de Vendas Zerada</p>
                           <p className="text-xs text-gray-500">
@@ -849,7 +903,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
                   </td>
                 </tr>
               ) : (
-                processedRows.map((row, idx) => {
+                paginatedRows.map((row, idx) => {
                   // Alternating zebra color: even = #FFFFFF, odd = #EDF5FD (soft excel ice blue)
                   const isEven = idx % 2 === 0;
                   const rowBgClass = isEven ? 'bg-white hover:bg-blue-50/70' : 'bg-[#EDF5FD] hover:bg-blue-100/70';
@@ -963,6 +1017,18 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
 
           </table>
 
+        </div>
+
+        {/* Paginação */}
+        <div className="bg-white px-4 py-2 border-t border-gray-200 flex items-center justify-between text-[11px] text-gray-500">
+          <span>
+            {totalRemoteSales === 0 ? 'Nenhum registro' : `Mostrando ${pageRangeStart}–${pageRangeEnd} de ${totalRemoteSales}`}
+          </span>
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="px-2.5 py-1 rounded border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-100">Anterior</button>
+            <span className="px-2">Página <strong className="text-gray-800">{currentPage}</strong> / {totalPages}</span>
+            <button type="button" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} className="px-2.5 py-1 rounded border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-100">Próxima</button>
+          </div>
         </div>
 
         {/* Excel Bottom Status Bar */}
