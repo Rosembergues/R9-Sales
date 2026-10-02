@@ -21,7 +21,7 @@ import { Sale, MainProductType } from '../../types';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { EditSaleModal } from '../sales/EditSaleModal';
-import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay } from '../../lib/salesMapper';
+import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay, getRealSaleDate, parseDateString } from '../../lib/salesMapper';
 
 interface SalesSpreadsheetTableProps {
   onOpenNewSaleModal?: () => void;
@@ -89,6 +89,8 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
     
     // Format date DD/MM/YYYY - Strictly based on Sale Date (Data da Venda)
     const dateStr = getSaleDateBr(sale);
+    const realDate = getRealSaleDate(sale) || (sale.created_at ? new Date(sale.created_at) : null);
+    const dateTimestamp = realDate && !isNaN(realDate.getTime()) ? realDate.getTime() : 0;
 
     // 5. FDI - texto exclusivo correspondente à opção selecionada na seção 3
     const fdi = (typeof sale.fdi === 'string' && sale.fdi.trim() !== '' && !['true', 'false', 'sim', 'nao', 'não'].includes(sale.fdi.toLowerCase()))
@@ -108,6 +110,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
       opportunity,
       candidate,
       date: dateStr,
+      dateTimestamp,
       fdi,
       modality,
       shift,
@@ -155,7 +158,11 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
       collaborator: Array.from(values.collaborator).sort(),
       opportunity: Array.from(values.opportunity).sort(),
       candidate: Array.from(values.candidate).sort(),
-      date: Array.from(values.date).sort(),
+      date: Array.from(values.date).sort((a, b) => {
+        const timeA = parseDateString(a)?.getTime() || 0;
+        const timeB = parseDateString(b)?.getTime() || 0;
+        return timeB - timeA;
+      }),
       fdi: Array.from(values.fdi).sort(),
       modality: Array.from(values.modality).sort(),
       shift: Array.from(values.shift).sort(),
@@ -271,6 +278,19 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
       })
       .sort((a, b) => {
         if (!sortDirection) return 0;
+
+        if (sortField === 'date') {
+          // Precise chronological comparison based on real sale date timestamp
+          const diff = a.dateTimestamp - b.dateTimestamp;
+          if (diff !== 0) {
+            return sortDirection === 'asc' ? diff : -diff;
+          }
+          // Secondary fallback to created_at
+          const createA = new Date(a.raw.created_at || 0).getTime();
+          const createB = new Date(b.raw.created_at || 0).getTime();
+          return sortDirection === 'asc' ? createA - createB : createB - createA;
+        }
+
         let valA = '';
         let valB = '';
 
@@ -278,7 +298,6 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
           case 'collaborator': valA = a.collaborator; valB = b.collaborator; break;
           case 'opportunity': valA = a.opportunity; valB = b.opportunity; break;
           case 'candidate': valA = a.candidate; valB = b.candidate; break;
-          case 'date': valA = a.date; valB = b.date; break;
           case 'fdi': valA = a.fdi; valB = b.fdi; break;
           case 'modality': valA = a.modality; valB = b.modality; break;
           case 'shift': valA = a.shift; valB = b.shift; break;

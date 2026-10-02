@@ -110,8 +110,15 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               }
               return sale;
             });
-            setSales(normalized);
-            LocalSyncEngine.saveSales(normalized);
+
+            // Mescla vendas locais com as remotas para nunca descartar nenhuma venda recém lançada
+            const combinedMap = new Map<string, Sale>();
+            localSales.forEach(s => combinedMap.set(s.id, s));
+            normalized.forEach(s => combinedMap.set(s.id, s));
+            const allSales = Array.from(combinedMap.values());
+
+            setSales(allSales);
+            LocalSyncEngine.saveSales(allSales);
           } catch (normErr) {
             console.error('Erro ao normalizar vendas do Supabase:', normErr);
             setSales(remoteSales as Sale[]);
@@ -122,7 +129,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Fallback para armazenamento local
       }
     }
-  }, []);
+  }, [profiles]);
 
   useEffect(() => {
     loadData();
@@ -363,6 +370,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       (isSelfSelected ? currentUser.email : '');
 
     const resolvedFdi = (saleData as any).fdi || saleData.custom_data?.fdi || saleData.custom_data?.fdi_channel || 'Simplificada';
+    const rawSaleDate = saleData.custom_data?.sale_date || (saleData as any).sale_date || new Date().toISOString();
 
     const newSaleId = `sale-${Date.now().toString().slice(-6)}`;
     const newSale: Sale = {
@@ -384,8 +392,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       status: 'Aprovada',
       commission,
       fdi: resolvedFdi,
+      sale_date: rawSaleDate,
       custom_data: {
         ...saleData.custom_data,
+        sale_date: rawSaleDate,
         fdi: resolvedFdi,
         fdi_channel: resolvedFdi,
         collaborator_name: selectedSellerName,
