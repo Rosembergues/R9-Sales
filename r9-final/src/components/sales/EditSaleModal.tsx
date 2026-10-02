@@ -563,37 +563,36 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
             
             {/* Exclusão somente para Admin */}
             <div>
-              {isAdmin ? (
-                confirmDelete ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-red-600 font-semibold">Confirmar?</span>
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      disabled={isDeleting}
-                      className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                    >
-                      {isDeleting ? 'Excluindo...' : 'Sim, Excluir'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(false)}
-                      className="px-2 py-1.5 text-slate-500 hover:text-slate-800 text-xs font-medium cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                ) : (
+              {isAdmin && (
+              confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-red-600 font-semibold">Confirmar?</span>
                   <button
                     type="button"
                     onClick={handleDelete}
-                    className="px-3 py-1.5 text-red-600 hover:bg-red-50 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    disabled={isDeleting}
+                    className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Excluir</span>
+                    {isDeleting ? 'Excluindo...' : 'Sim, Excluir'}
                   </button>
-                )
-              ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="px-2 py-1.5 text-slate-500 hover:text-slate-800 text-xs font-medium cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="px-3 py-1.5 text-red-600 hover:bg-red-50 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Excluir</span>
+                </button>
+              ))}
             </div>
 
             {/* Right: Cancel & Save */}
