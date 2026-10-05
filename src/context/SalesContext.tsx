@@ -602,6 +602,34 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const wasInLoadedSales = sales.some(s => s.id === saleId);
 
+    // Regra de permissão: vendedor pode editar somente a própria venda e nunca pode
+    // transferi-la para outro vendedor. Apenas administradores podem alterar o responsável.
+    if (currentUser?.role !== 'admin') {
+      const originalSale = baseSale || sales.find(s => s.id === saleId);
+      if (!originalSale || originalSale.seller_id !== currentUser?.id) {
+        return { success: false, error: 'Você só pode editar suas próprias vendas.' };
+      }
+
+      // Mesmo que alguém tente alterar seller_id/seller_name pelo cliente, o contexto
+      // restaura os dados originais antes de montar o payload.
+      updatedItem = {
+        ...updatedItem,
+        seller_id: originalSale.seller_id,
+        collaborator_id: originalSale.collaborator_id || originalSale.seller_id,
+        seller_name: originalSale.seller_name,
+        collaborator_name: originalSale.collaborator_name || originalSale.seller_name,
+        seller_email: originalSale.seller_email,
+        custom_data: {
+          ...(updatedItem.custom_data || {}),
+          seller_id: originalSale.seller_id,
+          collaborator_id: originalSale.collaborator_id || originalSale.seller_id,
+          seller_name: originalSale.seller_name,
+          collaborator_name: originalSale.collaborator_name || originalSale.seller_name,
+          seller_email: originalSale.seller_email,
+        },
+      };
+    }
+
     const client = getSupabaseClient();
     if (!client) {
       return { success: false, error: 'Supabase não está configurado.' };
@@ -613,11 +641,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const r9Payload = buildR9SalePayload(updatedItem);
-      const { error: updateErr } = await client.from('sales').update(r9Payload).eq('id', saleId);
+      let updateQuery = client.from('sales').update(r9Payload).eq('id', saleId);
+      if (currentUser?.role !== 'admin') {
+        updateQuery = updateQuery.eq('seller_id', currentUser!.id);
+      }
+      const { error: updateErr } = await updateQuery;
       if (updateErr) {
         logSupabaseError('updateSale - Formato R9', updateErr, r9Payload);
         const standardPayload = buildStandardSalePayload(updatedItem);
-        const { error: altErr } = await client.from('sales').update(standardPayload).eq('id', saleId);
+        let altUpdateQuery = client.from('sales').update(standardPayload).eq('id', saleId);
+        if (currentUser?.role !== 'admin') {
+          altUpdateQuery = altUpdateQuery.eq('seller_id', currentUser!.id);
+        }
+        const { error: altErr } = await altUpdateQuery;
         if (altErr) {
           logSupabaseError('updateSale - Formato Padrão', altErr, standardPayload);
           return { success: false, error: altErr.message || updateErr.message || 'Erro ao atualizar a venda.' };

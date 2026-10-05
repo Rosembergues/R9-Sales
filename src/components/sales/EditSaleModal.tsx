@@ -215,27 +215,31 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
         chosenSellerEmail = sale.seller_email || '';
       }
 
-      // 3 & 4. Garante que as 4 propriedades (seller_id, seller_name, collaborator_name e seller_email)
-      // recebam estritamente os dados do consultor selecionado e sejam sobrescritas e atualizadas juntas
+      // Consultor/vendedor só pode ser alterado por administradores.
+      // Para vendedores comuns, preservamos exatamente o responsável original da venda.
+      const effectiveSellerId = isAdmin ? chosenSellerId : sale.seller_id;
+      const effectiveSellerName = isAdmin ? chosenSellerName : sale.seller_name;
+      const effectiveSellerEmail = isAdmin ? chosenSellerEmail : sale.seller_email;
+
       const updatedFields: Partial<Sale> = {
         client_name: candidateName.trim(),
         notes: notes.trim(),
         product_name: `${mainProduct} - ${modality} (${shift})`,
         fdi: fdiChannel,
-        seller_id: chosenSellerId,
-        collaborator_id: chosenSellerId,
-        seller_name: chosenSellerName,
-        collaborator_name: chosenSellerName,
-        seller_email: chosenSellerEmail,
+        seller_id: effectiveSellerId,
+        collaborator_id: effectiveSellerId,
+        seller_name: effectiveSellerName,
+        collaborator_name: effectiveSellerName,
+        seller_email: effectiveSellerEmail,
         custom_data: {
           ...(sale.custom_data || {}),
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
-          collaborator_name: chosenSellerName,
-          collaborator_id: chosenSellerId,
-          seller_name: chosenSellerName,
-          seller_id: chosenSellerId,
-          seller_email: chosenSellerEmail,
+          collaborator_name: effectiveSellerName,
+          collaborator_id: effectiveSellerId,
+          seller_name: effectiveSellerName,
+          seller_id: effectiveSellerId,
+          seller_email: effectiveSellerEmail,
           sale_date: saleDate.trim(),
           main_product: mainProduct,
           fdi: fdiChannel,
@@ -343,18 +347,24 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 <User className="w-3.5 h-3.5 text-blue-600" />
                 <span>Colaborador / Vendedor</span>
               </label>
-              <select
-                value={sellerId}
-                onChange={(e) => setSellerId(e.target.value)}
-                disabled={!isAdmin}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
-              >
-                {availableConsultants.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.id === currentUser?.id ? '(Você - Logado)' : ''} ({p.role === 'admin' ? 'Admin' : 'Consultor'}{p.email ? ` • ${p.email}` : ''})
-                  </option>
-                ))}
-              </select>
+              {isAdmin ? (
+                <select
+                  value={sellerId}
+                  onChange={(e) => setSellerId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                >
+                  {availableConsultants.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.id === currentUser?.id ? '(Você - Logado)' : ''} ({p.role === 'admin' ? 'Admin' : 'Consultor'}{p.email ? ` • ${p.email}` : ''})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-700 font-semibold flex items-center justify-between">
+                  <span>{sale.seller_name || 'Consultor'}</span>
+                  <span className="text-[10px] font-medium text-slate-400">Somente administrador pode alterar</span>
+                </div>
+              )}
             </div>
 
             <div>

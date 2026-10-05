@@ -202,11 +202,40 @@ drop policy if exists "Admins ou autor podem atualizar vendas" on public.sales;
 create policy "Admins ou autor podem atualizar vendas" 
   on public.sales for update 
   using (
-    seller_id = auth.uid()::text or 
-    collaborator_id = auth.uid()::text or 
+    seller_id = auth.uid()::text or
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  )
+  with check (
+    seller_id = auth.uid()::text or
     exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
   );
 
+-- Proteção adicional: consultores não podem transferir uma venda para outro vendedor
+-- nem alterar os campos de responsável. Admins podem fazer essa transferência.
+create or replace function public.protect_sale_owner_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    if new.seller_id is distinct from old.seller_id
+       or new.collaborator_id is distinct from old.collaborator_id
+       or new.seller_name is distinct from old.seller_name
+       or new.collaborator_name is distinct from old.collaborator_name
+       or new.seller_email is distinct from old.seller_email then
+      raise exception 'Apenas administradores podem alterar o vendedor da venda';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_sale_owner_fields on public.sales;
+create trigger protect_sale_owner_fields
+  before update on public.sales
+  for each row execute function public.protect_sale_owner_fields();
 drop policy if exists "Apenas administradores podem excluir vendas" on public.sales;
 create policy "Apenas administradores podem excluir vendas" 
   on public.sales for delete 

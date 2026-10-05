@@ -165,6 +165,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     year: 'numeric',
   });
 
+  const greeting = now.getHours() >= 5 && now.getHours() < 12
+    ? 'Bom dia'
+    : now.getHours() >= 12 && now.getHours() < 18
+      ? 'Boa tarde'
+      : 'Boa noite';
+
   const comparisonWeek = percentDelta(weekSales.length, previousWeekSales.length);
   const comparisonMonth = percentDelta(monthSales.length, previousMonthSales.length);
 
@@ -176,7 +182,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <div>
           <p className="text-sm font-semibold text-blue-600 mb-1">Visão geral</p>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-950 font-['Space_Grotesk']">
-            Bom dia, {currentUser?.name?.split(' ')[0] || 'você'}!
+            {greeting}, {currentUser?.name?.split(' ')[0] || 'você'}!
           </h1>
           <p className="text-sm sm:text-base text-slate-500 mt-1 capitalize">{formattedDate}</p>
           <p className="text-sm text-slate-400 mt-1">Aqui está um resumo da operação de hoje.</p>
