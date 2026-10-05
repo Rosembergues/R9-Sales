@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
 import { getSaleDateBr, getRealSaleDate, normalizeRemoteSale } from '../../lib/salesMapper';
 import { Profile, Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
+import { ModalityMultiFilter } from './ModalityMultiFilter';
 import { 
   Crown, 
   Flame, 
@@ -15,7 +16,7 @@ import {
   Sparkles,
   Award,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
 } from 'lucide-react';
 
 interface MonthlyLeaderboardEntry {
@@ -62,11 +63,7 @@ function parseDate(dateStr: string): Date | null {
 }
 
 function parseGoalData(g: DatabaseGoalRecord | Goal): UserGoalData {
-  const rawTargetValue = 'target_value' in g && g.target_value !== undefined ? Number(g.target_value) : 0;
-  const rawTargetTotal = g.target_total !== undefined ? Number(g.target_total) : 0;
-  const targetTotal = rawTargetTotal > 0 
-    ? rawTargetTotal 
-    : (rawTargetValue >= 1000 ? 30 : Math.round(rawTargetValue));
+  const targetTotal = g.target_total !== undefined ? Number(g.target_total) : 0;
 
   const hasSpecificTargets = g.target_graduacao !== undefined || g.target_pos !== undefined || g.target_tecnico !== undefined;
   
@@ -95,6 +92,7 @@ export const MonthlyRankView: React.FC = () => {
 
   // Navigation across previous and current months (0 = current, -1 = last month, -2 = 2 months ago...)
   const [monthOffset, setMonthOffset] = useState<number>(0);
+  const [selectedModalities, setSelectedModalities] = useState<string[]>([]);
 
   const handlePrevMonth = () => {
     setMonthOffset(prev => prev - 1);
@@ -152,7 +150,9 @@ export const MonthlyRankView: React.FC = () => {
       const { data: goalsData, error: goalsError } = await supabase
         .from('goals')
         .select('*')
-        .in('type', ['mensal', 'month']);
+        .in('type', ['mensal', 'month'])
+        .gte('reference_start', monthRange.start.toISOString().slice(0, 10))
+        .lte('reference_start', monthRange.end.toISOString().slice(0, 10));
 
       const localGoals = LocalSyncEngine.getGoals();
       const newGoalsMap: Record<string, UserGoalData> = {};
@@ -160,7 +160,12 @@ export const MonthlyRankView: React.FC = () => {
       // Seed from local sync engine
       if (localGoals && localGoals.length > 0) {
         localGoals.forEach(g => {
-          if (g.type === 'mensal' || (g.type as string) === 'month') {
+          if (
+            (g.type === 'mensal' || (g.type as string) === 'month') &&
+            g.reference_start &&
+            g.reference_start >= monthRange.start.toISOString().slice(0, 10) &&
+            g.reference_start <= monthRange.end.toISOString().slice(0, 10)
+          ) {
             newGoalsMap[g.user_id] = parseGoalData(g);
           }
         });
@@ -283,6 +288,24 @@ export const MonthlyRankView: React.FC = () => {
     });
   }, [salesToUse, monthRange.month, monthRange.year]);
 
+  const modalityOptions = useMemo(() => {
+    return Array.from(new Set(monthlySales.map(s => s.custom_data?.modality).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [monthlySales]);
+
+  const filteredMonthlySales = useMemo(() => {
+    if (selectedModalities.length === 0) return monthlySales;
+    const selected = new Set(selectedModalities.map(value => value.toLowerCase()));
+    return monthlySales.filter(s => selected.has((s.custom_data?.modality || '').toLowerCase()));
+  }, [monthlySales, selectedModalities]);
+
+  useEffect(() => {
+    setSelectedModalities(current => {
+      const next = current.filter(value => modalityOptions.includes(value));
+      return next.length === current.length ? current : next;
+    });
+  }, [modalityOptions]);
+
   // Build monthly leaderboard joined with public.goals
   const leaderboard = useMemo<MonthlyLeaderboardEntry[]>(() => {
     // Include active consultants
@@ -291,7 +314,7 @@ export const MonthlyRankView: React.FC = () => {
     const result: MonthlyLeaderboardEntry[] = consultantProfiles.map(consultant => {
       const sName = (consultant.name || '').trim().toLowerCase();
       
-      const consultantSales = monthlySales.filter(s => {
+      const consultantSales = filteredMonthlySales.filter(s => {
         const matchId = s.seller_id === consultant.id;
         const matchName = (s.seller_name || '').trim().toLowerCase() === sName;
         const matchCustom = (s.custom_data?.seller_name || '').trim().toLowerCase() === sName;
@@ -374,22 +397,22 @@ export const MonthlyRankView: React.FC = () => {
       ...item,
       position: index + 1,
     }));
-  }, [profiles, monthlySales, goalsMap]);
+  }, [profiles, filteredMonthlySales, goalsMap]);
 
   const topThree = leaderboard.slice(0, 3);
 
   // Total metrics of the month
-  const totalMonthlySales = monthlySales.length;
+  const totalMonthlySales = filteredMonthlySales.length;
   const totalMonthlyGoals: number = (Object.values(goalsMap) as UserGoalData[]).reduce((acc: number, val: UserGoalData) => acc + (Number(val.target_total) || 0), 0);
   const overallMonthPercentage = totalMonthlyGoals > 0 
     ? Math.round((totalMonthlySales / totalMonthlyGoals) * 100) 
     : 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 animate-in fade-in duration-200">
       
       {/* Top Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 border border-purple-200/80 flex items-center justify-center shadow-2xs">
@@ -410,7 +433,7 @@ export const MonthlyRankView: React.FC = () => {
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             {monthRange.isCurrent
-              ? 'Classificação geral e progresso das metas mensais de vendas sincronizadas da tabela public.goals.'
+              ? 'Acompanhe o desempenho acumulado, as metas e a evolução do mês.'
               : `Exibindo histórico de classificação e vendas do mês de ${monthRange.monthLabel}.`}
           </p>
         </div>
@@ -459,6 +482,8 @@ export const MonthlyRankView: React.FC = () => {
               {monthRange.shortLabel}
             </span>
           </div>
+
+          <ModalityMultiFilter options={modalityOptions} selected={selectedModalities} onChange={setSelectedModalities} tone="purple" />
 
           <button
             onClick={loadData}

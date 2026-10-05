@@ -3,7 +3,6 @@ import {
   RemoteSaleRow, 
   ProductChannelFDI, 
   SaleCustomData,
-  PaymentMethod,
   MainProductType,
   ModalityType,
   ShiftType
@@ -338,9 +337,7 @@ export function normalizeRemoteSale(row: RemoteSaleRow): Sale {
     client_phone: row.client_phone || '',
     client_email: row.client_email || '',
     product_name: product,
-    value: Number(row.value) || 1200,
-    payment_method: (row.payment_method as PaymentMethod) || 'PIX',
-    fdi: detectedFdiChannel,
+      fdi: detectedFdiChannel,
     sale_date: dateBr,
     notes: row.notes || '',
     created_at: row.created_at || new Date().toISOString(),
@@ -432,9 +429,8 @@ export function buildStandardSalePayload(sale: Sale): Record<string, unknown> {
     client_phone: sale.client_phone || null,
     client_email: sale.client_email || null,
     product_name: sale.custom_data?.main_product || sale.product_name || 'Graduação',
-    value: Number(sale.value) || 1200,
-    payment_method: sale.payment_method || 'PIX',
     fdi: channelVal, // TEXT
+    sale_date: toValidIsoTimestamp(custom.sale_date || sale.sale_date || sale.created_at),
     custom_data: {
       ...custom,
       fdi: channelVal,

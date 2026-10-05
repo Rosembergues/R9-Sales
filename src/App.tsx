@@ -4,7 +4,7 @@ import { SalesProvider } from './context/SalesContext';
 import { AuthPage } from './components/auth/AuthPage';
 import { R9Dashboard } from './components/dashboard/R9Dashboard';
 import { useIdleTimeout, THREE_HOURS_MS } from './hooks/useIdleTimeout';
-import { supabase, LocalSyncEngine } from './lib/supabase';
+import { LocalSyncEngine } from './lib/supabase';
 
 const MainLayout: React.FC = () => {
   const { currentUser, loading, signOut } = useAuth();
@@ -24,8 +24,7 @@ const MainLayout: React.FC = () => {
       localStorage.removeItem('r9_last_user_activity');
       LocalSyncEngine.setCurrentUser(null);
 
-      // 2. Encerramento oficial no Supabase Auth
-      await supabase.auth.signOut();
+      // Encerramento oficial no Supabase Auth
       await signOut();
     } catch (error) {
       console.error('❌ [Idle Timeout] Erro ao deslogar por inatividade:', error);

@@ -35,7 +35,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
     setIsLoading(true);
 
     try {
-      // Todo novo usuário é cadastrado com a função padrão 'seller' (membro)
+      // Todo cadastro público é criado com a função padrão 'seller' (membro)
       // Promoções a Administrador são realizadas exclusivamente pelos administradores dentro do sistema
       const result = await signUp({
         name: data.name.trim(),

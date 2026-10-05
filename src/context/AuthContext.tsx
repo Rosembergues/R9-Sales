@@ -12,10 +12,7 @@ interface AuthContextType {
   signIn: (data: { email: string; password?: string }) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   updateUserRole: (userId: string, newRole: UserRole) => Promise<{ success: boolean; error?: string }>;
-  createUserByAdmin: (data: { name: string; email: string; role: UserRole; phone?: string; target_monthly?: number }) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>;
-  resetToSingleUser: () => Promise<void>;
-  switchUser: (profile: Profile) => void;
   updateSupabaseCredentials: (url: string, key: string) => Promise<{ success: boolean; error?: string }>;
   refreshProfiles: () => Promise<void>;
 }
@@ -39,59 +36,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * filtrando pelo ID da sessão atual no Supabase.
    */
   const fetchAndSetUserProfile = async (userId: string, authUserMeta?: { name?: string; email?: string; role?: string }): Promise<Profile | null> => {
+    const buildFallbackProfile = (): Profile | null => {
+      if (!authUserMeta) return null;
+      const fallbackProfile: Profile = {
+        id: userId,
+        name: authUserMeta.name || authUserMeta.email?.split('@')[0] || 'Usuário',
+        email: authUserMeta.email || '',
+        role: (authUserMeta.role as UserRole) || 'seller',
+        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authUserMeta.name || userId)}`,
+        created_at: new Date().toISOString(),
+        status: 'active',
+        phone: '',
+        target_monthly: authUserMeta.role === 'seller' ? 30 : 0,
+      };
+      setCurrentUser(fallbackProfile);
+      LocalSyncEngine.setCurrentUser(fallbackProfile);
+      return fallbackProfile;
+    };
+
     try {
-      const { data: profile, error } = await supabase
+      // Uma falha de rede não deve impedir a aplicação de usar a sessão já autenticada.
+      const requestProfile = async () => supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .maybeSingle();
 
-      if (error) {
-        console.error('❌ [Supabase DB] Erro ao buscar perfil na tabela profiles:', error.message, error);
+      let result = await requestProfile();
+      if (result.error) {
+        console.warn('⚠️ [Supabase DB] Não foi possível consultar profiles:', result.error.message);
+        // TypeError: Failed to fetch normalmente é indisponibilidade de rede/CORS/offline.
+        // Uma única tentativa curta evita martelar a API sem esconder falhas reais.
+        await new Promise(resolve => setTimeout(resolve, 400));
+        result = await requestProfile();
       }
 
-      if (profile) {
-        setCurrentUser(profile as Profile);
-        LocalSyncEngine.setCurrentUser(profile as Profile);
-        return profile as Profile;
+      if (!result.error && result.data) {
+        setCurrentUser(result.data as Profile);
+        LocalSyncEngine.setCurrentUser(result.data as Profile);
+        return result.data as Profile;
       }
 
-      // Se a trigger handle_new_user ainda estiver executando, aguarda 500ms e tenta novamente
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const { data: retryProfile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (retryProfile) {
-        setCurrentUser(retryProfile as Profile);
-        LocalSyncEngine.setCurrentUser(retryProfile as Profile);
-        return retryProfile as Profile;
+      // Se o perfil ainda não existe (trigger atrasada), tenta uma vez mais apenas
+      // quando a primeira chamada foi concluída sem erro de rede.
+      if (!result.error) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const retry = await requestProfile();
+        if (!retry.error && retry.data) {
+          setCurrentUser(retry.data as Profile);
+          LocalSyncEngine.setCurrentUser(retry.data as Profile);
+          return retry.data as Profile;
+        }
       }
 
-      // Fallback usando os metadados da sessão oficial para garantir navegação contínua
-      if (authUserMeta) {
-        const fallbackProfile: Profile = {
-          id: userId,
-          name: authUserMeta.name || authUserMeta.email?.split('@')[0] || 'Usuário',
-          email: authUserMeta.email || '',
-          role: (authUserMeta.role as UserRole) || 'seller',
-          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authUserMeta.name || userId)}`,
-          created_at: new Date().toISOString(),
-          status: 'active',
-          phone: '',
-          target_monthly: authUserMeta.role === 'seller' ? 50000 : 0,
-        };
-        setCurrentUser(fallbackProfile);
-        LocalSyncEngine.setCurrentUser(fallbackProfile);
-        return fallbackProfile;
-      }
-
-      return null;
-    } catch (err: any) {
-      console.error('💥 [Supabase DB] Exceção ao consultar tabela profiles:', err);
-      return null;
+      return buildFallbackProfile();
+    } catch (err) {
+      console.warn('⚠️ [Supabase DB] Falha de rede ao consultar profiles. Usando dados da sessão.', err);
+      return buildFallbackProfile();
     }
   };
 
@@ -106,11 +107,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!error && data) {
         setProfiles(data as Profile[]);
         LocalSyncEngine.saveProfiles(data as Profile[]);
-      } else if (error) {
-        console.error('❌ [Supabase DB] Erro ao listar tabela profiles:', error.message);
+        return;
+      }
+
+      if (error) {
+        console.warn('⚠️ [Supabase DB] Não foi possível atualizar profiles:', error.message);
+        // Mantém a lista já carregada/local em vez de substituir por vazio.
       }
     } catch (e) {
-      console.error('💥 [Supabase DB] Exceção no refreshProfiles:', e);
+      console.warn('⚠️ [Supabase DB] Falha de rede no refreshProfiles:', e);
+      // Não propaga erro: a aplicação continua com o cache/local atual.
     }
   }, []);
 
@@ -321,35 +327,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Criação de usuário por administrador via Supabase Auth
-  const createUserByAdmin = async (data: { name: string; email: string; role: UserRole; phone?: string; target_monthly?: number }) => {
-    try {
-      const tempPassword = `R9_${Math.random().toString(36).slice(-8)}!`;
-
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: tempPassword,
-        options: {
-          data: {
-            name: data.name,
-            role: data.role,
-          },
-        },
-      });
-
-      if (authError) {
-        console.error('❌ [Supabase Auth] Erro ao cadastrar usuário:', authError.message);
-        return { success: false, error: authError.message };
-      }
-
-      await refreshProfiles();
-      return { success: true };
-    } catch (err: any) {
-      console.error('💥 [Supabase Auth] Exceção ao criar usuário:', err);
-      return { success: false, error: err?.message || 'Erro ao cadastrar novo usuário.' };
-    }
-  };
-
   // Exclusão de perfil da tabela profiles
   const deleteUser = async (userId: string) => {
     if (currentUser?.id === userId) {
@@ -367,20 +344,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('💥 [Supabase DB] Exceção ao excluir perfil:', err);
       return { success: false, error: err?.message || 'Erro ao excluir usuário.' };
     }
-  };
-
-  // Manter apenas o usuário atual na lista local
-  const resetToSingleUser = async () => {
-    if (currentUser) {
-      setProfiles([currentUser]);
-      LocalSyncEngine.saveProfiles([currentUser]);
-    }
-  };
-
-  // Alternância de visualização entre perfis carregados do banco
-  const switchUser = (profile: Profile) => {
-    setCurrentUser(profile);
-    LocalSyncEngine.setCurrentUser(profile);
   };
 
   const updateSupabaseCredentials = async (url: string, key: string) => {
@@ -412,10 +375,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signIn,
         signOut,
         updateUserRole,
-        createUserByAdmin,
         deleteUser,
-        resetToSingleUser,
-        switchUser,
         updateSupabaseCredentials,
         refreshProfiles,
       }}

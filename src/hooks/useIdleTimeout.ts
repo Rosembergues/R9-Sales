@@ -146,12 +146,28 @@ export function useIdleTimeout({
       }
     };
 
-    // Sincronização multi-abas através do evento storage
+    // Sincronização multi-abas através do evento storage.
+    // Não chamamos resetTimer() aqui porque ele grava novamente no localStorage;
+    // em duas abas isso criaria um ping-pong infinito de eventos storage.
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_LAST_ACTIVITY_KEY && e.newValue) {
-        lastActivityRef.current = Number(e.newValue);
-        resetTimer();
+      if (e.key !== STORAGE_LAST_ACTIVITY_KEY || !e.newValue) return;
+
+      const sharedTimestamp = Number(e.newValue);
+      if (!Number.isFinite(sharedTimestamp)) return;
+
+      const now = Date.now();
+      lastActivityRef.current = sharedTimestamp;
+
+      clearExistingTimer();
+      const elapsed = now - sharedTimestamp;
+      if (elapsed >= timeoutMs) {
+        void triggerIdleLogout();
+        return;
       }
+
+      timerRef.current = setTimeout(() => {
+        void triggerIdleLogout();
+      }, timeoutMs - elapsed);
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange, { passive: true });

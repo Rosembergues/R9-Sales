@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
 import { getSaleDateBr, getRealSaleDate, normalizeRemoteSale } from '../../lib/salesMapper';
 import { Profile, Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
+import { ModalityMultiFilter } from './ModalityMultiFilter';
 import { 
   Trophy, 
   Crown, 
@@ -18,7 +19,7 @@ import {
   Award,
   ChevronLeft,
   ChevronRight,
-  Calendar
+  Calendar,
 } from 'lucide-react';
 
 interface WeeklyLeaderboardEntry {
@@ -60,9 +61,7 @@ function parseDate(dateStr: string): Date | null {
 }
 
 function parseGoalData(g: DatabaseGoalRecord | Goal): UserGoalData {
-  const rawTargetValue = 'target_value' in g && g.target_value !== undefined ? Number(g.target_value) : 0;
-  const rawTargetTotal = g.target_total !== undefined ? Number(g.target_total) : 0;
-  const targetTotal = rawTargetTotal > 0 ? rawTargetTotal : Math.round(rawTargetValue);
+  const targetTotal = g.target_total !== undefined ? Number(g.target_total) : 0;
 
   const hasSpecificTargets = g.target_graduacao !== undefined || g.target_pos !== undefined || g.target_tecnico !== undefined;
   
@@ -91,6 +90,7 @@ export const WeeklyRankView: React.FC = () => {
 
   // Navigation across previous and current weeks (0 = current, -1 = last week, -2 = 2 weeks ago...)
   const [weekOffset, setWeekOffset] = useState<number>(0);
+  const [selectedModalities, setSelectedModalities] = useState<string[]>([]);
 
   const handlePrevWeek = () => {
     setWeekOffset(prev => prev - 1);
@@ -163,7 +163,9 @@ export const WeeklyRankView: React.FC = () => {
       const { data: goalsData, error: goalsError } = await supabase
         .from('goals')
         .select('*')
-        .in('type', ['semanal', 'week']);
+        .in('type', ['semanal', 'week'])
+        .gte('reference_start', weekRange.start.toISOString().slice(0, 10))
+        .lte('reference_start', weekRange.end.toISOString().slice(0, 10));
 
       const localGoals = LocalSyncEngine.getGoals();
       const newGoalsMap: Record<string, UserGoalData> = {};
@@ -171,7 +173,12 @@ export const WeeklyRankView: React.FC = () => {
       // Seed from local sync engine
       if (localGoals && localGoals.length > 0) {
         localGoals.forEach(g => {
-          if (g.type === 'semanal' || (g.type as string) === 'week') {
+          if (
+            (g.type === 'semanal' || (g.type as string) === 'week') &&
+            g.reference_start &&
+            g.reference_start >= weekRange.start.toISOString().slice(0, 10) &&
+            g.reference_start <= weekRange.end.toISOString().slice(0, 10)
+          ) {
             newGoalsMap[g.user_id] = parseGoalData(g);
           }
         });
@@ -297,6 +304,24 @@ export const WeeklyRankView: React.FC = () => {
     });
   }, [salesToUse, weekRange]);
 
+  const modalityOptions = useMemo(() => {
+    return Array.from(new Set(weeklySales.map(s => s.custom_data?.modality).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [weeklySales]);
+
+  const filteredWeeklySales = useMemo(() => {
+    if (selectedModalities.length === 0) return weeklySales;
+    const selected = new Set(selectedModalities.map(value => value.toLowerCase()));
+    return weeklySales.filter(s => selected.has((s.custom_data?.modality || '').toLowerCase()));
+  }, [weeklySales, selectedModalities]);
+
+  useEffect(() => {
+    setSelectedModalities(current => {
+      const next = current.filter(value => modalityOptions.includes(value));
+      return next.length === current.length ? current : next;
+    });
+  }, [modalityOptions]);
+
   // Build weekly leaderboard joined with public.goals
   const leaderboard = useMemo<WeeklyLeaderboardEntry[]>(() => {
     // Include active consultants (or profiles with role seller/admin who have sales)
@@ -305,7 +330,7 @@ export const WeeklyRankView: React.FC = () => {
     const result: WeeklyLeaderboardEntry[] = consultantProfiles.map(consultant => {
       const sName = (consultant.name || '').trim().toLowerCase();
       
-      const consultantSales = weeklySales.filter(s => {
+      const consultantSales = filteredWeeklySales.filter(s => {
         const matchId = s.seller_id === consultant.id;
         const matchName = (s.seller_name || '').trim().toLowerCase() === sName;
         const matchCustom = (s.custom_data?.seller_name || '').trim().toLowerCase() === sName;
@@ -334,7 +359,10 @@ export const WeeklyRankView: React.FC = () => {
       const targetGrad = userGoal?.target_graduacao ?? 0;
       const targetPos = userGoal?.target_pos ?? 0;
       const targetTec = userGoal?.target_tecnico ?? 0;
-      const targetTotal = userGoal?.target_total ?? (targetGrad + targetPos + targetTec);
+      let targetTotal = userGoal?.target_total ?? (targetGrad + targetPos + targetTec);
+      if (targetTotal <= 0 && consultant.target_monthly && consultant.target_monthly > 0) {
+        targetTotal = consultant.target_monthly >= 1000 ? 30 : Math.round(consultant.target_monthly);
+      }
       const hasTarget = targetTotal > 0;
 
       // Formula: (Total de Vendas / Meta Total) * 100 e Graduação isolada
@@ -380,22 +408,22 @@ export const WeeklyRankView: React.FC = () => {
       ...item,
       position: index + 1,
     }));
-  }, [profiles, weeklySales, goalsMap]);
+  }, [profiles, filteredWeeklySales, goalsMap]);
 
   const topThree = leaderboard.slice(0, 3);
 
   // Total metrics of the week
-  const totalWeeklySales = weeklySales.length;
+  const totalWeeklySales = filteredWeeklySales.length;
   const totalWeeklyGoals: number = (Object.values(goalsMap) as UserGoalData[]).reduce((acc: number, val: UserGoalData) => acc + (Number(val.target_total) || 0), 0);
   const overallWeekPercentage = totalWeeklyGoals > 0 
     ? Math.round((totalWeeklySales / totalWeeklyGoals) * 100) 
     : 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 animate-in fade-in duration-200">
       
       {/* Top Banner */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 border border-amber-200/80 flex items-center justify-center shadow-2xs">
@@ -417,7 +445,7 @@ export const WeeklyRankView: React.FC = () => {
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             {weekRange.isCurrent
-              ? 'Classificação oficial e progresso das metas individuais e coletivas definidas para a semana vigente.'
+              ? 'Acompanhe o ritmo da equipe, as metas e a evolução da semana.'
               : `Exibindo histórico de classificação e vendas da semana de ${weekRange.fullLabel}.`}
           </p>
         </div>
@@ -466,6 +494,8 @@ export const WeeklyRankView: React.FC = () => {
               {weekRange.shortLabel}
             </span>
           </div>
+
+          <ModalityMultiFilter options={modalityOptions} selected={selectedModalities} onChange={setSelectedModalities} tone="blue" />
 
           <button
             onClick={loadData}

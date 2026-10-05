@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { Campaign, Sale, LeaderboardEntry, Profile, PaymentMethod } from '../types';
-import { supabase, getSupabaseClient, LocalSyncEngine, INITIAL_CAMPAIGNS, INITIAL_SALES } from '../lib/supabase';
+import { Campaign, Sale, LeaderboardEntry, Profile } from '../types';
+import { supabase, getSupabaseClient, LocalSyncEngine } from '../lib/supabase';
 import { 
   normalizeRemoteSale, 
+  getSaleDateBr,
   buildR9SalePayload, 
   buildStandardSalePayload, 
   logSupabaseError 
@@ -15,10 +16,6 @@ interface SalesContextType {
   sales: Sale[];
   leaderboard: LeaderboardEntry[];
   activeCampaigns: Campaign[];
-  totalCompanyRevenue: number;
-  totalCompanySalesCount: number;
-  overallTargetPercentage: number;
-  averageTicket: number;
   addSale: (saleData: {
     campaign_id: string;
     client_name: string;
@@ -26,8 +23,6 @@ interface SalesContextType {
     client_phone?: string;
     client_email?: string;
     product_name: string;
-    value: number;
-    payment_method: PaymentMethod;
     custom_data?: Record<string, any>;
     notes?: string;
     seller_id?: string;
@@ -37,20 +32,10 @@ interface SalesContextType {
   }) => Promise<{ success: boolean; sale?: Sale; error?: string }>;
   updateSale: (saleId: string, updatedData: Partial<Sale>, baseSale?: Sale) => Promise<{ success: boolean; error?: string; sale?: Sale }>;
   deleteSale: (saleId: string) => Promise<{ success: boolean; error?: string }>;
-  clearAllSales: () => Promise<{ success: boolean; error?: string }>;
   createCampaign: (campaignData: Omit<Campaign, 'id' | 'created_at'>) => Promise<{ success: boolean; campaign?: Campaign; error?: string }>;
   toggleCampaignStatus: (campaignId: string) => Promise<{ success: boolean; error?: string }>;
   deleteCampaign: (campaignId: string) => Promise<{ success: boolean; error?: string }>;
-  getSellerStats: (sellerId: string) => {
-    totalSales: number;
-    totalRevenue: number;
-    target: number;
-    targetPercentage: number;
-    rankPosition: number;
-    averageTicket: number;
-  };
   triggerConfetti: () => void;
-  exportSalesToCSV: () => void;
   fetchSalesPage: (params: {
     page: number;
     pageSize?: number;
@@ -60,7 +45,6 @@ interface SalesContextType {
     sortDirection?: 'asc' | 'desc';
     onlyToday?: boolean;
   }) => Promise<{ data: Sale[]; count: number; error?: string }>;
-  recentLiveActivity: { id: string; message: string; time: string; value: number; seller: string }[];
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -69,9 +53,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { currentUser, profiles } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
-  const [recentLiveActivity, setRecentLiveActivity] = useState<
-    { id: string; message: string; time: string; value: number; seller: string }[]
-  >([]);
 
   // Load initial sales & campaigns
   const loadData = useCallback(async () => {
@@ -168,20 +149,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 }
                 return [newSale, ...prev];
               });
-
-              // Atualiza o feed de atividades recentes
-              const sellerName = newSale.seller_name || 'Consultor';
-              const formattedVal = (Number(newSale.value) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-              setRecentLiveActivity((prev) => [
-                {
-                  id: `realtime-act-${Date.now()}`,
-                  message: `${sellerName} acabou de fechar R$ ${formattedVal}!`,
-                  time: 'Agora mesmo',
-                  value: Number(newSale.value) || 0,
-                  seller: sellerName,
-                },
-                ...prev.slice(0, 7)
-              ]);
             } catch (err) {
               console.error('💥 Erro ao processar INSERT do Realtime:', err);
             }
@@ -277,9 +244,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     if (onlyToday) {
+      // sale_date é persistida como TIMESTAMPTZ no banco. O formulário pode
+      // receber a data no fuso local, então os limites também são locais.
       const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0).toISOString();
       query = query.gte('sale_date', start).lt('sale_date', end);
     }
 
@@ -301,27 +270,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const activeCampaigns = useMemo(() => {
     return campaigns.filter(c => c.active);
   }, [campaigns]);
-
-  // Total metrics
-  const totalCompanyRevenue = useMemo(() => {
-    return sales
-      .reduce((acc, s) => acc + (Number(s.value) || 0), 0);
-  }, [sales]);
-
-  const totalCompanySalesCount = useMemo(() => {
-    return sales.length;
-  }, [sales]);
-
-  const averageTicket = useMemo(() => {
-    if (sales.length === 0) return 0;
-    return totalCompanyRevenue / sales.length;
-  }, [sales, totalCompanyRevenue]);
-
-  const overallTargetPercentage = useMemo(() => {
-    const totalTarget = campaigns.reduce((acc, c) => acc + (c.active ? Number(c.target_amount) || 0 : 0), 0) || 300000;
-    if (totalTarget === 0) return 0;
-    return Math.min(Math.round((totalCompanyRevenue / totalTarget) * 100), 100);
-  }, [campaigns, totalCompanyRevenue]);
 
   // Live Leaderboard calculation based on quantity of boletos / sales
   const leaderboard = useMemo<LeaderboardEntry[]>(() => {
@@ -364,7 +312,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         email: seller.email,
         avatar_url: seller.avatar_url,
         total_sales: totalCount,
-        total_value: totalCount,
         target,
         percentage_reached: percentage,
         position: 1,
@@ -406,8 +353,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     client_phone?: string;
     client_email?: string;
     product_name: string;
-    value: number;
-    payment_method: PaymentMethod;
     custom_data?: Record<string, any>;
     notes?: string;
     seller_id?: string;
@@ -471,8 +416,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       client_phone: saleData.client_phone,
       client_email: saleData.client_email,
       product_name: saleData.product_name,
-      value: Number(saleData.value),
-      payment_method: saleData.payment_method,
       fdi: resolvedFdi,
       sale_date: rawSaleDate,
       custom_data: {
@@ -546,16 +489,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setSales(updatedSales);
     LocalSyncEngine.saveSales(updatedSales);
 
-    // Live Activity Feed item
-    const activityItem = {
-      id: `act-${Date.now()}`,
-      message: `${selectedSellerName} acabou de fechar R$ ${newSale.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}!`,
-      time: 'Agora mesmo',
-      value: newSale.value,
-      seller: selectedSellerName,
-    };
-    setRecentLiveActivity(prev => [activityItem, ...prev.slice(0, 7)]);
-
     triggerConfetti();
 
     return { 
@@ -605,7 +538,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           seller_email: updatedSellerEmail,
         };
 
-        const newDocValue = updatedData.value !== undefined ? Number(updatedData.value) : Number(s.value);
         updatedItem = {
           ...s,
           ...updatedData,
@@ -615,7 +547,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           collaborator_id: updatedSellerId,
           seller_email: updatedSellerEmail,
           fdi: resolvedUpdatedFdi,
-          value: newDocValue,
           custom_data: mergedCustomData,
         };
         return updatedItem;
@@ -665,17 +596,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         collaborator_id: updatedSellerId,
         seller_email: updatedSellerEmail,
         fdi: resolvedUpdatedFdi,
-        value: updatedData.value !== undefined ? Number(updatedData.value) : Number(baseSale.value),
         custom_data: mergedCustomData,
       };
     }
 
-    if (updatedItem) {
-      if (sales.some(s => s.id === saleId)) {
-        setSales(updated);
-        LocalSyncEngine.saveSales(updated);
-      }
-    }
+    const wasInLoadedSales = sales.some(s => s.id === saleId);
 
     const client = getSupabaseClient();
     if (!client) {
@@ -698,6 +623,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return { success: false, error: altErr.message || updateErr.message || 'Erro ao atualizar a venda.' };
         }
       }
+
+      if (wasInLoadedSales) {
+        setSales(updated);
+        LocalSyncEngine.saveSales(updated);
+      }
     } catch (err: any) {
       console.error('💥 [Supabase Sales] Exceção no update:', err);
       return { success: false, error: err?.message || 'Erro ao atualizar a venda.' };
@@ -708,44 +638,30 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Delete Sale (Admin)
   const deleteSale = async (saleId: string) => {
-    const updated = sales.filter(s => s.id !== saleId);
-    setSales(updated);
-    LocalSyncEngine.saveSales(updated);
-
     const client = getSupabaseClient();
-    if (client) {
-      try {
-        const { error: delErr } = await client.from('sales').delete().eq('id', saleId);
-        if (delErr) {
-          logSupabaseError('deleteSale', delErr, { saleId });
-        }
-      } catch (err) {
-        console.error('💥 [Supabase Sales] Exceção no delete:', err);
-      }
+    if (!client) {
+      return { success: false, error: 'Supabase não está configurado.' };
     }
 
-    return { success: true };
-  };
-
-  const clearAllSales = async () => {
-    setSales([]);
-    LocalSyncEngine.clearAllSales();
-    const client = getSupabaseClient();
-    if (client) {
-      try {
-        const { error: clearErr } = await client.from('sales').delete().neq('id', 'dummy_never_match');
-        if (clearErr) {
-          logSupabaseError('clearAllSales', clearErr);
-        }
-      } catch (err) {
-        console.error('💥 [Supabase Sales] Exceção no clearAllSales:', err);
+    try {
+      const { error: delErr } = await client.from('sales').delete().eq('id', saleId);
+      if (delErr) {
+        logSupabaseError('deleteSale', delErr, { saleId });
+        return { success: false, error: delErr.message || 'Erro ao excluir a venda.' };
       }
+
+      const updated = sales.filter(s => s.id !== saleId);
+      setSales(updated);
+      LocalSyncEngine.saveSales(updated);
+      LocalSyncEngine.clearPendingSale(saleId);
+      return { success: true };
+    } catch (err: any) {
+      console.error('💥 [Supabase Sales] Exceção no delete:', err);
+      return { success: false, error: err?.message || 'Erro ao excluir a venda.' };
     }
-    return { success: true };
   };
 
-
-  // Create Campaign (dynamic form replacement for MS Forms)
+  // Create Campaign
   const createCampaign = async (campaignData: Omit<Campaign, 'id' | 'created_at'>) => {
     const newId = `camp-${Date.now().toString().slice(-6)}`;
     const newCampaign: Campaign = {
@@ -755,112 +671,72 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const client = getSupabaseClient();
-    if (client) {
-      try {
-        await client.from('campaigns').insert(newCampaign);
-      } catch {
-        // Fallback local
-      }
+    if (!client) {
+      return { success: false, error: 'Supabase não está configurado.' };
     }
 
-    const updated = [newCampaign, ...campaigns];
-    setCampaigns(updated);
-    LocalSyncEngine.saveCampaigns(updated);
+    try {
+      const { error } = await client.from('campaigns').insert(newCampaign);
+      if (error) {
+        logSupabaseError('createCampaign', error, newCampaign);
+        return { success: false, error: error.message || 'Erro ao criar campanha.' };
+      }
 
-    return { success: true, campaign: newCampaign };
+      const updated = [newCampaign, ...campaigns];
+      setCampaigns(updated);
+      LocalSyncEngine.saveCampaigns(updated);
+      return { success: true, campaign: newCampaign };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Erro ao criar campanha.' };
+    }
   };
 
   const toggleCampaignStatus = async (campaignId: string) => {
-    let newStatus = true;
-    const updated = campaigns.map(c => {
-      if (c.id === campaignId) {
-        newStatus = !c.active;
-        return { ...c, active: !c.active };
-      }
-      return c;
-    });
-
-    setCampaigns(updated);
-    LocalSyncEngine.saveCampaigns(updated);
+    const campaign = campaigns.find(c => c.id === campaignId);
+    if (!campaign) return { success: false, error: 'Campanha não encontrada.' };
 
     const client = getSupabaseClient();
-    if (client) {
-      try {
-        await client.from('campaigns').update({ active: newStatus }).eq('id', campaignId);
-      } catch {
-        // Fallback local
-      }
+    if (!client) {
+      return { success: false, error: 'Supabase não está configurado.' };
     }
 
-    return { success: true };
+    const newStatus = !campaign.active;
+    try {
+      const { error } = await client.from('campaigns').update({ active: newStatus }).eq('id', campaignId);
+      if (error) {
+        logSupabaseError('toggleCampaignStatus', error, { campaignId, active: newStatus });
+        return { success: false, error: error.message || 'Erro ao alterar status da campanha.' };
+      }
+
+      const updated = campaigns.map(c => c.id === campaignId ? { ...c, active: newStatus } : c);
+      setCampaigns(updated);
+      LocalSyncEngine.saveCampaigns(updated);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Erro ao alterar status da campanha.' };
+    }
   };
 
   const deleteCampaign = async (campaignId: string) => {
-    const updated = campaigns.filter(c => c.id !== campaignId);
-    setCampaigns(updated);
-    LocalSyncEngine.saveCampaigns(updated);
-
     const client = getSupabaseClient();
-    if (client) {
-      try {
-        await client.from('campaigns').delete().eq('id', campaignId);
-      } catch {
-        // Fallback local
-      }
+    if (!client) {
+      return { success: false, error: 'Supabase não está configurado.' };
     }
 
-    return { success: true };
-  };
+    try {
+      const { error } = await client.from('campaigns').delete().eq('id', campaignId);
+      if (error) {
+        logSupabaseError('deleteCampaign', error, { campaignId });
+        return { success: false, error: error.message || 'Erro ao excluir campanha.' };
+      }
 
-  const getSellerStats = (sellerId: string) => {
-    const sellerSales = sales.filter(s => s.seller_id === sellerId);
-    const approvedSales = sellerSales;
-    const totalRevenue = approvedSales.reduce((acc, s) => acc + (Number(s.value) || 0), 0);
-    const sellerProfile = profiles.find(p => p.id === sellerId);
-    const target = sellerProfile?.target_monthly || 50000;
-    const targetPercentage = target > 0 ? Math.min(Math.round((totalRevenue / target) * 100), 100) : 0;
-    
-    const rankEntry = leaderboard.find(l => l.seller_id === sellerId);
-    const rankPosition = rankEntry?.position || 1;
-    const averageTicket = approvedSales.length > 0 ? totalRevenue / approvedSales.length : 0;
-
-    return {
-      totalSales: approvedSales.length,
-      totalRevenue,
-      target,
-      targetPercentage,
-      rankPosition,
-      averageTicket,
-    };
-  };
-
-  const exportSalesToCSV = () => {
-    if (sales.length === 0) return;
-    const headers = ['ID', 'Data', 'Campanha', 'Vendedor', 'Email Vendedor', 'Cliente', 'Documento', 'Telefone', 'Email Cliente', 'Produto', 'Valor (R$)', 'Forma Pagamento', 'Observações'];
-    const rows = sales.map(s => [
-      s.id,
-      new Date(s.created_at).toLocaleDateString('pt-BR'),
-      `"${s.campaign_name || ''}"`,
-      `"${s.seller_name}"`,
-      s.seller_email,
-      `"${s.client_name}"`,
-      s.client_document || '',
-      s.client_phone || '',
-      s.client_email || '',
-      `"${s.product_name}"`,
-      s.value,
-      `"${s.payment_method}"`,
-      `"${(s.notes || '').replace(/"/g, '""')}"`,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `relatorio_vendas_salesflow_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const updated = campaigns.filter(c => c.id !== campaignId);
+      setCampaigns(updated);
+      LocalSyncEngine.saveCampaigns(updated);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Erro ao excluir campanha.' };
+    }
   };
 
   return (
@@ -870,22 +746,14 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         sales,
         leaderboard,
         activeCampaigns,
-        totalCompanyRevenue,
-        totalCompanySalesCount,
-        overallTargetPercentage,
-        averageTicket,
         addSale,
         updateSale,
         deleteSale,
-        clearAllSales,
         createCampaign,
         toggleCampaignStatus,
         deleteCampaign,
-        getSellerStats,
         triggerConfetti,
-        exportSalesToCSV,
-      fetchSalesPage,
-        recentLiveActivity,
+        fetchSalesPage,
       }}
     >
       {children}

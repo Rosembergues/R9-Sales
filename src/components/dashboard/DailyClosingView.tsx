@@ -170,21 +170,20 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
   // Breakdown by modality
   const modalityStats = useMemo(() => {
     // Counts map
-    const counts: Record<string, { count: number; totalValue: number }> = {};
+    const counts: Record<string, { count: number }> = {};
 
     // Initialize all standard modalities with 0
     STANDARD_MODALITIES.forEach((mod) => {
-      counts[mod.name] = { count: 0, totalValue: 0 };
+      counts[mod.name] = { count: 0 };
     });
 
     // Populate with actual day sales
     daySales.forEach((sale) => {
       const mod = normalizeModality(sale.custom_data?.modality);
       if (!counts[mod]) {
-        counts[mod] = { count: 0, totalValue: 0 };
+        counts[mod] = { count: 0 };
       }
       counts[mod].count += 1;
-      counts[mod].totalValue += Number(sale.value) || 0;
     });
 
     return counts;
@@ -241,21 +240,20 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
 
   // Breakdown by FDI channel
   const fdiStats = useMemo(() => {
-    const counts: Record<string, { count: number; totalValue: number }> = {};
+    const counts: Record<string, { count: number }> = {};
 
     // Initialize all standard FDI channels with 0
     STANDARD_FDI_CHANNELS.forEach((ch) => {
-      counts[ch] = { count: 0, totalValue: 0 };
+      counts[ch] = { count: 0 };
     });
 
     // Populate with actual day sales
     daySales.forEach((sale) => {
       const fdi = getSaleFdiDisplay(sale);
       if (!counts[fdi]) {
-        counts[fdi] = { count: 0, totalValue: 0 };
+        counts[fdi] = { count: 0 };
       }
       counts[fdi].count += 1;
-      counts[fdi].totalValue += Number(sale.value) || 0;
     });
 
     return counts;
@@ -272,7 +270,6 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     return fullNames.map((name) => ({
       name,
       count: fdiStats[name]?.count || 0,
-      totalValue: fdiStats[name]?.totalValue || 0,
     }));
   }, [fdiStats]);
 
@@ -555,7 +552,6 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                 <div className="p-3 divide-y divide-gray-100 flex-1">
                   {category.items.map((mod) => {
                     const count = modalityStats[mod.name]?.count || 0;
-                    const value = modalityStats[mod.name]?.totalValue || 0;
                     const isSelected = selectedModalityFilter === mod.name;
                     const percent = dayTotalCount > 0 ? Math.round((count / dayTotalCount) * 100) : 0;
 

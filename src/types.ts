@@ -53,13 +53,13 @@ export interface Profile {
   created_at: string;
   status: 'active' | 'inactive';
   phone?: string;
-  target_monthly?: number;
+  target_monthly?: number; // meta mensal em quantidade de lançamentos
 }
 
 export interface CampaignField {
   id: string;
   label: string;
-  type: 'text' | 'number' | 'select' | 'currency' | 'date';
+  type: 'text' | 'number' | 'select' | 'date';
   required: boolean;
   options?: string[];
   placeholder?: string;
@@ -72,19 +72,12 @@ export interface Campaign {
   description: string;
   code: string;
   active: boolean;
-  target_amount: number;
   start_date: string;
   end_date: string;
   fields: CampaignField[];
   created_by: string;
   created_at: string;
 }
-
-export type PaymentMethod = 
-  | 'PIX' 
-  | 'Cartão de Crédito' 
-  | 'Boleto Bancário' 
-  | 'Faturado / Transferência';
 
 export interface Sale {
   id: string;
@@ -100,8 +93,6 @@ export interface Sale {
   client_phone?: string;
   client_email?: string;
   product_name: string;
-  value: number;
-  payment_method: PaymentMethod;
   fdi?: string | ProductChannelFDI;
   sale_date?: string;
   custom_data?: SaleCustomData;
@@ -115,7 +106,6 @@ export interface LeaderboardEntry {
   email: string;
   avatar_url?: string;
   total_sales: number;
-  total_value?: number;
   target: number;
   target_graduacao?: number;
   target_pos?: number;
@@ -143,7 +133,6 @@ export interface Goal {
   id: string;
   user_id: string;
   type: GoalType;
-  target_value?: number;
   target_graduacao?: number;
   target_pos?: number;
   target_tecnico?: number;
@@ -162,7 +151,6 @@ export interface DatabaseGoalRecord {
   type: GoalType;
   reference_start: string;
   reference_end: string;
-  target_value?: number;
   target_graduacao?: number;
   target_pos?: number;
   target_tecnico?: number;
@@ -213,8 +201,6 @@ export interface RemoteSaleRow {
   client_phone?: string;
   client_email?: string;
   product_name?: string;
-  value?: number | string;
-  payment_method?: PaymentMethod | string;
   custom_data?: SaleCustomData;
   user_name?: string;
   created_by_name?: string;

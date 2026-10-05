@@ -87,7 +87,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
   const [parcelaLeve, setParcelaLeve] = useState<ParcelaLeveOption>('Sem parcelas');
   const [hasBolsaConvenio, setHasBolsaConvenio] = useState(false);
   const [empresaConvenio, setEmpresaConvenio] = useState('');
-  const [value, setValue] = useState<number>(0);
   const [notes, setNotes] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -139,7 +138,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       setParcelaLeve(sale.custom_data?.parcela_leve || 'Sem parcelas');
       setHasBolsaConvenio(!!sale.custom_data?.has_bolsa_convenio);
       setEmpresaConvenio(sale.custom_data?.empresa_convenio || '');
-      setValue(Number(sale.value) || 0);
       setNotes(sale.notes || '');
 
       setConfirmDelete(false);
@@ -221,7 +219,6 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       // recebam estritamente os dados do consultor selecionado e sejam sobrescritas e atualizadas juntas
       const updatedFields: Partial<Sale> = {
         client_name: candidateName.trim(),
-        value: Number(value) || 0,
         notes: notes.trim(),
         product_name: `${mainProduct} - ${modality} (${shift})`,
         fdi: fdiChannel,

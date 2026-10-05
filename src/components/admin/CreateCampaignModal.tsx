@@ -15,7 +15,6 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [code, setCode] = useState('');
-  const [targetAmount, setTargetAmount] = useState('150000');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(
     new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
@@ -40,7 +39,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
   ]);
 
   const [newFieldLabel, setNewFieldLabel] = useState('');
-  const [newFieldType, setNewFieldType] = useState<'text' | 'number' | 'select' | 'currency'>('text');
+  const [newFieldType, setNewFieldType] = useState<'text' | 'number' | 'select'>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
   const [newFieldRequired, setNewFieldRequired] = useState(true);
 
@@ -83,7 +82,6 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
       description: description.trim(),
       code: code.trim().toUpperCase(),
       active: true,
-      target_amount: Number(targetAmount) || 100000,
       start_date: startDate,
       end_date: endDate,
       fields,
@@ -180,19 +178,6 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Meta Global (R$)
-              </label>
-              <input
-                type="number"
-                required
-                value={targetAmount}
-                onChange={(e) => setTargetAmount(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Início
               </label>
               <input
@@ -279,7 +264,6 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
                   <option value="text">Texto Curto</option>
                   <option value="number">Número</option>
                   <option value="select">Seleção (Dropdown)</option>
-                  <option value="currency">Moeda / Valor</option>
                 </select>
 
                 <button

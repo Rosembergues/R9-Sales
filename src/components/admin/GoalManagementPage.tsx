@@ -470,7 +470,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     setGoalsValues(reverted);
     setToast({
       type: 'info',
-      message: 'Valores redefinidos para os registros salvos anteriormente.'
+      message: 'Metas redefinidas para os registros salvos anteriormente.'
     });
   };
 

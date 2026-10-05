@@ -19,73 +19,19 @@ const LOCAL_PENDING_SALES_KEY = 'salesflow_pending_sales_v1';
 const LOCAL_CURRENT_USER_KEY = 'salesflow_current_user_v4';
 const LOCAL_GOALS_KEY = 'salesflow_goals_v1';
 
-export const INITIAL_CAMPAIGNS: Campaign[] = [
-  {
-    id: 'camp-q1-2026',
-    title: 'Campanha Acelera Vendas Q1',
-    description: 'Campanha de expansão comercial com bônus de 5% sobre faturamento de soluções corporativas.',
-    code: 'ACELERA-Q1',
-    active: true,
-    target_amount: 250000,
-    start_date: '2026-01-01',
-    end_date: '2026-03-31',
-    created_by: '',
-    created_at: new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString(),
-    fields: [
-      {
-        id: 'f_client_cnpj',
-        label: 'CNPJ / CPF da Empresa',
-        type: 'text',
-        required: true,
-        placeholder: '00.000.000/0001-00',
-      },
-      {
-        id: 'f_plan_type',
-        label: 'Plano / Solução Contratada',
-        type: 'select',
-        required: true,
-        options: ['Plano Enterprise Anual', 'Plano Growth Semestral', 'Consultoria e Implantação', 'Licenciamento SaaS Cloud'],
-      },
-      {
-        id: 'f_installments',
-        label: 'Número de Parcelas',
-        type: 'select',
-        required: false,
-        options: ['À Vista', '2x', '3x', '6x', '12x'],
-      }
-    ]
-  },
-  {
-    id: 'camp-saas-enterprise',
-    title: 'Campanha Novos Clientes Cloud & IA',
-    description: 'Foco em aquisição de novas contas para a plataforma de Inteligência e Automação de Processos.',
-    code: 'CLOUD-IA-2026',
-    active: true,
-    target_amount: 180000,
-    start_date: '2026-02-01',
-    end_date: '2026-04-30',
-    created_by: '',
-    created_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-    fields: [
-      {
-        id: 'f_tech_lead',
-        label: 'Canal de Origem do Lead',
-        type: 'select',
-        required: true,
-        options: ['Inbound / Site', 'Outbound / Prospecção', 'Indicação / Parceiro', 'Evento Presencial'],
-      },
-      {
-        id: 'f_contract_duration',
-        label: 'Duração do Contrato',
-        type: 'select',
-        required: true,
-        options: ['12 Meses', '24 Meses (Fidelidade)', '36 Meses (Enterprise VIP)'],
-      }
-    ]
-  }
-];
+export const INITIAL_CAMPAIGNS: Campaign[] = [];
 
-export const INITIAL_SALES: Sale[] = [];
+function stripLegacyFinancialFields<T extends Record<string, unknown>>(record: T): T {
+  const cleaned = { ...record };
+  delete cleaned.value;
+  delete cleaned.target_amount;
+  delete cleaned.target_value;
+  delete cleaned.total_value;
+  delete cleaned.payment_method;
+  return cleaned;
+}
+
+
 
 // Supabase SQL Setup Script for user convenience
 export const SUPABASE_SQL_SCHEMA = `-- ============================================================
@@ -107,7 +53,7 @@ create table if not exists public.profiles (
   avatar_url text,
   phone text,
   status text default 'active' check (status in ('active', 'inactive')),
-  target_monthly numeric default 50000,
+  target_monthly numeric default 30,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -135,7 +81,6 @@ create table if not exists public.campaigns (
   description text,
   code text unique not null,
   active boolean default true,
-  target_amount numeric default 100000,
   start_date date not null,
   end_date date not null,
   fields jsonb default '[]'::jsonb,
@@ -171,14 +116,12 @@ create table if not exists public.sales (
   client_phone text,
   client_email text,
   product_name text,
-  value numeric default 1200,
-  payment_method text default 'PIX',
   custom_data jsonb default '{}'::jsonb
 );
 
 -- Campos canônicos usados pelo aplicativo:
 -- seller_id = identificador do responsável; seller_name/email são snapshots históricos.
--- client_name/product_name/value/payment_method são a representação canônica da venda.
+-- client_name/product_name são os campos canônicos da venda.
 -- custom_data permanece reservado para dados específicos de campanhas/compatibilidade.
 
 
@@ -331,7 +274,7 @@ begin
     new.id,
     coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
     new.email,
-    coalesce(new.raw_user_meta_data->>'role', 'seller'),
+    'seller',
     'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'
   );
   return new;
@@ -394,6 +337,19 @@ set
   collaborator_name = coalesce(nullif(collaborator_name, ''), nullif(seller_name, ''), 'Consultor R9'),
   seller_name = coalesce(nullif(seller_name, ''), nullif(collaborator_name, ''), 'Consultor R9')
 where collaborator_name is null or collaborator_name = '' or seller_name is null or seller_name = '';
+
+-- Sincroniza a coluna canônica sale_date com a data real armazenada em custom_data
+-- em registros históricos criados antes da persistência correta de sale_date.
+update public.sales
+set sale_date = case
+  when custom_data->>'sale_date' ~ '^\\d{1,2}/\\d{1,2}/\\d{4}$'
+    then to_date(custom_data->>'sale_date', 'DD/MM/YYYY')::timestamp with time zone
+  when custom_data->>'sale_date' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+    then (custom_data->>'sale_date')::date::timestamp with time zone
+  else sale_date
+end
+where custom_data ? 'sale_date'
+  and nullif(custom_data->>'sale_date', '') is not null;
 `;
 
 // Local Storage Sync Engine for seamless, 100% resilient operation
@@ -424,7 +380,7 @@ export class LocalSyncEngine {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          return parsed;
+          return parsed.map((sale) => stripLegacyFinancialFields(sale));
         }
       }
       return [];
@@ -478,7 +434,7 @@ export class LocalSyncEngine {
 
   static saveSales(sales: Sale[]) {
     try {
-      localStorage.setItem(LOCAL_SALES_KEY, JSON.stringify(sales));
+      localStorage.setItem(LOCAL_SALES_KEY, JSON.stringify(sales.map((sale) => stripLegacyFinancialFields(sale as unknown as Record<string, unknown>))));
     } catch (e) {
       console.error('Failed to save sales locally', e);
     }
@@ -490,7 +446,7 @@ export class LocalSyncEngine {
     try {
       const stored = localStorage.getItem(LOCAL_PENDING_SALES_KEY);
       const parsed = stored ? JSON.parse(stored) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.map((sale) => stripLegacyFinancialFields(sale)) : [];
     } catch {
       return [];
     }
@@ -498,7 +454,7 @@ export class LocalSyncEngine {
 
   static savePendingSales(sales: Sale[]) {
     try {
-      localStorage.setItem(LOCAL_PENDING_SALES_KEY, JSON.stringify(sales));
+      localStorage.setItem(LOCAL_PENDING_SALES_KEY, JSON.stringify(sales.map((sale) => stripLegacyFinancialFields(sale as unknown as Record<string, unknown>))));
     } catch (e) {
       console.error('Failed to save pending sales locally', e);
     }

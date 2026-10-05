@@ -41,7 +41,7 @@ export const CampaignsManager: React.FC = () => {
             Gerenciador de Formulários e Campanhas
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Substitua formulários estáticos como Microsoft Forms com formulários dinâmicos com validações, regras de comissão e metas em tempo real.
+            Substitua formulários estáticos por formulários dinâmicos com validações, metas e acompanhamento em tempo real.
           </p>
         </div>
 
@@ -59,10 +59,6 @@ export const CampaignsManager: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {campaigns.map((campaign) => {
           const campaignSales = sales.filter(s => s.campaign_id === campaign.id);
-          const totalSalesValue = campaignSales.reduce((acc, s) => acc + (Number(s.value) || 0), 0);
-          const targetPercentage = campaign.target_amount > 0 
-            ? Math.min(Math.round((totalSalesValue / campaign.target_amount) * 100), 100) 
-            : 0;
 
           return (
             <div
@@ -125,24 +121,17 @@ export const CampaignsManager: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Target & Revenue Progress Bar */}
+                {/* Volume de lançamentos da campanha */}
                 <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-500">Arrecadação da Campanha:</span>
+                    <span className="text-slate-500">Lançamentos registrados:</span>
                     <span className="font-bold text-slate-900">
-                      R$ {totalSalesValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      <span className="text-slate-500 text-[11px] font-normal"> / R$ {campaign.target_amount.toLocaleString('pt-BR')}</span>
+                      {campaignSales.length}
                     </span>
                   </div>
-                  <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-indigo-600 rounded-full transition-all duration-500"
-                      style={{ width: `${targetPercentage}%` }}
-                    />
-                  </div>
                   <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                    <span>{campaignSales.length} {campaignSales.length === 1 ? 'venda registrada' : 'vendas registradas'}</span>
-                    <span className="font-bold text-emerald-700">{targetPercentage}% Atingido</span>
+                    <span>Volume de vendas da campanha</span>
+                    <span className="font-bold text-indigo-700">{campaignSales.length === 1 ? '1 lançamento' : `${campaignSales.length} lançamentos`}</span>
                   </div>
                 </div>
 

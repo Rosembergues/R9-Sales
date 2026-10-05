@@ -1,31 +1,48 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# R9 Sales
 
-# Run and deploy your AI Studio app
+Aplicação web interna para gestão de vendas, metas e desempenho da operação R9.
 
-This contains everything you need to run your app locally.
+## Stack
 
-View your app in AI Studio: https://ai.studio/apps/99b38acd-70b5-4d59-9a20-70329071c0c3
+- React + TypeScript
+- Vite
+- Supabase Auth / Database / Realtime
+- Tailwind CSS
+- Lucide React
+- React Hook Form
 
-## Run Locally
+## Desenvolvimento
 
-**Prerequisites:**  Node.js
+```bash
+npm install
+npm run dev
+```
 
+## Validação
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm run lint
+npm run build
+```
 
+O Supabase é a fonte oficial dos dados quando disponível. O LocalStorage é usado apenas como cache/fila offline para vendas ainda não confirmadas.
 
-## Fase 1 — Fundação (02/10/2026)
+### Banco de dados
 
-- Supabase tratado como fonte oficial quando disponível; LocalStorage fica como cache/fallback offline.
-- Vendas criadas sem confirmação do Supabase entram em uma fila local temporária para sincronização posterior.
-- RLS de `profiles` não permite mais INSERT público; criação normal ocorre pelo trigger `handle_new_user` em `SECURITY DEFINER`.
-- Adicionados índices para data, criação, vendedor, campanha, status, produto e FDI.
-- A tabela de vendas passou a renderizar no máximo 50 linhas por página, mantendo filtros/ordenação/exportação sobre o conjunto filtrado.
+O SQL atualizado para criação/migração do banco está disponível em `src/lib/supabase.ts` e pode ser executado pelo SQL Editor do Supabase. A migração também normaliza `sale_date` de registros históricos que ainda guardam a data real apenas em `custom_data`.
 
-**Importante:** execute o SQL atualizado exibido pelo `SupabaseSetupModal` no SQL Editor do seu projeto Supabase para aplicar as alterações de RLS e índices.
+## Estrutura principal
+
+- `src/components/dashboard/R9Dashboard.tsx` — shell e navegação principal
+- `src/components/dashboard/HomeDashboard.tsx` — início
+- `src/components/dashboard/SalesSpreadsheetTable.tsx` — vendas/paginação/filtros
+- `src/components/seller/PerformanceDashboard.tsx` — desempenho operacional
+- `src/components/seller/WeeklyRankView.tsx` / `MonthlyRankView.tsx` — rankings
+- `src/context/AuthContext.tsx` — autenticação e perfis
+- `src/context/SalesContext.tsx` — estado e operações de vendas
+- `src/lib/salesMapper.ts` — normalização e payloads
+- `src/lib/supabase.ts` — cliente, cache local e SQL de referência
+
+## Segurança
+
+O cadastro público sempre cria usuários como `seller`. Alterações de papel devem ocorrer por administradores autenticados. Operações que exigem privilégios de administração do Supabase Auth, como criar/excluir usuários de autenticação, não devem usar uma `service_role` no navegador; devem ser implementadas por uma Edge Function ou backend seguro.

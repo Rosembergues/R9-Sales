@@ -453,7 +453,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
         {/* Checkbox list */}
         <div className="max-h-40 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
           {distinctList.length === 0 ? (
-            <p className="text-gray-400 italic text-[11px] py-1">Nenhum valor disponível</p>
+            <p className="text-gray-400 italic text-[11px] py-1">Nenhuma opção disponível</p>
           ) : (
             distinctList.map(val => {
               const isChecked = selectedList.includes(val);

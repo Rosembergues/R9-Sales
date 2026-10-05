@@ -1,34 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { 
-  X, 
-  Zap, 
-  User, 
-  Hash, 
-  Calendar, 
-  BookOpen, 
-  Layers, 
-  Clock, 
-  CreditCard, 
-  Building2, 
-  FileText, 
-  CheckCircle2, 
-  AlertCircle,
-  Sparkles,
-  HelpCircle,
-  Tag,
-  GraduationCap,
-  Award,
-  Wrench
+import {
+  X, User, Hash, CalendarDays, GraduationCap, Award, Wrench,
+  ChevronRight, ChevronLeft, CheckCircle2, AlertCircle, Building2,
+  FileText, Users, BookOpen, Layers3, Clock3, Sparkles
 } from 'lucide-react';
-import { 
+import {
   MainProductType,
-  ProductChannelFDI, 
-  ModalityType, 
-  ShiftType, 
-  ParcelaLeveOption, 
-  PaymentMethod,
+  ProductChannelFDI,
+  ModalityType,
+  ShiftType,
+  ParcelaLeveOption,
   Profile
 } from '../../types';
 
@@ -39,42 +22,68 @@ interface NewSaleModalProps {
   initialProduct?: MainProductType;
 }
 
-const FDI_CHANNELS: ProductChannelFDI[] = [
+const BASE_FDI: ProductChannelFDI[] = [
   'Simplificada',
   'MSV',
-  'Reabertura',
   'Transferência Externa',
+  'Reabertura',
   'Vestibular',
-  'ENEM',
-  'Técnico',
-  'Pós Graduação'
+  'ENEM'
 ];
 
-const PARCELA_LEVE_OPTIONS: ParcelaLeveOption[] = [
-  '3 parcelas',
-  '2 parcelas',
+const FDI_LABEL: Record<ProductChannelFDI, string> = {
+  Simplificada: 'Simplificada',
+  MSV: 'MSV',
+  'Transferência Externa': 'TE',
+  Reabertura: 'Reabertura',
+  Vestibular: 'Vestibular',
+  ENEM: 'ENEM',
+  Técnico: 'Técnico',
+  'Pós Graduação': 'Pós-Graduação'
+};
+
+const PARCELA_OPTIONS: ParcelaLeveOption[] = [
   '1 parcela',
+  '2 parcelas',
+  '3 parcelas',
   'Sem parcelas'
 ];
 
-/**
- * Regras de desabilitação para canais FDI baseado no Produto Principal:
- * - Graduação: desabilita 'Técnico' e 'Pós Graduação'
- * - Pós Graduação: desabilita todos que não são 'Pós Graduação'
- * - Curso Técnico: desabilita todos que não são 'Técnico'
- */
-export const isFdiChannelDisabled = (channel: ProductChannelFDI, product: MainProductType): boolean => {
-  if (product === 'Graduação') {
-    return channel === 'Técnico' || channel === 'Pós Graduação';
-  }
-  if (product === 'Pós Graduação') {
-    return channel !== 'Pós Graduação';
-  }
-  if (product === 'Curso Técnico') {
-    return channel !== 'Técnico';
-  }
-  return false;
+const MODALITIES: Record<MainProductType, Array<{ name: ModalityType; shifts: ShiftType[] }>> = {
+  'Graduação': [
+    { name: 'Presencial', shifts: ['Manhã', 'Noite'] },
+    { name: 'Semipresencial', shifts: ['Manhã', 'Noite'] },
+    { name: 'Ao Vivo', shifts: ['Manhã', 'Noite'] },
+    { name: 'EAD', shifts: ['Virtual'] },
+    { name: 'FLEX', shifts: ['Virtual'] }
+  ],
+  'Pós Graduação': [
+    { name: 'Pós Presencial', shifts: ['Manhã', 'Noite'] },
+    { name: 'Pós Ao Vivo', shifts: ['Manhã', 'Noite'] },
+    { name: 'Pós Digital', shifts: ['Virtual'] }
+  ],
+  'Curso Técnico': [
+    { name: 'Técnico Presencial', shifts: ['Manhã', 'Noite'] }
+  ]
 };
+
+const getTodayDateStr = () => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+};
+
+const formatIsoToBrDate = (iso: string) => {
+  const [year, month, day] = iso.split('-');
+  return year && month && day ? `${day}/${month}/${year}` : '';
+};
+
+const fdiOptionsFor = (product: MainProductType): ProductChannelFDI[] => {
+  if (product === 'Graduação') return BASE_FDI;
+  if (product === 'Pós Graduação') return [...BASE_FDI, 'Pós Graduação'];
+  return [...BASE_FDI, 'Técnico'];
+};
+
+const defaultModalityFor = (product: MainProductType): ModalityType => MODALITIES[product][0].name;
 
 export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   isOpen,
@@ -82,275 +91,168 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   onSuccess,
   initialProduct = 'Graduação'
 }) => {
-  const { currentUser, profiles, refreshProfiles } = useAuth();
+  const { currentUser, profiles } = useAuth();
   const { sales, activeCampaigns, addSale } = useSales();
 
-  // Consultor Responsável selecionado pelo usuário
-  const [selectedSellerId, setSelectedSellerId] = useState<string>(currentUser?.id || '');
-  const [selectedSellerName, setSelectedSellerName] = useState<string>(currentUser?.name || '');
-  const [selectedSellerEmail, setSelectedSellerEmail] = useState<string>(currentUser?.email || '');
-
-  // Ref para rastrear abertura do modal e garantir que a pré-seleção pelo usuário logado
-  // ocorra exclusivamente na transição de fechado para aberto, NUNCA sobrescrevendo
-  // uma escolha feita pelo usuário caso profiles ou currentUser atualizem durante o preenchimento.
-  const wasOpenRef = useRef(false);
-
-  useEffect(() => {
-    if (isOpen && !wasOpenRef.current) {
-      refreshProfiles();
-      const defaultId = currentUser?.id || '';
-      const defaultName = currentUser?.name || '';
-      const defaultEmail = currentUser?.email || '';
-      setSelectedSellerId(defaultId);
-      setSelectedSellerName(defaultName);
-      setSelectedSellerEmail(defaultEmail);
-    }
-    wasOpenRef.current = isOpen;
-  }, [isOpen, currentUser?.id, currentUser?.name, currentUser?.email, refreshProfiles]);
-
-  // Lista consolidada de consultores disponíveis (tabela profiles + usuário logado se não listado + consultores já registrados)
-  const availableConsultants = React.useMemo(() => {
-    const list: Profile[] = [...profiles];
-    if (currentUser && !list.some(p => p.id === currentUser.id)) {
-      list.unshift(currentUser);
-    }
-
-    // Inclui consultores que tenham vendas registradas no sistema
-    if (sales && sales.length > 0) {
-      sales.forEach((s) => {
-        const sName = s.seller_name?.trim();
-        if (sName && sName !== 'Consultor' && sName !== 'Consultor R9') {
-          const alreadyExists = list.some(
-            p => p.id === s.seller_id || p.name.toLowerCase() === sName.toLowerCase()
-          );
-          if (!alreadyExists) {
-            list.push({
-              id: s.seller_id || `seller-${sName.toLowerCase().replace(/\s+/g, '-')}`,
-              name: sName,
-              email: s.seller_email || `${sName.toLowerCase().replace(/\s+/g, '.')}@r9.edu.br`,
-              role: 'seller',
-              created_at: s.created_at || new Date().toISOString(),
-              status: 'active'
-            });
-          }
-        }
-      });
-    }
-
-    return list;
-  }, [profiles, currentUser, sales]);
-
-  const selectedConsultant = React.useMemo(() => {
-    const byId = availableConsultants.find(p => p.id === selectedSellerId);
-    if (byId) return byId;
-
-    if (selectedSellerName) {
-      const byName = availableConsultants.find(
-        p => p.name.toLowerCase() === selectedSellerName.toLowerCase()
-      );
-      if (byName) return byName;
-      return {
-        id: selectedSellerId || `custom-${Date.now()}`,
-        name: selectedSellerName,
-        email: selectedSellerEmail,
-        role: 'seller' as const,
-        created_at: '',
-        status: 'active' as const
-      };
-    }
-
-    return currentUser;
-  }, [availableConsultants, selectedSellerId, selectedSellerName, selectedSellerEmail, currentUser]);
-
-  // 1. Produto Principal
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [selectedSellerId, setSelectedSellerId] = useState(currentUser?.id || '');
   const [mainProduct, setMainProduct] = useState<MainProductType>(initialProduct);
-
-  // 2. Dados da Oportunidade
   const [opportunityNumber, setOpportunityNumber] = useState('');
   const [candidateName, setCandidateName] = useState('');
-
-  // 3. Data da Venda (ISO yyyy-mm-dd for input, formatted dd/MM/yyyy for record)
-  const getTodayDateStr = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const [saleDateIso, setSaleDateIso] = useState<string>(getTodayDateStr());
-
-  // 4. Produto/Canal (FDI) - valor string correspondente à opção selecionada na seção 3
+  const [saleDateIso, setSaleDateIso] = useState(getTodayDateStr());
   const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI>('Simplificada');
-
-  // 5. Modalidade & Turno
-  const [modality, setModality] = useState<ModalityType>('Presencial');
+  const [modality, setModality] = useState<ModalityType>(defaultModalityFor(initialProduct));
   const [shift, setShift] = useState<ShiftType>('Noite');
-
-  // 6. Condições de Pagamento
   const [parcelaLeve, setParcelaLeve] = useState<ParcelaLeveOption>('Sem parcelas');
-  const [hasBolsaConvenio, setHasBolsaConvenio] = useState<boolean>(false);
-  const [empresaConvenio, setEmpresaConvenio] = useState<string>('');
-
-  // 7. Observações
-  const [notes, setNotes] = useState<string>('');
-
-  // Optional: Campanha Ativa
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>(
-    activeCampaigns[0]?.id || ''
-  );
-
-  // States
+  const [hasBolsaConvenio, setHasBolsaConvenio] = useState(false);
+  const [empresaConvenio, setEmpresaConvenio] = useState('');
+  const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const wasOpenRef = useRef(false);
+  const formScrollRef = useRef<HTMLFormElement | null>(null);
 
-  // Update initial product when prop changes
-  useEffect(() => {
-    if (initialProduct) {
-      setMainProduct(initialProduct);
-    }
-  }, [initialProduct]);
-
-  // Adjust modalities and shifts based on selected main product
-  useEffect(() => {
-    if (mainProduct === 'Graduação') {
-      if (isFdiChannelDisabled(fdiChannel, 'Graduação')) {
-        setFdiChannel('Vestibular');
+  const availableConsultants = useMemo(() => {
+    const list: Profile[] = [...profiles];
+    if (currentUser && !list.some(p => p.id === currentUser.id)) list.unshift(currentUser);
+    sales.forEach(s => {
+      const name = s.seller_name?.trim();
+      if (!name || name === 'Consultor' || name === 'Consultor R9') return;
+      if (!list.some(p => p.id === s.seller_id || p.name.toLowerCase() === name.toLowerCase())) {
+        list.push({
+          id: s.seller_id || `seller-${name.toLowerCase().replace(/\s+/g, '-')}`,
+          name,
+          email: s.seller_email || '',
+          role: 'seller',
+          created_at: s.created_at || new Date().toISOString(),
+          status: 'active'
+        });
       }
-      setModality('Presencial');
-      setShift('Noite');
-    } else if (mainProduct === 'Pós Graduação') {
-      setFdiChannel('Pós Graduação');
-      setModality('Pós Presencial');
-      setShift('Noite');
-    } else if (mainProduct === 'Curso Técnico') {
-      setFdiChannel('Técnico');
-      setModality('Técnico Presencial');
-      setShift('Noite');
+    });
+    return list.filter(p => p.status !== 'inactive');
+  }, [profiles, currentUser, sales]);
+
+  const selectedConsultant = useMemo(
+    () => availableConsultants.find(p => p.id === selectedSellerId) || currentUser,
+    [availableConsultants, selectedSellerId, currentUser]
+  );
+
+  const fdiOptions = useMemo(() => fdiOptionsFor(mainProduct), [mainProduct]);
+  const availableModalities = useMemo(() => MODALITIES[mainProduct], [mainProduct]);
+  const currentAllowedShifts = useMemo(
+    () => availableModalities.find(m => m.name === modality)?.shifts || ['Manhã', 'Noite'],
+    [availableModalities, modality]
+  );
+
+  useEffect(() => {
+    if (!isOpen || wasOpenRef.current) {
+      wasOpenRef.current = isOpen;
+      return;
     }
+    setStep(1);
+    setSelectedSellerId(currentUser?.id || '');
+    setMainProduct(initialProduct);
+    setOpportunityNumber('');
+    setCandidateName('');
+    setSaleDateIso(getTodayDateStr());
+    setFdiChannel(initialProduct === 'Pós Graduação' ? 'Pós Graduação' : initialProduct === 'Curso Técnico' ? 'Técnico' : 'Simplificada');
+    setModality(defaultModalityFor(initialProduct));
+    setShift('Noite');
+    setParcelaLeve('Sem parcelas');
+    setHasBolsaConvenio(false);
+    setEmpresaConvenio('');
+    setNotes('');
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    wasOpenRef.current = true;
+  }, [isOpen, currentUser?.id, initialProduct]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+
+    // Cada etapa deve começar no topo para que nenhum campo fique oculto
+    // por causa da posição de rolagem da etapa anterior.
+    requestAnimationFrame(() => {
+      formScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+    });
+  }, [isOpen, step]);
+
+  useEffect(() => {
+    const options = fdiOptionsFor(mainProduct);
+    if (!options.includes(fdiChannel)) setFdiChannel(options[0]);
+    const defaultModality = defaultModalityFor(mainProduct);
+    setModality(defaultModality);
+    setShift(MODALITIES[mainProduct][0].shifts[0] === 'Virtual' ? 'Virtual' : 'Noite');
   }, [mainProduct]);
 
-  // Available modalities for the active main product
-  const availableModalities = React.useMemo(() => {
-    if (mainProduct === 'Graduação') {
-      return [
-        { name: 'Presencial', bu: 'BU Presencial', shifts: ['Manhã', 'Noite'] },
-        { name: 'Semipresencial', bu: 'BU Presencial', shifts: ['Manhã', 'Noite'] },
-        { name: 'Ao Vivo', bu: 'BU Presencial', shifts: ['Manhã', 'Noite'] },
-        { name: 'EAD', bu: 'BU Digital', shifts: ['Virtual'] },
-        { name: 'FLEX', bu: 'BU Digital', shifts: ['Virtual'] }
-      ];
-    } else if (mainProduct === 'Pós Graduação') {
-      return [
-        { name: 'Pós Presencial', bu: 'Pós Graduação', shifts: ['Manhã', 'Noite'] },
-        { name: 'Pós Ao Vivo', bu: 'Pós Graduação', shifts: ['Manhã', 'Noite'] },
-        { name: 'Pós Digital', bu: 'Pós Graduação', shifts: ['Virtual'] }
-      ];
-    } else {
-      return [
-        { name: 'Técnico Presencial', bu: 'Curso Técnico', shifts: ['Manhã', 'Noite'] }
-      ];
+  useEffect(() => {
+    const config = availableModalities.find(m => m.name === modality);
+    if (!config) {
+      setModality(availableModalities[0].name);
+      return;
     }
-  }, [mainProduct]);
-
-  // Allowed shifts for current modality
-  const currentAllowedShifts = React.useMemo(() => {
-    const found = availableModalities.find(m => m.name === modality);
-    return found ? (found.shifts as ShiftType[]) : ['Manhã', 'Noite'];
-  }, [availableModalities, modality]);
-
-  const handleSelectModality = (modName: string) => {
-    setModality(modName as ModalityType);
-    const modConfig = availableModalities.find(m => m.name === modName);
-    if (modConfig && modConfig.shifts.length > 0) {
-      if (!modConfig.shifts.includes(shift)) {
-        setShift(modConfig.shifts[0] as ShiftType);
-      }
-    }
-  };
+    if (!config.shifts.includes(shift)) setShift(config.shifts[0]);
+  }, [availableModalities, modality, shift]);
 
   if (!isOpen) return null;
 
-  // Format ISO yyyy-mm-dd to dd/MM/yyyy
-  const formatIsoToBrDate = (isoStr: string): string => {
-    if (!isoStr) return '';
-    const parts = isoStr.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  const validateStep = (targetStep: number) => {
+    setErrorMessage(null);
+    if (targetStep >= 2) {
+      if (!selectedSellerId) return setErrorMessage('Selecione o consultor responsável pela venda.'), false;
+      if (!opportunityNumber.trim()) return setErrorMessage('Informe o Número da Oportunidade.'), false;
+      if (!candidateName.trim()) return setErrorMessage('Informe o nome do aluno.'), false;
+      if (!saleDateIso) return setErrorMessage('Informe a data da venda.'), false;
     }
-    return isoStr;
+    if (targetStep >= 3 && hasBolsaConvenio && !empresaConvenio.trim()) {
+      setErrorMessage('Informe a empresa do convênio ou selecione “Não”.');
+      return false;
+    }
+    return true;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const goNext = () => {
+    if (step === 1 && validateStep(2)) setStep(2);
+    else if (step === 2 && validateStep(3)) setStep(3);
+  };
+
+  const handleProductChange = (product: MainProductType) => {
+    setMainProduct(product);
+    const nextFdi = product === 'Pós Graduação' ? 'Pós Graduação' : product === 'Curso Técnico' ? 'Técnico' : 'Simplificada';
+    setFdiChannel(nextFdi);
+  };
+
+  const handleModalityChange = (next: ModalityType) => {
+    setModality(next);
+    const config = availableModalities.find(m => m.name === next);
+    if (config) setShift(config.shifts[0]);
+  };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!validateStep(3)) return;
+    setIsSubmitting(true);
     setErrorMessage(null);
 
-    // Validações básicas
-    if (!opportunityNumber.trim()) {
-      setErrorMessage('Por favor, informe o Número da Oportunidade.');
-      return;
-    }
-
-    if (!candidateName.trim()) {
-      setErrorMessage('Por favor, informe o Nome do Candidato / Aluno.');
-      return;
-    }
-
-    if (hasBolsaConvenio && !empresaConvenio.trim()) {
-      setErrorMessage('Informe o nome da Empresa do Convênio ou selecione "Não".');
-      return;
-    }
-
+    const chosen = selectedConsultant;
+    const chosenSellerId = chosen?.id || selectedSellerId;
+    const chosenSellerName = chosen?.name || currentUser?.name || 'Consultor';
+    const chosenSellerEmail = chosen?.email || currentUser?.email || '';
     const formattedDateBr = formatIsoToBrDate(saleDateIso);
 
-    setIsSubmitting(true);
-
-    // 2. Recupera os dados exatos do consultor selecionado no campo de responsável na lista de perfis/equipe
-    const chosenProfile = profiles.find(p => p.id === selectedSellerId) ||
-                          availableConsultants.find(p => p.id === selectedSellerId) ||
-                          (selectedSellerName ? profiles.find(p => p.name.toLowerCase() === selectedSellerName.toLowerCase()) : undefined) ||
-                          (selectedSellerName ? availableConsultants.find(p => p.name.toLowerCase() === selectedSellerName.toLowerCase()) : undefined);
-
-    const isSelfSelected = Boolean(currentUser && selectedSellerId === currentUser.id);
-
-    let chosenSellerName = '';
-    let chosenSellerId = selectedSellerId;
-    let chosenSellerEmail = '';
-
-    if (chosenProfile) {
-      chosenSellerName = chosenProfile.name;
-      chosenSellerId = chosenProfile.id;
-      chosenSellerEmail = chosenProfile.email || '';
-    } else if (isSelfSelected && currentUser) {
-      chosenSellerName = currentUser.name;
-      chosenSellerId = currentUser.id;
-      chosenSellerEmail = currentUser.email || '';
-    } else if (selectedSellerName && selectedSellerName.trim()) {
-      chosenSellerName = selectedSellerName.trim();
-      chosenSellerEmail = selectedSellerEmail || '';
-    } else {
-      chosenSellerName = 'Consultor R9';
-      chosenSellerEmail = '';
-    }
-
     try {
-      // 3. Modifica o payload para garantir estritamente os dados do consultor selecionado:
-      // seller_id & collaborator_id: [ID UUID do consultor selecionado]
-      // seller_name: [Nome do consultor selecionado]
-      // collaborator_name: [Nome do consultor selecionado]
-      // seller_email: [Email do consultor selecionado]
       const response = await addSale({
-        campaign_id: selectedCampaignId || activeCampaigns[0]?.id || 'camp-1',
+        campaign_id: activeCampaigns[0]?.id || 'camp-1',
         client_name: candidateName.trim(),
         product_name: `${mainProduct} - ${modality} (${shift})`,
-        value: 1200, // Valor padrão de referência no sistema
-        payment_method: 'PIX',
         seller_id: chosenSellerId,
-        collaborator_id: chosenSellerId,
         seller_name: chosenSellerName,
-        collaborator_name: chosenSellerName,
         seller_email: chosenSellerEmail,
+        collaborator_name: chosenSellerName,
         fdi: fdiChannel,
         custom_data: {
           opportunity_number: opportunityNumber.trim(),
@@ -365,8 +267,8 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
           business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
           fdi: fdiChannel,
           fdi_channel: fdiChannel,
-          modality: modality,
-          shift: shift,
+          modality,
+          shift,
           parcela_leve: parcelaLeve,
           has_bolsa_convenio: hasBolsaConvenio,
           empresa_convenio: hasBolsaConvenio ? empresaConvenio.trim() : ''
@@ -374,535 +276,246 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
         notes: notes.trim()
       });
 
-      setIsSubmitting(false);
-
-      if (response.success) {
-        setSuccessMessage('Venda registrada com sucesso no R9 Sales!');
-        if (onSuccess) onSuccess();
-
-        // Reset form
-        setTimeout(() => {
-          setOpportunityNumber('');
-          setCandidateName('');
-          setNotes('');
-          setEmpresaConvenio('');
-          setHasBolsaConvenio(false);
-          setSuccessMessage(null);
-          onClose();
-        }, 1200);
-      } else {
-        setErrorMessage(response.error || 'Erro ao registrar venda. Tente novamente.');
+      if (!response.success) {
+        setErrorMessage(response.error || 'Não foi possível registrar a venda.');
+        setIsSubmitting(false);
+        return;
       }
+
+      setSuccessMessage('Venda registrada com sucesso!');
+      onSuccess?.();
+      setIsSubmitting(false);
     } catch (err: any) {
       setIsSubmitting(false);
-      setErrorMessage(err.message || 'Erro inesperado ao registrar venda.');
+      setErrorMessage(err?.message || 'Erro inesperado ao registrar venda.');
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150">
-      <div className="relative w-full max-w-2xl bg-white border border-gray-200 rounded-3xl shadow-2xl overflow-hidden my-6 max-h-[92vh] flex flex-col">
-        
-        {/* Modal Top Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/75 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#00478f] text-white flex items-center justify-center font-bold text-sm shadow-xs">
-              R9
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-gray-900 font-['Space_Grotesk'] flex items-center gap-2">
-                <span>Lançamento de Venda</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800">
-                  {mainProduct}
+  const closeAfterSuccess = () => {
+    setSuccessMessage(null);
+    onClose();
+  };
+
+  const renderStepIndicator = () => (
+    <div className="px-6 pt-4 pb-3 border-b border-gray-100 bg-white">
+      <div className="flex items-center gap-2">
+        {[['1', 'Identificação'], ['2', 'Produto'], ['3', 'Condições']].map(([num, label], index) => {
+          const active = Number(num) === step;
+          const done = Number(num) < step;
+          return (
+            <React.Fragment key={num}>
+              <div className={`flex items-center gap-2 ${active ? 'text-[#0052cc]' : done ? 'text-emerald-600' : 'text-gray-400'}`}>
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold border ${active ? 'bg-blue-50 border-blue-200' : done ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
+                  {done ? '✓' : num}
                 </span>
-              </h2>
-              <p className="text-xs text-gray-500">
-                Preencha os dados da oportunidade e condições do aluno
-              </p>
+                <span className="hidden sm:inline text-[11px] font-semibold">{label}</span>
+              </div>
+              {index < 2 && <div className={`h-px flex-1 ${done ? 'bg-emerald-200' : 'bg-gray-200'}`} />}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden my-6 max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/70 shrink-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-xl bg-[#00478f] text-white flex items-center justify-center font-bold text-xs">R9</div>
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Nova venda</h2>
+                <p className="text-[11px] text-gray-500">Cadastre a venda em três etapas</p>
+              </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-200/60 transition-colors cursor-pointer"
-            title="Fechar"
-          >
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-200/60 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Modal Scrollable Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
-          
-          {/* Feedback Messages */}
+        {renderStepIndicator()}
+
+        <form ref={formScrollRef} onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
           {errorMessage && (
-            <div className="p-3.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+            <div className="mb-5 p-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
           )}
 
-          {successMessage && (
-            <div className="p-3.5 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 animate-in fade-in font-semibold">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span>{successMessage}</span>
+          {successMessage ? (
+            <div className="py-10 text-center">
+              <div className="mx-auto w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-9 h-9 text-emerald-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Venda registrada!</h3>
+              <p className="text-sm text-gray-500 mt-2">{candidateName} · oportunidade {opportunityNumber}</p>
+              <button type="button" onClick={closeAfterSuccess} className="mt-7 px-5 py-2.5 rounded-xl bg-[#0052cc] text-white text-sm font-bold hover:bg-[#0045ad]">
+                Fechar
+              </button>
             </div>
+          ) : step === 1 ? (
+            <section className="space-y-5">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#0052cc]">Etapa 1</p>
+                <h3 className="text-xl font-bold text-gray-900 mt-1">Identificação</h3>
+                <p className="text-xs text-gray-500 mt-1">Defina quem está lançando a venda e identifique a oportunidade.</p>
+              </div>
+
+              <div className="space-y-4">
+                <FieldLabel icon={<Users className="w-4 h-4" />} label="Consultor" />
+                <select value={selectedSellerId} onChange={e => setSelectedSellerId(e.target.value)} className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]">
+                  {availableConsultants.map(p => <option key={p.id} value={p.id}>{p.name}{p.id === currentUser?.id ? ' (você)' : ''}</option>)}
+                </select>
+
+                <FieldLabel icon={<Hash className="w-4 h-4" />} label="Oportunidade" />
+                <input value={opportunityNumber} onChange={e => setOpportunityNumber(e.target.value)} placeholder="Número da oportunidade" inputMode="numeric" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+
+                <FieldLabel icon={<User className="w-4 h-4" />} label="Aluno" />
+                <input value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Nome completo do aluno" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+
+                <FieldLabel icon={<CalendarDays className="w-4 h-4" />} label="Data" />
+                <div className="flex gap-2">
+                  <input type="date" value={saleDateIso} onChange={e => setSaleDateIso(e.target.value)} className="flex-1 h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+                  <button type="button" onClick={() => setSaleDateIso(getTodayDateStr())} className="px-4 rounded-xl bg-gray-100 border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-[#0052cc]">Hoje</button>
+                </div>
+              </div>
+            </section>
+          ) : step === 2 ? (
+            <section className="space-y-6">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#0052cc]">Etapa 2</p>
+                <h3 className="text-xl font-bold text-gray-900 mt-1">Produto</h3>
+                <p className="text-xs text-gray-500 mt-1">Escolha o produto e depois as opções compatíveis.</p>
+              </div>
+
+              <div>
+                <FieldLabel icon={<BookOpen className="w-4 h-4" />} label="Produto" />
+                <div className="grid grid-cols-3 gap-3 mt-2">
+                  <ProductCard active={mainProduct === 'Graduação'} icon={<GraduationCap className="w-5 h-5" />} label="Graduação" onClick={() => handleProductChange('Graduação')} />
+                  <ProductCard active={mainProduct === 'Pós Graduação'} icon={<Award className="w-5 h-5" />} label="Pós" onClick={() => handleProductChange('Pós Graduação')} />
+                  <ProductCard active={mainProduct === 'Curso Técnico'} icon={<Wrench className="w-5 h-5" />} label="Técnico" onClick={() => handleProductChange('Curso Técnico')} />
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel icon={<Sparkles className="w-4 h-4" />} label="Forma de ingresso" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                  {fdiOptions.map(option => (
+                    <ChoiceButton key={option} active={fdiChannel === option} label={FDI_LABEL[option]} onClick={() => setFdiChannel(option)} />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel icon={<Layers3 className="w-4 h-4" />} label="Modalidade" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                  {availableModalities.map(option => (
+                    <ChoiceButton key={option.name} active={modality === option.name} label={option.name} onClick={() => handleModalityChange(option.name)} />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel icon={<Clock3 className="w-4 h-4" />} label="Turno" />
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {currentAllowedShifts.map(option => (
+                    <ChoiceButton key={option} active={shift === option} label={option} onClick={() => setShift(option)} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ) : (
+            <section className="space-y-6">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#0052cc]">Etapa 3</p>
+                <h3 className="text-xl font-bold text-gray-900 mt-1">Condições</h3>
+                <p className="text-xs text-gray-500 mt-1">Finalize as condições da venda e confirme o lançamento.</p>
+              </div>
+
+              <div>
+                <FieldLabel label="Condição de pagamento" />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                  {PARCELA_OPTIONS.map(option => <ChoiceButton key={option} active={parcelaLeve === option} label={option} onClick={() => setParcelaLeve(option)} />)}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-900"><Building2 className="w-4 h-4 text-[#0052cc]" /> Bolsa / Convênio</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <ChoiceButton active={!hasBolsaConvenio} label="Não" onClick={() => { setHasBolsaConvenio(false); setEmpresaConvenio(''); }} />
+                  <ChoiceButton active={hasBolsaConvenio} label="Sim" onClick={() => setHasBolsaConvenio(true)} />
+                </div>
+                {hasBolsaConvenio && (
+                  <input value={empresaConvenio} onChange={e => setEmpresaConvenio(e.target.value)} placeholder="Nome da empresa" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+                )}
+              </div>
+
+              <div>
+                <FieldLabel icon={<FileText className="w-4 h-4" />} label="Observação (opcional)" />
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Alguma informação relevante sobre esta venda?" className="mt-2 w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none resize-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+              </div>
+
+              <div className="rounded-2xl bg-gray-50 border border-gray-200 p-4">
+                <div className="flex items-center gap-2 mb-3"><CheckCircle2 className="w-4 h-4 text-emerald-600" /><span className="text-xs font-bold text-gray-900">Resumo da venda</span></div>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-xs">
+                  <Summary label="Consultor" value={selectedConsultant?.name || '—'} />
+                  <Summary label="Oportunidade" value={opportunityNumber} />
+                  <Summary label="Aluno" value={candidateName} />
+                  <Summary label="Data" value={formatIsoToBrDate(saleDateIso)} />
+                  <Summary label="Produto" value={mainProduct} />
+                  <Summary label="Forma de ingresso" value={FDI_LABEL[fdiChannel]} />
+                  <Summary label="Modalidade" value={modality} />
+                  <Summary label="Turno" value={shift} />
+                  <Summary label="Condição" value={parcelaLeve} />
+                  <Summary label="Bolsa / Convênio" value={hasBolsaConvenio ? empresaConvenio : 'Não'} />
+                </div>
+              </div>
+            </section>
           )}
-
-          {/* 1. SELEÇÃO DO PRODUTO PRINCIPAL */}
-          <div className="space-y-2">
-            <label className="block text-xs font-bold text-gray-900 uppercase tracking-wider">
-              1. Produto Principal *
-            </label>
-            <div className="grid grid-cols-3 gap-2.5">
-              
-              <button
-                type="button"
-                onClick={() => setMainProduct('Graduação')}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                  mainProduct === 'Graduação'
-                    ? 'bg-blue-50 border-[#0052cc] text-[#0052cc] shadow-xs ring-1 ring-[#0052cc]'
-                    : 'bg-gray-50/70 border-gray-200 text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <GraduationCap className="w-4 h-4" />
-                  {mainProduct === 'Graduação' && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#0052cc]" />
-                  )}
-                </div>
-                <span className="font-bold text-xs">Graduação</span>
-                <span className="text-[10px] text-gray-400">Presencial & Digital</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMainProduct('Pós Graduação')}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                  mainProduct === 'Pós Graduação'
-                    ? 'bg-purple-50 border-purple-600 text-purple-700 shadow-xs ring-1 ring-purple-500'
-                    : 'bg-gray-50/70 border-gray-200 text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <Award className="w-4 h-4" />
-                  {mainProduct === 'Pós Graduação' && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-600" />
-                  )}
-                </div>
-                <span className="font-bold text-xs">Pós Graduação</span>
-                <span className="text-[10px] text-gray-400">Especialização & MBAs</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMainProduct('Curso Técnico')}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                  mainProduct === 'Curso Técnico'
-                    ? 'bg-amber-50 border-amber-600 text-amber-700 shadow-xs ring-1 ring-amber-500'
-                    : 'bg-gray-50/70 border-gray-200 text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <Wrench className="w-4 h-4" />
-                  {mainProduct === 'Curso Técnico' && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-                  )}
-                </div>
-                <span className="font-bold text-xs">Curso Técnico</span>
-                <span className="text-[10px] text-gray-400">Formação Profissional</span>
-              </button>
-
-            </div>
-          </div>
-
-          {/* 2. SEÇÃO: DADOS DA OPORTUNIDADE & CONSULTOR */}
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center gap-2 pb-1.5 border-b border-gray-100">
-              <Hash className="w-4 h-4 text-[#0052cc]" />
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                2. Dados da Oportunidade & Responsável
-              </h3>
-            </div>
-
-            {/* Consultor Responsável */}
-            <div className="p-3 bg-blue-50/40 border border-blue-100/80 rounded-2xl">
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="select-consultant" className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-[#0052cc]" />
-                  <span>Consultor Responsável *</span>
-                </label>
-                {selectedConsultant && (
-                  <span className="text-[10px] font-medium text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md">
-                    {selectedConsultant.id === currentUser?.id ? 'Usuário logado (Padrão)' : 'Consultor selecionado'}
-                  </span>
-                )}
-              </div>
-              <select
-                id="select-consultant"
-                value={selectedSellerId}
-                onChange={(e) => {
-                  const newId = e.target.value;
-                  setSelectedSellerId(newId);
-                  const matched = availableConsultants.find(p => p.id === newId);
-                  if (matched) {
-                    setSelectedSellerName(matched.name);
-                    setSelectedSellerEmail(matched.email);
-                  }
-                }}
-                className="w-full px-3 py-2 text-xs bg-white border border-blue-200 rounded-xl focus:outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100 transition-all font-medium text-gray-900 cursor-pointer shadow-2xs"
-              >
-                {availableConsultants.length > 0 ? (
-                  availableConsultants.map((prof) => (
-                    <option key={prof.id} value={prof.id}>
-                      {prof.name} {prof.id === currentUser?.id ? '(Você - Logado)' : ''} ({prof.role === 'admin' ? 'Administrador' : 'Consultor'})
-                    </option>
-                  ))
-                ) : (
-                  <option value={currentUser?.id || ''}>
-                    {currentUser?.name || 'Consultor Atual'} (Você - Logado)
-                  </option>
-                )}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              
-              {/* Nº da Oportunidade */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                  <Hash className="w-3.5 h-3.5 text-gray-400" />
-                  <span>Nº da Oportunidade *</span>
-                </label>
-                <input
-                  id="input-opportunity-number"
-                  type="text"
-                  required
-                  placeholder="Ex: OPT-2026-9812"
-                  value={opportunityNumber}
-                  onChange={(e) => setOpportunityNumber(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-gray-50/50 hover:bg-white border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100 transition-all font-mono font-bold text-gray-900"
-                />
-              </div>
-
-              {/* Nome do Candidato */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-gray-400" />
-                  <span>Nome do Candidato / Aluno *</span>
-                </label>
-                <input
-                  id="input-candidate-name"
-                  type="text"
-                  required
-                  placeholder="Ex: Amanda Ferreira dos Santos"
-                  value={candidateName}
-                  onChange={(e) => setCandidateName(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-gray-50/50 hover:bg-white border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100 transition-all font-medium text-gray-900"
-                />
-              </div>
-
-            </div>
-
-            {/* Data da Venda */}
-            <div className="pt-1">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                  <span>Data da Venda (Registro) *</span>
-                </label>
-                <span className="text-[11px] text-blue-700 font-semibold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
-                  Formato: {formatIsoToBrDate(saleDateIso)}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  id="input-sale-date"
-                  type="date"
-                  required
-                  value={saleDateIso}
-                  onChange={(e) => setSaleDateIso(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-xl focus:outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSaleDateIso(getTodayDateStr())}
-                  className="px-3 py-2 text-xs font-semibold text-gray-700 hover:text-[#0052cc] bg-gray-100 hover:bg-blue-50 border border-gray-200 rounded-xl transition-colors shrink-0 cursor-pointer"
-                >
-                  Hoje
-                </button>
-              </div>
-            </div>
-
-          </div>
-
-          {/* 3. SEÇÃO: PRODUTO / CANAL (FDI) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between pb-1.5 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-[#0052cc]" />
-                <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                  3. Produto / Canal (FDI) *
-                </h3>
-              </div>
-              <span className="text-[11px] text-gray-400 font-medium">
-                Selecionado: <strong className="text-blue-700">{fdiChannel}</strong>
-              </span>
-            </div>
-
-            {/* Grid of FDI options */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {FDI_CHANNELS.map((channel) => {
-                const isSelected = fdiChannel === channel;
-                const isDisabled = isFdiChannelDisabled(channel, mainProduct);
-
-                return (
-                  <button
-                    key={channel}
-                    type="button"
-                    disabled={isDisabled}
-                    onClick={() => {
-                      if (!isDisabled) {
-                        setFdiChannel(channel);
-                      }
-                    }}
-                    title={isDisabled ? `Opção indisponível para ${mainProduct}` : undefined}
-                    className={`px-3 py-2 text-xs rounded-xl font-medium border text-left transition-all flex items-center justify-between ${
-                      isDisabled
-                        ? 'opacity-35 bg-gray-100/90 border-gray-200 text-gray-400 cursor-not-allowed select-none'
-                        : isSelected
-                        ? 'bg-[#0052cc] text-white border-[#0052cc] shadow-xs font-bold scale-[1.01] cursor-pointer'
-                        : 'bg-gray-50/70 border-gray-200/90 text-gray-700 hover:bg-gray-100 cursor-pointer'
-                    }`}
-                  >
-                    <span className="truncate">{channel}</span>
-                    {isSelected && !isDisabled && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0 ml-1" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 4. SEÇÃO: MODALIDADE & TURNO */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 pb-1.5 border-b border-gray-100">
-              <Layers className="w-4 h-4 text-[#0052cc]" />
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                4. Modalidade & Turno ({mainProduct}) *
-              </h3>
-            </div>
-
-            {/* Modalidade filtrada pelo Produto Principal */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                Modalidade de Ensino:
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {availableModalities.map((item) => {
-                  const isSelected = modality === item.name;
-                  return (
-                    <button
-                      key={item.name}
-                      type="button"
-                      onClick={() => handleSelectModality(item.name)}
-                      className={`p-2.5 rounded-xl text-xs font-medium border transition-all text-left cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? 'bg-blue-50 border-[#0052cc] text-blue-900 ring-1 ring-[#0052cc] font-bold shadow-xs'
-                          : 'bg-gray-50/60 border-gray-200 text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between w-full">
-                        <span>{item.name}</span>
-                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-[#0052cc]" />}
-                      </div>
-                      <span className="text-[10px] text-gray-400 font-normal mt-0.5">
-                        {item.bu}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Turno */}
-            <div className="pt-1">
-              <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-gray-400" />
-                <span>Turno Permitido:</span>
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {currentAllowedShifts.map((sh) => {
-                  const isSelected = shift === sh;
-                  return (
-                    <button
-                      key={sh}
-                      type="button"
-                      onClick={() => setShift(sh)}
-                      className={`py-2 px-3 rounded-xl text-xs font-medium border text-center transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-slate-900 text-white border-slate-900 font-semibold shadow-xs'
-                          : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      {sh === 'Manhã' && '☀️ '}
-                      {sh === 'Noite' && '🌙 '}
-                      {sh === 'Virtual' && '💻 '}
-                      {sh}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-          </div>
-
-          {/* 5. SEÇÃO: CONDIÇÕES DE PAGAMENTO */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 pb-1.5 border-b border-gray-100">
-              <CreditCard className="w-4 h-4 text-[#0052cc]" />
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                5. Condições de Pagamento
-              </h3>
-            </div>
-
-            {/* Parcela Leve */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                Parcela Leve:
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {PARCELA_LEVE_OPTIONS.map((opt) => {
-                  const isSelected = parcelaLeve === opt;
-                  return (
-                    <button
-                      key={opt}
-                      type="button"
-                      onClick={() => setParcelaLeve(opt)}
-                      className={`py-2 px-2.5 rounded-xl text-xs font-medium border text-center transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-bold ring-1 ring-emerald-400'
-                          : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      {opt}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Bolsa Convênio Aplicada (Sim/Não) */}
-            <div className="p-3.5 bg-gray-50/80 rounded-xl border border-gray-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-semibold text-gray-800 block text-xs">
-                    Bolsa Convênio Aplicada?
-                  </span>
-                  <span className="text-[11px] text-gray-500">
-                    O aluno possui desconto por convênio corporativo?
-                  </span>
-                </div>
-                
-                <div className="inline-flex rounded-xl bg-gray-200/80 p-0.5 border border-gray-300">
-                  <button
-                    type="button"
-                    onClick={() => setHasBolsaConvenio(false)}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      !hasBolsaConvenio
-                        ? 'bg-white text-gray-900 shadow-xs'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Não
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHasBolsaConvenio(true)}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      hasBolsaConvenio
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Sim
-                  </button>
-                </div>
-              </div>
-
-              {/* Input Dinâmico de Empresa do Convênio */}
-              {hasBolsaConvenio && (
-                <div className="pt-2 border-t border-gray-200/70 animate-in fade-in duration-150">
-                  <label className="block text-xs font-semibold text-purple-900 mb-1 flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Nome da Empresa / Parceiro do Convênio *</span>
-                  </label>
-                  <input
-                    type="text"
-                    required={hasBolsaConvenio}
-                    placeholder="Ex: Petrobras, Banco do Brasil, OAB, etc."
-                    value={empresaConvenio}
-                    onChange={(e) => setEmpresaConvenio(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-white border border-purple-300 rounded-xl focus:outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100 font-medium"
-                  />
-                </div>
-              )}
-            </div>
-
-          </div>
-
-          {/* 6. SEÇÃO: OBSERVAÇÕES */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-gray-700 flex items-center gap-1">
-              <FileText className="w-3.5 h-3.5 text-gray-400" />
-              <span>Observações da Matrícula</span>
-            </label>
-            <textarea
-              rows={2}
-              placeholder="Anotações de negociação, documentação pendente ou detalhes adicionais..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-gray-50/50 hover:bg-white border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100 transition-all resize-none"
-            />
-          </div>
-
-          {/* Bottom Summary Bar */}
-          <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-blue-900">{mainProduct}</span>
-              <span className="text-gray-400">•</span>
-              <span className="text-gray-700">{modality} ({shift})</span>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] text-gray-600 font-medium">
-                Parcela: <strong>{parcelaLeve}</strong>
-                {hasBolsaConvenio && empresaConvenio && ` • ${empresaConvenio}`}
-              </span>
-            </div>
-          </div>
-
-          {/* Form Actions Footer */}
-          <div className="pt-3 flex items-center justify-end gap-3 border-t border-gray-100 shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-6 py-2.5 text-xs font-bold text-white bg-[#0052cc] hover:bg-[#00478f] active:scale-[0.99] rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{isSubmitting ? 'Registrando...' : 'Confirmar Lançamento'}</span>
-            </button>
-          </div>
-
         </form>
 
+        {!successMessage && (
+          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/70 flex items-center justify-between shrink-0">
+            <button type="button" onClick={step === 1 ? onClose : () => { setErrorMessage(null); setStep((step - 1) as 1 | 2 | 3); }} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-200">
+              {step === 1 ? <><X className="w-4 h-4" /> Cancelar</> : <><ChevronLeft className="w-4 h-4" /> Voltar</>}
+            </button>
+            {step < 3 ? (
+              <button type="button" onClick={goNext} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0052cc] text-white text-xs font-bold hover:bg-[#0045ad]">
+                Continuar <ChevronRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button type="button" onClick={() => handleSubmit()} disabled={isSubmitting} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0052cc] text-white text-xs font-bold hover:bg-[#0045ad] disabled:opacity-60 disabled:cursor-not-allowed">
+                {isSubmitting ? 'Registrando...' : <><CheckCircle2 className="w-4 h-4" /> Confirmar venda</>}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 };
+
+const FieldLabel: React.FC<{ icon?: React.ReactNode; label: string }> = ({ icon, label }) => (
+  <label className="flex items-center gap-2 text-xs font-bold text-gray-800">{icon && <span className="text-[#0052cc]">{icon}</span>}{label}</label>
+);
+
+const ProductCard: React.FC<{ active: boolean; icon: React.ReactNode; label: string; onClick: () => void }> = ({ active, icon, label, onClick }) => (
+  <button type="button" onClick={onClick} className={`min-h-24 rounded-2xl border p-3 flex flex-col items-center justify-center gap-2 transition-all ${active ? 'bg-blue-50 border-[#0052cc] text-[#0052cc] ring-1 ring-[#0052cc]' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'}`}>
+    {icon}
+    <span className="text-xs font-bold">{label}</span>
+  </button>
+);
+
+const ChoiceButton: React.FC<{ active: boolean; label: string; onClick: () => void }> = ({ active, label, onClick }) => (
+  <button type="button" onClick={onClick} className={`min-h-10 px-3 rounded-xl border text-xs font-semibold transition-all ${active ? 'bg-[#0052cc] border-[#0052cc] text-white shadow-sm' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+    {label}
+  </button>
+);
+
+const Summary: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="min-w-0"><span className="text-gray-400">{label}</span><div className="font-semibold text-gray-800 truncate">{value || '—'}</div></div>
+);
