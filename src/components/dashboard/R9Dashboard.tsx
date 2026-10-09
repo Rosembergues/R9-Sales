@@ -124,7 +124,7 @@ export const R9Dashboard: React.FC = () => {
         {/* LEFT SIDEBAR */}
         <aside className={`r9-sidebar ${isSidebarCollapsed ? 'w-16 overflow-hidden' : 'w-64'} h-full min-h-0 bg-[#0f1b2d] border-r border-[#24334b] flex flex-col transition-all duration-200 z-20 shrink-0 select-none`}>
           
-          <div className="flex-1 min-h-0 p-3 space-y-4 overflow-y-auto">
+          <div className="flex-1 min-h-0 p-3 space-y-4 overflow-y-auto overflow-x-hidden">
             {!isSidebarCollapsed ? (
               <div className="px-2 pt-2 pb-1 flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-950/30 shrink-0">
@@ -184,14 +184,16 @@ export const R9Dashboard: React.FC = () => {
             )}
 
             {/* Lançar Venda CTA Button */}
-            <div>
+            <div className={isSidebarCollapsed ? 'flex justify-center' : ''}>
               <button
                 id="btn-lancar-venda"
                 onClick={() => setShowNewSaleModal(true)}
-                className="w-full py-2.5 px-3 bg-[#0052cc] hover:bg-[#00478f] active:scale-[0.99] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                title="Lançar venda"
+                aria-label="Lançar venda"
+                className={`${isSidebarCollapsed ? 'w-10 h-10 px-0 py-0' : 'w-full py-2.5 px-3'} bg-[#0052cc] hover:bg-[#00478f] active:scale-[0.99] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer`}
               >
-                <Plus className="w-4 h-4" />
-                <span>Lançar Venda</span>
+                <Plus className="w-4 h-4 shrink-0" />
+                {!isSidebarCollapsed && <span>Lançar Venda</span>}
               </button>
             </div>
 
@@ -199,14 +201,16 @@ export const R9Dashboard: React.FC = () => {
             <button
               id="nav-inicio"
               onClick={() => setActiveTab('home')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors cursor-pointer ${
+              title="Início"
+              aria-label="Início"
+              className={`${isSidebarCollapsed ? 'w-10 h-10 justify-center px-0 py-0' : 'w-full gap-2.5 px-3 py-2.5'} flex items-center rounded-xl text-sm transition-colors cursor-pointer ${
                 activeTab === 'home'
                   ? 'bg-blue-500 text-white font-bold shadow-lg shadow-blue-900/30'
                   : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <BarChart3 className="w-4 h-4" />
-              <span>Início</span>
+              <BarChart3 className="w-4 h-4 shrink-0" />
+              {!isSidebarCollapsed && <span>Início</span>}
             </button>
 
             {/* Section: VENDAS & OPERAÇÃO */}
