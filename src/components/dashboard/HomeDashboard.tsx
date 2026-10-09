@@ -99,38 +99,37 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             .order('imported_at', { ascending: false }),
         ]);
 
-        // A meta diária da Home vem exclusivamente das duas BUs de Graduação.
-        // Selecionamos um único ciclo acadêmico para não somar ciclos diferentes.
+        // A meta diária da Home soma as modalidades de Graduação das duas BUs
+        // em todos os ciclos acadêmicos ativos. Não inclui Pós nem Técnico.
         let resolvedDaily = 0;
         if (importsError) throw importsError;
         const imports = activeImports || [];
-        if (imports.length > 0) {
-          const currentAcademicPeriod = imports[0].academic_period;
-          const buGroupIds = new Set([
-            'graduacao_presencial',
-            'graduacao_semipresencial',
-            'graduacao_aovivo',
-            'graduacao_ead',
-            'graduacao_dlex',
-            'graduacao_bu_presencial',
-            'graduacao_bu_digital',
-          ]);
-          const relevantImportIds = imports
-            .filter(item => item.academic_period === currentAcademicPeriod && buGroupIds.has(item.goal_group))
-            .map(item => item.id);
+        const buGroupIds = new Set([
+          'graduacao_presencial',
+          'graduacao_semipresencial',
+          'graduacao_aovivo',
+          'graduacao_ao_vivo',
+          'graduacao_ead',
+          'graduacao_dlex',
+          'graduacao_flex',
+          'graduacao_bu_presencial',
+          'graduacao_bu_digital',
+        ]);
+        const relevantImportIds = imports
+          .filter(item => buGroupIds.has(String(item.goal_group || '').toLowerCase()))
+          .map(item => item.id);
 
-          if (relevantImportIds.length > 0) {
-            const { data: dailyRows, error: dailyError } = await supabase
-              .from('goal_daily_data')
-              .select('target')
-              .eq('reference_date', todayIso)
-              .in('import_id', relevantImportIds);
-            if (dailyError) throw dailyError;
-            resolvedDaily = (dailyRows || []).reduce(
-              (sum, row) => sum + (row.target === null || row.target === undefined ? 0 : Number(row.target) || 0),
-              0
-            );
-          }
+        if (relevantImportIds.length > 0) {
+          const { data: dailyRows, error: dailyError } = await supabase
+            .from('goal_daily_data')
+            .select('target')
+            .eq('reference_date', todayIso)
+            .in('import_id', relevantImportIds);
+          if (dailyError) throw dailyError;
+          resolvedDaily = (dailyRows || []).reduce(
+            (sum, row) => sum + (row.target === null || row.target === undefined ? 0 : Number(row.target) || 0),
+            0
+          );
         }
 
         let resolvedWeekly = Number(weekPeriod?.target_total) || 0;
