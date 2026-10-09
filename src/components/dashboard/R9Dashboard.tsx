@@ -463,7 +463,7 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <div className="flex items-center gap-2">
                     <Users className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Gerenciar Equipe</span>
+                    <span className="whitespace-nowrap">Gerenciar Equipe</span>
                   </div>
                   <span className="text-[10px] font-medium text-purple-200 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded">
                     perfis
@@ -481,7 +481,7 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <div className="flex items-center gap-2">
                     <Target className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Gerenciamento de Metas</span>
+                    <span className="whitespace-nowrap">Gerenciar Metas</span>
                   </div>
                   <span className="text-[10px] font-medium text-blue-200 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded">
                     metas
@@ -499,7 +499,7 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <div className="flex items-center gap-2">
                     <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Importar Metas</span>
+                    <span className="whitespace-nowrap">Importar Metas</span>
                   </div>
                   <span className="text-[10px] font-medium text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
                     arquivos
@@ -517,7 +517,7 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <div className="flex items-center gap-2">
                     <Tag className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Campanhas</span>
+                    <span className="whitespace-nowrap">Campanhas</span>
                   </div>
                 </button>
 
