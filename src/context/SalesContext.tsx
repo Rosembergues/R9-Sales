@@ -441,48 +441,58 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (client) {
       try {
-        // Tentativa 1: Estrutura oficial da tabela R9 Sales
-        const r9Payload = buildR9SalePayload(newSale);
-        
-        const { error: insertErr } = await client
-          .from('sales')
-          .insert(r9Payload)
-          .select();
+        // Tenta os dois formatos conhecidos e, somente quando o Supabase informa
+        // explicitamente uma coluna inexistente, remove essa coluna e repete.
+        // Erros de validação/permissão não são contornados por esta lógica.
+        const payloadCandidates: Array<{ label: string; payload: Record<string, unknown> }> = [
+          { label: 'Formato R9', payload: buildR9SalePayload(newSale) },
+          { label: 'Formato Padrão', payload: buildStandardSalePayload(newSale) },
+        ];
+        let inserted = false;
+        const removedColumns = new Set<string>();
 
-        if (insertErr) {
-          logSupabaseError('addSale - Formato R9 (tentativa 1)', insertErr, r9Payload);
-          supabaseErrorDetails = insertErr.message;
-
-          // Se o erro foi por incompatibilidade de colunas (PGRST204 ou 42703), tenta o formato alternativo
-          if (
-            insertErr.code === 'PGRST204' || 
-            insertErr.code === '42703' ||
-            insertErr.message?.includes('column') ||
-            insertErr.message?.includes('schema cache')
-          ) {
-            const standardPayload = buildStandardSalePayload(newSale);
-            const { error: altErr } = await client
-              .from('sales')
-              .insert(standardPayload)
-              .select();
-
-            if (altErr) {
-              logSupabaseError('addSale - Formato Padrão (tentativa 2)', altErr, standardPayload);
-              supabaseErrorDetails = `${insertErr.message} | ${altErr.message}`;
-            } else {
+        for (const candidate of payloadCandidates) {
+          let payload = { ...candidate.payload };
+          for (let attempt = 0; attempt < 12; attempt++) {
+            const { error: insertErr } = await client.from('sales').insert(payload).select();
+            if (!insertErr) {
+              inserted = true;
               supabaseErrorDetails = undefined;
+              break;
             }
+
+            logSupabaseError(`addSale - ${candidate.label} (tentativa ${attempt + 1})`, insertErr, payload);
+            supabaseErrorDetails = insertErr.message || 'Erro ao registrar a venda no Supabase.';
+
+            const missingColumn =
+              insertErr.message?.match(/Could not find the '([^']+)' column of 'sales' in the schema cache/i)?.[1] ||
+              insertErr.message?.match(/column ["']?([a-zA-Z_][a-zA-Z0-9_]*)["']? of relation ["']?sales["']? does not exist/i)?.[1];
+            const isSchemaError = insertErr.code === 'PGRST204' || insertErr.code === '42703' || Boolean(missingColumn);
+
+            if (isSchemaError && missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
+              delete payload[missingColumn];
+              removedColumns.add(missingColumn);
+              continue; // Erro de coluna inexistente garante que esta tentativa não inseriu a venda.
+            }
+
+            // Um erro não relacionado a coluna inexistente não deve ser contornado.
+            break;
           }
+          if (inserted) break;
+        }
+
+        if (inserted) {
+          LocalSyncEngine.clearPendingSale(newSale.id);
+          if (removedColumns.size) {
+            console.warn('[Supabase Sales] Colunas ausentes omitidas do payload:', [...removedColumns]);
+          }
+        } else {
+          LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
         }
       } catch (err: any) {
         console.error('💥 [Supabase Sales] Exceção inesperada no insert:', err);
         supabaseErrorDetails = err.message || 'Erro de conexão com Supabase';
-      }
-
-      if (supabaseErrorDetails) {
         LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
-      } else {
-        LocalSyncEngine.clearPendingSale(newSale.id);
       }
     } else {
       LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
@@ -494,10 +504,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     triggerConfetti();
 
-    return { 
-      success: true, 
+    return {
+      success: !supabaseErrorDetails,
       sale: newSale,
       error: supabaseErrorDetails
+        ? `A venda foi mantida localmente para sincronização, mas não foi confirmada no servidor: ${supabaseErrorDetails}`
+        : undefined,
     };
   };
 

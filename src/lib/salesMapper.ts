@@ -426,7 +426,7 @@ export function buildStandardSalePayload(sale: Sale): Record<string, unknown> {
     seller_email: responsibleEmail,
     client_name: sale.custom_data?.candidate_name || sale.client_name || 'Candidato',
     client_document: sale.client_document || null,
-    client_phone: sale.client_phone || null,
+    // client_phone não existe no schema remoto atual; o valor segue preservado em custom_data.
     // client_email omitido: a tabela sales em produção não possui essa coluna.
     product_name: sale.custom_data?.main_product || sale.product_name || 'Graduação',
     fdi: channelVal, // TEXT
