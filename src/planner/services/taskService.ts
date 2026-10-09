@@ -18,27 +18,9 @@ function isValidUUID(val?: string | null): boolean {
 // Canal global de broadcast para sincronização instantânea entre múltiplos usuários
 let realtimeSyncChannel: any = null;
 
-// Rastreabilidade: Detecção dinâmica e segura da coluna nativa completed_by_admin no Supabase
-let hasNativeCompletedByAdminColumn = false;
-let checkedNativeColumn = false;
-
-async function checkNativeCompletedByAdminColumn() {
-  if (checkedNativeColumn) return;
-  checkedNativeColumn = true;
-  try {
-    const { error } = await supabase.from('tarefas').select('completed_by_admin').limit(1);
-    if (!error) {
-      hasNativeCompletedByAdminColumn = true;
-      console.info('[SUPABASE] Coluna nativa completed_by_admin ativa no schema da tabela tarefas.');
-    }
-  } catch {
-    hasNativeCompletedByAdminColumn = false;
-  }
-}
-
-if (typeof window !== 'undefined') {
-  checkNativeCompletedByAdminColumn();
-}
+// Rastreabilidade de conclusão por administrador é armazenada em campos_customizados.
+// A tabela tarefas deste projeto não possui a coluna nativa completed_by_admin.
+const hasNativeCompletedByAdminColumn = false;
 
 // Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
 const recurrenceLocks = new Set<string>();
