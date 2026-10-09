@@ -211,19 +211,24 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   }, [selectedMonth, selectedYear]);
 
   // 2. Carrega dados importados de metas ativas para o período
-  const loadImportedPreviews = useCallback(async (startDate: string, endDate: string) => {
+  const loadImportedPreviews = useCallback(async (period: string) => {
     try {
-      // O balizador é definido pelo intervalo de datas selecionado, não pelo ciclo acadêmico.
       const { data: imports, error } = await supabase
         .from('goal_imports')
-        .select('id, academic_period, file_name, goal_group, status, imported_at')
+        .select('id, academic_period, file_name, goal_group, status')
+        .eq('academic_period', period)
         .eq('status', 'active')
         .order('imported_at', { ascending: false });
 
       if (error) throw error;
 
-      const importIds = (imports || []).map((item: any) => item.id);
-      if (!importIds.length) {
+      const latest: Record<string, any> = {};
+      (imports || []).forEach(item => {
+        if (!latest[item.goal_group]) latest[item.goal_group] = item;
+      });
+
+      const ids = Object.values(latest).map((item: any) => item.id);
+      if (!ids.length) {
         setImportedPreviews({});
         return;
       }
@@ -231,20 +236,10 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       const { data: rows, error: rowsError } = await supabase
         .from('goal_daily_data')
         .select('import_id, reference_date, aa, target, actual')
-        .in('import_id', importIds)
-        .gte('reference_date', startDate)
-        .lte('reference_date', endDate)
+        .in('import_id', ids)
         .order('reference_date', { ascending: true });
 
       if (rowsError) throw rowsError;
-
-      // Para cada produto/grupo, usa a importação ativa mais recente que tenha dados
-      // dentro do período selecionado. Importações de outros períodos não interferem.
-      const latest: Record<string, any> = {};
-      (imports || []).forEach((item: any) => {
-        const hasRowsInRange = (rows || []).some((row: any) => row.import_id === item.id);
-        if (hasRowsInRange && !latest[item.goal_group]) latest[item.goal_group] = item;
-      });
 
       const next: Record<string, GoalFilePreview> = {};
       Object.values(latest).forEach((item: any) => {
@@ -270,7 +265,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
 
       setImportedPreviews(next);
     } catch (error) {
-      console.error('Erro ao carregar dados importados de apoio por data:', error);
+      console.error('Erro ao carregar dados importados de apoio:', error);
       setImportedPreviews({});
     }
   }, []);
@@ -381,8 +376,8 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   }, [loadTeamConfig]);
 
   useEffect(() => {
-    loadImportedPreviews(currentRange.start, currentRange.end);
-  }, [currentRange.start, currentRange.end, loadImportedPreviews]);
+    loadImportedPreviews(teamConfig.academicPeriod);
+  }, [teamConfig.academicPeriod, loadImportedPreviews]);
 
   useEffect(() => {
     loadGoals();
@@ -815,6 +810,13 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               ))}
             </select>
 
+            <label className="text-xs font-semibold text-gray-500">Ciclo:</label>
+            <input
+              value={teamConfig.academicPeriod}
+              onChange={e => setTeamConfig(v => ({ ...v, academicPeriod: e.target.value }))}
+              className="w-24 px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-blue-700"
+              placeholder="2026.3" name="src_components_admin_goalmanagementpage_tsx_input_3"
+            />
           </div>
         </div>
 

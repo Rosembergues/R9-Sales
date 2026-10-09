@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { 
@@ -33,11 +33,7 @@ import {
   Trophy,
   Crown,
   Target,
-  ClipboardList,
-  ChevronDown,
-  CalendarDays,
-  Inbox,
-  CheckSquare
+  ClipboardList
 } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
@@ -68,8 +64,6 @@ export const R9Dashboard: React.FC = () => {
   );
   const [activeTab, setActiveTab] = useState<string>('home');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isPlannerMenuOpen, setIsPlannerMenuOpen] = useState(false);
-  const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tags'>('calendar');
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
   const [initialProductForModal, setInitialProductForModal] = useState<MainProductType>('Graduação');
 
@@ -84,32 +78,10 @@ export const R9Dashboard: React.FC = () => {
 
   // Security guard: Non-admin or member view mode cannot view admin team management
   useEffect(() => {
-    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || activeTab === 'analytics' || activeTab === 'planner_summary')) {
+    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || activeTab === 'analytics')) {
       setActiveTab('home');
     }
   }, [isActualAdmin, viewRole, activeTab]);
-
-  const openPlannerSection = (section: 'calendar' | 'queue' | 'my_tasks' | 'tags') => {
-    setPlannerSection(section);
-    setActiveTab('planner');
-    setIsPlannerMenuOpen(true);
-  };
-
-  const openPlannerSummary = () => {
-    setActiveTab('planner_summary');
-    setIsPlannerMenuOpen(false);
-  };
-
-  const handlePlannerSectionChange = useCallback((section: 'calendar' | 'queue' | 'my_tasks' | 'tags' | 'summary') => {
-    if (section === 'summary') {
-      setActiveTab('planner_summary');
-      setIsPlannerMenuOpen(false);
-      return;
-    }
-    setPlannerSection(section);
-    setActiveTab('planner');
-    setIsPlannerMenuOpen(true);
-  }, []);
 
   // Helper to determine product type of a sale
   const getSaleProductType = (sale: Sale): MainProductType => {
@@ -360,54 +332,21 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* Planejamento: submenu integrado à navegação principal do R9 Sales */}
+            {/* Planejamento integrado: usa a sessão e os perfis do R9 Sales */}
             {!isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
                 <button
                   id="nav-planejamento"
-                  onClick={() => {
-                    if (activeTab !== 'planner') {
-                      setActiveTab('planner');
-                      setPlannerSection('calendar');
-                      setIsPlannerMenuOpen(true);
-                    } else {
-                      setIsPlannerMenuOpen((open) => !open);
-                    }
-                  }}
-                  aria-expanded={isPlannerMenuOpen && activeTab === 'planner'}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                  onClick={() => setActiveTab('planner')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
                     activeTab === 'planner'
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
                 >
-                  <span className="flex items-center gap-2.5">
-                    <ClipboardList className="w-3.5 h-3.5 text-blue-300" />
-                    <span>Planejamento</span>
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPlannerMenuOpen && activeTab === 'planner' ? 'rotate-180' : ''}`} />
+                  <ClipboardList className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Planejamento</span>
                 </button>
-
-                {isPlannerMenuOpen && activeTab === 'planner' && (
-                  <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
-                    <button id="nav-planner-calendar" onClick={() => openPlannerSection('calendar')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'calendar' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                      <CalendarDays className="w-3.5 h-3.5" /><span>Calendário</span>
-                    </button>
-                    {isActualAdmin && viewRole === 'admin' && (
-                      <button id="nav-planner-queue" onClick={() => openPlannerSection('queue')} className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'queue' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                        <span className="flex items-center gap-2.5"><Inbox className="w-3.5 h-3.5" /><span>Fila de tarefas</span></span>
-                      </button>
-                    )}
-                    <button id="nav-planner-my-tasks" onClick={() => openPlannerSection('my_tasks')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'my_tasks' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                      <CheckSquare className="w-3.5 h-3.5" /><span>Minhas tarefas</span>
-                    </button>
-                    {isActualAdmin && viewRole === 'admin' && (
-                      <button id="nav-planner-tags" onClick={() => openPlannerSection('tags')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'tags' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                        <Tag className="w-3.5 h-3.5" /><span>Tags e categorias</span>
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
             )}
 
@@ -455,20 +394,6 @@ export const R9Dashboard: React.FC = () => {
                   <Trophy className="w-3.5 h-3.5 text-amber-400" />
                   <span>Ranking</span>
                 </button>
-                {isActualAdmin && viewRole === 'admin' && (
-                  <button
-                    id="nav-planner-summary"
-                    onClick={openPlannerSummary}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                      activeTab === 'planner_summary'
-                        ? 'bg-blue-500/15 text-blue-300 font-semibold'
-                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <CalendarCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Resumo semanal</span>
-                  </button>
-                )}
               </div>
             )}
 
@@ -663,7 +588,7 @@ export const R9Dashboard: React.FC = () => {
           <div className="w-full max-w-[1680px] mx-auto p-4 sm:p-6 lg:p-7 min-h-[calc(100vh-4rem)]">
             
             {/* Planner integrado — compartilha a sessão autenticada do R9 Sales */}
-            {(activeTab === 'planner' || activeTab === 'planner_summary') && currentUser && (
+            {activeTab === 'planner' && currentUser && (
               <div className="animate-in fade-in duration-200 -m-1 sm:-m-2">
                 <Planner
                   user={{
@@ -673,9 +598,6 @@ export const R9Dashboard: React.FC = () => {
                   }}
                   onLogout={signOut}
                   viewRole={viewRole}
-                  externalNavigation
-                  section={activeTab === 'planner_summary' ? 'summary' : plannerSection}
-                  onSectionChange={handlePlannerSectionChange}
                 />
               </div>
             )}

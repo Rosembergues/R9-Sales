@@ -1039,7 +1039,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
           <div className="flex items-center gap-4">
             <span>Linhas visíveis: <strong className="text-gray-800">{processedRows.length}</strong></span>
             <span>Com Bolsa Convênio: <strong className="text-gray-800">{processedRows.filter(r => r.hasBolsa === 'Sim').length}</strong></span>
-            <span>Com Parcela Leve: <strong className="text-gray-800">{processedRows.filter(r => r.parcelaLeve !== 'Sem parcelas').length}</strong></span>
+            <span>Com Parcela Leve: <strong className="text-gray-800">{processedRows.filter(r => r.parcelaLeve !== 'Sem parcelas' && r.parcelaLeve !== 'Sem Parcelas').length}</strong></span>
           </div>
 
           <div className="flex items-center gap-2 text-gray-400">

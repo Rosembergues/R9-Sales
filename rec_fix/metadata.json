@@ -1,0 +1,8 @@
+{
+  "name": "R9 Sales",
+  "description": "Plataforma de acompanhamento e gestão de vendas em tempo real com autenticação Supabase, perfis de Administrador e Vendedor, gerenciamento de campanhas, lançamentos ágeis e rankings ao vivo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

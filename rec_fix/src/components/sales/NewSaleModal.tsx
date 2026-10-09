@@ -141,7 +141,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
   const fdiOptions = useMemo(() => fdiOptionsFor(mainProduct), [mainProduct]);
   const availableModalities = useMemo(() => MODALITIES[mainProduct], [mainProduct]);
-  const currentAllowedShifts = useMemo<ShiftType[]>(
+  const currentAllowedShifts = useMemo(
     () => availableModalities.find(m => m.name === modality)?.shifts || ['Manhã', 'Noite'],
     [availableModalities, modality]
   );
@@ -254,6 +254,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
         seller_name: chosenSellerName,
         seller_email: chosenSellerEmail,
         collaborator_name: chosenSellerName,
+        fdi: fdiChannel,
         custom_data: {
           opportunity_number: opportunityNumber.trim(),
           candidate_name: candidateName.trim(),
