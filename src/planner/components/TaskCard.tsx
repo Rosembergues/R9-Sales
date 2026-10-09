@@ -18,7 +18,6 @@ interface TaskCardProps {
   onClick: (task: Task) => void;
   onToggleStatus: (taskId: string, e: React.MouseEvent) => void;
   onDragStart?: (e: React.DragEvent, task: Task) => void;
-  compact?: boolean;
   todayISO?: string;
 }
 
@@ -29,7 +28,6 @@ export default function TaskCard({
   onClick,
   onToggleStatus,
   onDragStart,
-  compact = false,
   todayISO = getTodayISO(),
 }: TaskCardProps) {
   const isAdmin = userRole === 'admin';

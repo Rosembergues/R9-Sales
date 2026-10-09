@@ -1,17 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3, CalendarDays, CheckCircle2,
-  ChevronDown, Filter, Info, RefreshCw, Target, TrendingDown, TrendingUp, X,
-  Layers, ArrowLeft, Calendar, Flame, Award, Clock
-} from 'lucide-react';
-import {
-  GoalFilePreview,
-  GoalImportGroup,
-  summarizeImportedGoals,
-  getModelMetadata,
-  TEACHING_MODELS,
-  ModelMetadata
-} from '../../lib/goalImport';
+import { BarChart3, CalendarDays, CheckCircle2, RefreshCw, Target, TrendingUp, Layers, ArrowLeft, Calendar, Clock } from 'lucide-react';
+import { GoalFilePreview, GoalImportGroup, summarizeImportedGoals, getModelMetadata, TEACHING_MODELS } from '../../lib/goalImport';
 import { supabase } from '../../lib/supabase';
 import { useSales } from '../../context/SalesContext';
 
@@ -227,10 +216,6 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
     return map;
   }, [sales, startDate, endDate, selectedBu]);
 
-  const totalCrmSales = useMemo(() => {
-    return Array.from(crmSalesByDate.values()).reduce((a: number, b: number) => a + b, 0);
-  }, [crmSalesByDate]);
-
   // Daily rows combining Official and CRM
   const dailyRows = useMemo<DailyRow[]>(() => {
     const map = new Map<string, DailyRow>();
@@ -316,9 +301,6 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
   const daysInPeriod = Math.max(1, cumulativeRows.length);
   const currentPace = realizadoOficialAteHoje / daysInPeriod;
   const targetPace = metaDia / daysInPeriod;
-
-  // Mantido para compatibilidade com os indicadores de ritmo existentes.
-  const remainingPace = gap > 0 ? gap / Math.max(1, daysInPeriod) : 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">

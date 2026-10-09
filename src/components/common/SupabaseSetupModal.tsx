@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { SUPABASE_SQL_SCHEMA } from '../../lib/supabase';
-import { Database, Copy, Check, ExternalLink, X, ShieldAlert, CheckCircle2, Sparkles, Terminal } from 'lucide-react';
+import { Database, Copy, Check, ExternalLink, X, CheckCircle2, Sparkles, Terminal } from 'lucide-react';
 
 interface SupabaseSetupModalProps {
   onClose: () => void;

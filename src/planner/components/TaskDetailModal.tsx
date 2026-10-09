@@ -1,28 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-  X,
-  Calendar,
-  Clock,
-  User,
-  Tag,
-  Repeat,
-  AlertCircle,
-  Folder,
-  Send,
-  Trash2,
-  CheckCircle2,
-  Circle,
-  MessageSquare,
-  ShieldCheck,
-  Plus,
-  Sliders,
-  Check,
-  Lock,
-  Users,
-  CheckSquare,
-  RotateCcw,
-  Loader2,
-} from 'lucide-react';
+import { X, Tag, AlertCircle, Send, Trash2, CheckCircle2, MessageSquare, ShieldCheck, Plus, Sliders, Check, Users, RotateCcw, Loader2 } from 'lucide-react';
 import {
   Task,
   TeamMember,
@@ -45,7 +22,6 @@ interface TaskDetailModalProps {
   onClose: () => void;
   onUpdateTask: (updated: Task) => Promise<any> | void;
   onDeleteTask: (taskId: string) => Promise<boolean> | boolean;
-  onOpenCompletionModal?: (task: Task) => void;
   teamMembers: TeamMember[];
   currentUser: TeamMember;
   userRole: UserRole;
@@ -59,7 +35,6 @@ function TaskDetailModalContent({
   onClose,
   onUpdateTask,
   onDeleteTask,
-  onOpenCompletionModal,
   teamMembers,
   currentUser,
   userRole,

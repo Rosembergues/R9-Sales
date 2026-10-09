@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, CalendarDays } from 'lucide-react';
+import { Plus, Calendar } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
 import { formatISO, WEEKDAYS_PT, MONTH_NAMES_PT } from '../utils/dateUtils.ts';
 import TaskCard from './TaskCard.tsx';

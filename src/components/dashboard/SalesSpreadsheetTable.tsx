@@ -1,22 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { 
-  Search, 
-  Filter, 
-  ChevronDown, 
-  ArrowUpDown, 
-  ArrowUp, 
-  ArrowDown, 
-  Download, 
-  Plus, 
-  X, 
-  FileSpreadsheet, 
-  Check, 
-  Edit3, 
-  ExternalLink,
-  RotateCcw,
-  SlidersHorizontal,
-  Shield
-} from 'lucide-react';
+import { Search, ChevronDown, ArrowUp, ArrowDown, Plus, X, FileSpreadsheet, Edit3, RotateCcw, Shield } from 'lucide-react';
 import { Sale, MainProductType } from '../../types';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
@@ -51,7 +34,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
   onOpenNewSaleModal,
   onlyToday = false
 }) => {
-  const { sales, deleteSale, fetchSalesPage } = useSales();
+  const { fetchSalesPage } = useSales();
   const { currentUser } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');

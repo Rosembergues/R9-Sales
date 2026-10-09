@@ -53,7 +53,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenRanking,
 }) => {
   const { currentUser, profiles } = useAuth();
-  const { sales, leaderboard } = useSales();
+  const { sales } = useSales();
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today');
 
   const now = useMemo(() => new Date(), []);

@@ -1,13 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { Campaign, Sale, LeaderboardEntry, Profile } from '../types';
+import { Campaign, Sale, LeaderboardEntry } from '../types';
 import { supabase, getSupabaseClient, LocalSyncEngine } from '../lib/supabase';
-import { 
-  normalizeRemoteSale, 
-  getSaleDateBr,
-  buildR9SalePayload, 
-  buildStandardSalePayload, 
-  logSupabaseError 
-} from '../lib/salesMapper';
+import { normalizeRemoteSale, buildR9SalePayload, buildStandardSalePayload, logSupabaseError } from '../lib/salesMapper';
 import { useAuth } from './AuthContext';
 import confetti from 'canvas-confetti';
 

@@ -1,22 +1,7 @@
 import React, { useState } from 'react';
 import { useSales } from '../../context/SalesContext';
-import { Campaign } from '../../types';
-import { 
-  FileSpreadsheet, 
-  Plus, 
-  CheckCircle2, 
-  XCircle, 
-  Percent, 
-  Target, 
-  Calendar, 
-  Sliders, 
-  Trash2, 
-  Layers, 
-  Sparkles,
-  ExternalLink,
-  Copy,
-  Check
-} from 'lucide-react';
+
+import { FileSpreadsheet, Plus, Calendar, Sliders, Trash2, Copy, Check } from 'lucide-react';
 import { CreateCampaignModal } from './CreateCampaignModal';
 
 export const CampaignsManager: React.FC = () => {

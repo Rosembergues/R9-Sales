@@ -2,30 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
 import { Goal, DatabaseGoalRecord, ConsultantGoalValues } from '../../types';
-import {
-  GoalFilePreview,
-  GoalImportGroup,
-  summarizeImportedGoals,
-  getModelMetadata,
-  BusinessUnitKey
-} from '../../lib/goalImport';
-import {
-  AlertCircle,
-  ArrowLeft,
-  CalendarDays,
-  CalendarRange,
-  CheckCircle2,
-  Info,
-  RotateCw,
-  Save,
-  Search,
-  Target,
-  TrendingUp,
-  Users,
-  Sparkles,
-  ChevronRight,
-  Layers
-} from 'lucide-react';
+import { GoalFilePreview, GoalImportGroup, summarizeImportedGoals } from '../../lib/goalImport';
+import { AlertCircle, ArrowLeft, CalendarDays, CalendarRange, CheckCircle2, RotateCw, Save, Search, Target, Users, Sparkles } from 'lucide-react';
 
 interface GoalManagementPageProps {
   onBackToPlanner?: () => void;
@@ -583,13 +561,11 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       });
 
       // Try upserting with target_bu_presencial and target_bu_digital
-      let upsertError: any = null;
       const { error: fullError } = await supabase
         .from('goals')
         .upsert(payload, { onConflict: 'user_id,type,reference_start,academic_period' });
 
       if (fullError) {
-        upsertError = fullError;
         // Graceful fallback if supabase columns haven't been added yet:
         if (fullError.message?.includes('target_bu_presencial')) {
           console.warn('Colunas de BU não encontradas no Supabase; usando colunas padrão.');
@@ -611,7 +587,6 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
             .upsert(legacyPayload, { onConflict: 'user_id,type,reference_start,academic_period' });
 
           if (fallbackErr) throw fallbackErr;
-          upsertError = null;
         } else {
           throw fullError;
         }

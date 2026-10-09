@@ -128,11 +128,10 @@ export const userService = {
         return { error: new Error('ID do usuário não fornecido para atualização.') };
       }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('profiles')
         .update({ role: newRole === 'admin' ? 'admin' : 'seller' })
-        .eq('id', userId)
-        .select();
+        .eq('id', userId);
 
       if (error) {
         console.error('Erro ao atualizar cargo do usuário no Supabase:', error);

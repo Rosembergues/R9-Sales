@@ -1,32 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import {
-  TrendingUp,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  ArrowRight,
-  Search,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  FileText,
-  Users,
-  ChevronDown,
-  ChevronUp,
-  Hash,
-  DollarSign,
-  Layers,
-  Repeat,
-  Sparkles,
-  BarChart3,
-  CalendarDays,
-  Shield,
-  CheckSquare,
-  Filter,
-  ExternalLink,
-} from 'lucide-react';
-import { Task, TeamMember, Priority, TaskStatus, CustomFormField, CustomFieldValue } from '../types.ts';
+import { useState, useMemo } from 'react';
+import { TrendingUp, Calendar, ChevronLeft, ChevronRight, Download, ArrowRight, Search, CheckCircle2, Clock, FileText, Users, ChevronDown, ChevronUp, Hash, Layers, Repeat, Shield, ExternalLink } from 'lucide-react';
+import { Task, TeamMember, Priority, CustomFormField } from '../types.ts';
 import {
   formatISO,
   parseISO,
@@ -40,7 +14,6 @@ import {
 interface ExecutiveWeeklySummaryProps {
   tasks: Task[];
   teamMembers: TeamMember[];
-  todayISO: string;
   todayDate: Date;
   onBackToPlanner: () => void;
   onTaskClick: (task: Task) => void;
@@ -128,7 +101,6 @@ function formatNumberTotal(num: number, type: string, unit?: string): string {
 export default function ExecutiveWeeklySummary({
   tasks,
   teamMembers,
-  todayISO,
   todayDate,
   onBackToPlanner,
   onTaskClick,

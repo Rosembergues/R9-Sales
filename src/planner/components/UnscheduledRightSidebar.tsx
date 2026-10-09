@@ -1,13 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Inbox,
-  Search,
-  Plus,
-  ChevronLeft,
-  ChevronRight,
-  GripVertical,
-  SlidersHorizontal,
-} from 'lucide-react';
+import { Inbox, Search, Plus, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
 import TaskCard from './TaskCard.tsx';
 
@@ -205,7 +197,6 @@ export default function UnscheduledRightSidebar({
               onClick={onTaskClick}
               onToggleStatus={onToggleStatus}
               onDragStart={onDragStart}
-              compact={true}
             />
           ))
         )}

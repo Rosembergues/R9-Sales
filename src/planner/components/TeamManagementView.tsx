@@ -1,26 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  Users,
-  Shield,
-  ShieldCheck,
-  UserCheck,
-  Search,
-  RefreshCw,
-  ArrowLeft,
-  CheckCircle2,
-  AlertCircle,
-  Mail,
-  User,
-  Filter,
-  Sparkles,
-} from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Users, ShieldCheck, UserCheck, Search, RefreshCw, ArrowLeft, CheckCircle2, AlertCircle, Mail, User, Filter, Sparkles } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { userService, UserProfile } from '../services/userService.ts';
-import { TeamMember } from '../types.ts';
+
 
 interface TeamManagementViewProps {
   currentUserEmail?: string;
-  userRole?: 'admin' | 'member';
   isAdmin?: boolean;
   onBackToPlanner: () => void;
   onProfileUpdated?: (updatedProfiles: UserProfile[]) => void;
@@ -28,7 +13,6 @@ interface TeamManagementViewProps {
 
 export default function TeamManagementView({
   currentUserEmail,
-  userRole = 'member',
   isAdmin = false,
   onBackToPlanner,
   onProfileUpdated,

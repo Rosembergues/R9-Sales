@@ -1,15 +1,5 @@
 import React, { useState } from 'react';
-import {
-  X,
-  Plus,
-  Tag,
-  Sliders,
-  Trash2,
-  ListPlus,
-  HelpCircle,
-  CheckCircle2,
-  Loader2,
-} from 'lucide-react';
+import { X, Plus, Tag, Sliders, Trash2, ListPlus, Loader2 } from 'lucide-react';
 import { Task, TeamMember, Priority, Recurrence, CustomFormField, TagBucket } from '../types.ts';
 import { BUCKET_OPTIONS } from '../data/mockData.ts';
 
@@ -26,7 +16,6 @@ interface NewTaskModalProps {
 const WEEK_DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
 
 function NewTaskModalContent({
-  isOpen,
   onClose,
   onCreateTask,
   teamMembers,
@@ -42,8 +31,6 @@ function NewTaskModalContent({
   const [customRecurrenceDays, setCustomRecurrenceDays] = useState<string[]>([]);
   const [bucket, setBucket] = useState(initialBucket);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   const [scheduleType, setScheduleType] = useState<'scheduled' | 'queue'>(
     defaultScheduledDate ? 'scheduled' : 'queue'
   );
@@ -144,8 +131,6 @@ function NewTaskModalContent({
         bucket,
         assignedTo: selectedAssignees[0] || null,
         assignedToIds: selectedAssignees,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
         scheduledDate: scheduleType === 'scheduled' && scheduledDate ? scheduledDate : null,
         status: 'pendente',
         tags,

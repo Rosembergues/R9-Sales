@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { CampaignField } from '../../types';
-import { X, FileSpreadsheet, Plus, Trash2, CheckCircle2, Sliders, Sparkles } from 'lucide-react';
+import { X, FileSpreadsheet, Plus, Trash2, Sliders } from 'lucide-react';
 
 interface CreateCampaignModalProps {
   onClose: () => void;
@@ -41,7 +41,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<'text' | 'number' | 'select'>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
-  const [newFieldRequired, setNewFieldRequired] = useState(true);
+  const [newFieldRequired] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

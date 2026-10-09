@@ -1,4 +1,4 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+
 import { Profile, Campaign, Sale, Goal } from '../types';
 import { 
   supabase, 

@@ -5,28 +5,7 @@ import {
   MainProductType, 
   Sale 
 } from '../../types';
-import { 
-  GraduationCap, 
-  Award, 
-  Wrench, 
-  Search, 
-  Calendar, 
-  Hash, 
-  Building2, 
-  Layers, 
-  Clock, 
-  TrendingUp, 
-  CheckCircle2, 
-  Plus, 
-  FileText,
-  Filter,
-  Sparkles,
-  ChevronRight,
-  BookOpen,
-  DollarSign,
-  Edit3,
-  Shield
-} from 'lucide-react';
+import { GraduationCap, Award, Wrench, Search, Calendar, Hash, Building2, Layers, Clock, Plus, FileText, BookOpen, Edit3 } from 'lucide-react';
 import { EditSaleModal } from '../sales/EditSaleModal';
 import { getSaleFdiDisplay } from '../../lib/salesMapper';
 

@@ -1,27 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useSales } from '../../context/SalesContext';
 import { Sale } from '../../types';
-import { 
-  CalendarCheck, 
-  Calendar, 
-  ChevronLeft, 
-  ChevronRight, 
-  Copy, 
-  Check, 
-  Receipt, 
-  Plus, 
-  Search, 
-  GraduationCap, 
-  BookOpen, 
-  Wrench, 
-  Layers,
-  Edit3,
-  User,
-  Filter,
-  X
-} from 'lucide-react';
+import { CalendarCheck, Calendar, ChevronLeft, ChevronRight, Copy, Check, Receipt, Plus, Search, GraduationCap, BookOpen, Wrench, Layers, Edit3, User, X } from 'lucide-react';
 import { EditSaleModal } from '../sales/EditSaleModal';
-import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay } from '../../lib/salesMapper';
+import { getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
 
 interface DailyClosingViewProps {
   onOpenNewSaleModal?: () => void;
@@ -553,7 +535,6 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                   {category.items.map((mod) => {
                     const count = modalityStats[mod.name]?.count || 0;
                     const isSelected = selectedModalityFilter === mod.name;
-                    const percent = dayTotalCount > 0 ? Math.round((count / dayTotalCount) * 100) : 0;
 
                     return (
                       <div

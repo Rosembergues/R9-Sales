@@ -2,25 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
-import { getSaleDateBr, getRealSaleDate, normalizeRemoteSale } from '../../lib/salesMapper';
-import { Profile, Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
+import { getRealSaleDate, normalizeRemoteSale } from '../../lib/salesMapper';
+import { Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
 import { ModalityMultiFilter } from './ModalityMultiFilter';
-import { 
-  Trophy, 
-  Crown, 
-  Flame, 
-  Target, 
-  RotateCw, 
-  Users, 
-  TrendingUp, 
-  CalendarRange, 
-  CheckCircle2,
-  Sparkles,
-  Award,
-  ChevronLeft,
-  ChevronRight,
-  Calendar,
-} from 'lucide-react';
+import { Trophy, Crown, Flame, RotateCw, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 
 interface WeeklyLeaderboardEntry {
   seller_id: string;
@@ -45,21 +30,6 @@ interface WeeklyLeaderboardEntry {
 }
 
 // Helper to parse date string (DD/MM/YYYY or YYYY-MM-DD or ISO) to Date object
-function parseDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const trimmed = dateStr.trim();
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
-    const [d, m, y] = trimmed.split('/').map(Number);
-    return new Date(y, m - 1, d, 12, 0, 0);
-  }
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
-    const [y, m, d] = trimmed.slice(0, 10).split('-').map(Number);
-    return new Date(y, m - 1, d, 12, 0, 0);
-  }
-  const parsed = new Date(trimmed);
-  return isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function parseGoalData(g: DatabaseGoalRecord | Goal): UserGoalData {
   const targetTotal = g.target_total !== undefined ? Number(g.target_total) : 0;
 

@@ -1,27 +1,5 @@
 import React, { useState } from 'react';
-import {
-  CalendarDays,
-  Inbox,
-  TrendingUp,
-  Sun,
-  CheckSquare,
-  Zap,
-  Calendar,
-  Plus,
-  Search,
-  CheckCircle2,
-  Circle,
-  ChevronLeft,
-  ChevronRight,
-  GripVertical,
-  Layers,
-  Award,
-  AlertCircle,
-  Users,
-  Shield,
-  ShieldCheck,
-  Tag,
-} from 'lucide-react';
+import { CalendarDays, Inbox, TrendingUp, Sun, CheckSquare, Zap, Calendar, Plus, Search, CheckCircle2, Circle, ChevronLeft, ChevronRight, GripVertical, Award, AlertCircle, Users, Tag } from 'lucide-react';
 import { Task, TeamMember, UserRole, TagBucket } from '../types.ts';
 import { MONTH_NAMES_PT } from '../utils/dateUtils.ts';
 import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
@@ -840,7 +818,6 @@ export default function LeftSidebar({
                     onClick={onTaskClick}
                     onToggleStatus={onToggleStatus}
                     onDragStart={onDragStart}
-                    compact={true}
                     todayISO={todayISO}
                   />
                 ))

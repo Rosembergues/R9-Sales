@@ -1,20 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  CheckCircle2, FileSpreadsheet, Info, Loader2, Upload, X,
-  AlertCircle, ChevronRight, Layers, Calendar, BarChart3, Trash2, Eye
-} from 'lucide-react';
+import { CheckCircle2, FileSpreadsheet, Upload, X, AlertCircle, Calendar, Trash2, Eye } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
-import {
-  GoalFilePreview,
-  GoalImportGroup,
-  ParsedGoalRow,
-  parseGoalFile,
-  TEACHING_MODELS,
-  ModelMetadata,
-  getModelMetadata,
-  summarizeImportedGoals
-} from '../../lib/goalImport';
+import { GoalFilePreview, ParsedGoalRow, parseGoalFile, TEACHING_MODELS, ModelMetadata, getModelMetadata } from '../../lib/goalImport';
 
 interface GoalImportPageProps {
   onBackToPlanner?: () => void;
@@ -65,7 +53,6 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
 
   const [previews, setPreviews] = useState<Record<string, StoredPreview>>({});
   const [loadingGroup, setLoadingGroup] = useState<string | null>(null);
-  const [loadingExisting, setLoadingExisting] = useState(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<StoredPreview | null>(null);
 
@@ -76,7 +63,6 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
   const tecnicoModels = useMemo(() => TEACHING_MODELS.filter(m => m.buKey === 'tecnico'), []);
 
   const loadCurrentImports = useCallback(async (period: string) => {
-    setLoadingExisting(true);
     try {
       // 1. Fetch available distinct periods
       const { data: allPeriodsData } = await supabase
@@ -155,8 +141,6 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
         type: 'error',
         message: error?.message || 'Não foi possível carregar as importações do Supabase.',
       });
-    } finally {
-      setLoadingExisting(false);
     }
   }, []);
 

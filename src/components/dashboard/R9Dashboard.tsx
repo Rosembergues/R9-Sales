@@ -1,44 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { 
-  Calendar, 
-  ChevronLeft, 
-  Shield, 
-  User, 
-  LogOut, 
-  PanelLeft, 
-  Plus, 
-  Sun, 
-  TrendingUp, 
-  Users, 
-  Mail, 
-  Tag, 
-  CheckCircle2, 
-  DollarSign, 
-  Zap, 
-  X, 
-  Sparkles,
-  Search,
-  Filter,
-  BarChart3,
-  Award,
-  Layers,
-  ArrowUpRight,
-  GraduationCap,
-  Wrench,
-  FileSpreadsheet,
-  Receipt,
-  CalendarCheck,
-  Trophy,
-  Crown,
-  Target,
-  ClipboardList,
-  ChevronDown,
-  CalendarDays,
-  Inbox,
-  CheckSquare
-} from 'lucide-react';
+import { Calendar, ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
 import { PerformanceDashboard } from '../seller/PerformanceDashboard';
@@ -133,7 +96,6 @@ export const R9Dashboard: React.FC = () => {
   const graduacaoCount = sales.filter(s => getSaleProductType(s) === 'Graduação').length;
   const posCount = sales.filter(s => getSaleProductType(s) === 'Pós Graduação').length;
   const tecnicoCount = sales.filter(s => getSaleProductType(s) === 'Curso Técnico').length;
-  const totalSalesCount = sales.length;
 
   // Computed today's sales count (Boletos do Dia) - Estritamente pela Data da Venda de HOJE
   const todayFormatted = getTodayBrDate();
@@ -671,7 +633,6 @@ export const R9Dashboard: React.FC = () => {
                     email: currentUser.email,
                     user_metadata: { full_name: currentUser.name, nome: currentUser.name },
                   }}
-                  onLogout={signOut}
                   viewRole={viewRole}
                   externalNavigation
                   section={activeTab === 'planner_summary' ? 'summary' : plannerSection}

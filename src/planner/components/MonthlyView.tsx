@@ -10,7 +10,6 @@ interface MonthlyViewProps {
   userRole: UserRole;
   todayISO?: string;
   onTaskClick: (task: Task) => void;
-  onToggleStatus: (taskId: string, e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent, task: Task) => void;
   onDropOnDate: (dateString: string, e: React.DragEvent) => void;
   onQuickAddTask: (dateString: string) => void;
@@ -23,7 +22,6 @@ export default function MonthlyView({
   userRole,
   todayISO = getTodayISO(),
   onTaskClick,
-  onToggleStatus,
   onDragStart,
   onDropOnDate,
   onQuickAddTask,

@@ -1,30 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import {
-  Tag,
-  Plus,
-  Search,
-  RefreshCw,
-  ArrowLeft,
-  CheckCircle2,
-  AlertCircle,
-  Edit2,
-  Trash2,
-  Check,
-  X,
-  Layers,
-  Palette,
-  ShieldCheck,
-  FolderOpen,
-  Info,
-  Sliders,
-} from 'lucide-react';
+import { Tag, Plus, Search, RefreshCw, ArrowLeft, CheckCircle2, AlertCircle, Edit2, Trash2, Check, X, Layers, ShieldCheck, FolderOpen, Info } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { tagService, PRESET_TAG_COLORS } from '../services/tagService.ts';
 import { TagBucket, Task } from '../types.ts';
 
 interface TagManagementViewProps {
   isAdmin: boolean;
-  userRole?: string;
   tasks?: Task[];
   onBackToPlanner: () => void;
   onTagsUpdated?: (tags: TagBucket[]) => void;
@@ -32,7 +13,6 @@ interface TagManagementViewProps {
 
 export default function TagManagementView({
   isAdmin,
-  userRole,
   tasks = [],
   onBackToPlanner,
   onTagsUpdated,

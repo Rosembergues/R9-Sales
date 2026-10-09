@@ -1,26 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import '../planner.css';
-import {
-  Calendar,
-  CalendarDays,
-  LayoutGrid,
-  ChevronLeft,
-  ChevronRight,
-  CheckCircle2,
-  Inbox,
-  Tag,
-  TrendingUp,
-  RefreshCw,
-} from 'lucide-react';
+import { CalendarDays, LayoutGrid, ChevronLeft, ChevronRight, CheckCircle2, Inbox, Tag, TrendingUp, RefreshCw } from 'lucide-react';
 import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket } from '../types.ts';
-import {
-  getWeekDates,
-  formatWeekInterval,
-  getMonthGrid,
-  MONTH_NAMES_PT,
-  formatISO,
-  getNextRecurrenceDate,
-} from '../utils/dateUtils.ts';
+import { getWeekDates, formatWeekInterval, getMonthGrid, MONTH_NAMES_PT, formatISO } from '../utils/dateUtils.ts';
 import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
 import { taskService, mapDbRowToTask, getTaskSyncChannel } from '../services/taskService.ts';
 import { userService, UserProfile } from '../services/userService.ts';
@@ -46,7 +28,6 @@ interface PlannerProps {
     user_metadata?: { full_name?: string; nome?: string };
     [key: string]: any;
   };
-  onLogout?: () => void;
   /** Papel de visualização controlado pelo seletor global do R9 Sales. */
   viewRole?: 'admin' | 'membro';
   /** Navegação controlada pelo menu lateral principal do R9 Sales. */
@@ -55,14 +36,12 @@ interface PlannerProps {
   onSectionChange?: (section: PlannerSection) => void;
 }
 
-export default function Planner({ user, onLogout, viewRole: globalViewRole, externalNavigation = false, section = 'calendar', onSectionChange }: PlannerProps) {
+export default function Planner({ user, viewRole: globalViewRole, externalNavigation = false, section = 'calendar', onSectionChange }: PlannerProps) {
   // Estado das Tarefas, Tags/Categorias e Membros reais do Supabase
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [tagBuckets, setTagBuckets] = useState<TagBucket[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [dbConnected, setDbConnected] = useState<boolean | null>(null);
 
   // RBAC: Perfil real do usuário logado consultado na tabela 'perfis' do Supabase
   const [realUserRole, setRealUserRole] = useState<'admin' | 'membro'>('membro');
@@ -73,7 +52,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
   useEffect(() => {
     if (globalViewRole) setSimulatedRole(globalViewRole === 'membro' ? 'member' : 'admin');
   }, [globalViewRole]);
-  const [isLoadingRole, setIsLoadingRole] = useState<boolean>(true);
 
   // Papel efetivo ativo no momento
   const isRealAdmin = realUserRole === 'admin';
@@ -89,15 +67,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
       if (externalNavigation) onSectionChange?.('calendar');
     }
   }, [userRole, activeView, externalNavigation, onSectionChange]);
-
-  // Ao alternar o modo de visualização (exclusivo para Admin), redireciona suavemente se estiver em telas administrativas
-  const handleToggleSimulatedRole = (newRole: UserRole) => {
-    setSimulatedRole(newRole);
-    if (newRole === 'member' && (activeView === 'team_management' || activeView === 'executive_summary' || activeView === 'tag_management')) {
-      setActiveView('planner');
-      if (externalNavigation) onSectionChange?.('calendar');
-    }
-  };
 
   // Sincronizar membros da equipe com a tabela perfis do Supabase
   const handleProfilesUpdated = useCallback((profiles: UserProfile[]) => {
@@ -125,7 +94,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
       if (match) {
         const isAdm = match.role === 'admin';
         setRealUserRole(isAdm ? 'admin' : 'membro');
-        setIsLoadingRole(false);
       }
     }
   }, [user]);
@@ -135,7 +103,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
     let isMounted = true;
 
     async function loadRoleAndProfiles() {
-      setIsLoadingRole(true);
       try {
         // 1. Busca direta na tabela 'perfis' pelo id do usuário logado
         if (user?.id) {
@@ -187,8 +154,7 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
         // Falha silenciosa
       } finally {
         if (isMounted) {
-          setIsLoadingRole(false);
-        }
+          }
       }
     }
 
@@ -253,15 +219,11 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
   // Carregamento Inicial (Fetch) do Supabase estritamente da tabela tarefas
   const loadTasksFromSupabase = useCallback(async (isInitial = false) => {
     if (isInitial) setIsLoadingTasks(true);
-    else setIsSyncing(true);
 
     try {
       const { data, error } = await taskService.fetchTasks();
 
-      if (error) {
-        setDbConnected(false);
-      } else {
-        setDbConnected(true);
+      if (!error) {
         const taskList = data || [];
         setTasks(taskList);
 
@@ -273,10 +235,9 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
         });
       }
     } catch {
-      setDbConnected(false);
+      // Falha tratada sem estado visual de conexão; a lista permanece com os dados atuais.
     } finally {
       setIsLoadingTasks(false);
-      setIsSyncing(false);
     }
   }, []);
 
@@ -637,7 +598,7 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
       setToastMessage('Aviso: salvo localmente. Verifique a conexão com o Supabase.');
       setTimeout(() => setToastMessage(null), 4000);
     } else {
-      const [y, m, d] = targetDateString.split('-');
+      const [, m, d] = targetDateString.split('-');
       setToastMessage(`Ação alocada para ${d}/${m} no Supabase.`);
       setTimeout(() => setToastMessage(null), 3000);
     }
@@ -717,7 +678,7 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
     }
 
     if (nextRecurrentTask && nextRecurrentTask.scheduledDate) {
-      const [ny, nm, nd] = nextRecurrentTask.scheduledDate.split('-');
+      const [, nm, nd] = nextRecurrentTask.scheduledDate.split('-');
       setToastMessage(
         `Tarefa concluída${isActionByAdmin ? ' por Administrador' : ''}! Nova ocorrência inserida no Supabase para ${nd}/${nm} (${targetTask.recurrence}).`
       );
@@ -874,9 +835,7 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
       return false;
     }
 
-    setIsSyncing(true);
     const result = await taskService.deleteTask(taskId);
-    setIsSyncing(false);
 
     if (result.error || !result.deleted) {
       console.error('[PLANNER] Falha ao excluir tarefa:', { taskId, error: result.error });
@@ -901,9 +860,7 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
   const handleCreateTask = async (newTaskData: Omit<Task, 'id' | 'comments'>) => {
     if (userRole !== 'admin') return;
 
-    setIsSyncing(true);
     const { data: createdTask, error } = await taskService.createTask(newTaskData);
-    setIsSyncing(false);
 
     if (error || !createdTask) {
       const errMsg = error?.message || 'Erro ao criar nova ação no Supabase.';
@@ -915,7 +872,7 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
     if (createdTask) {
       setTasks((prev) => [createdTask, ...prev]);
       if (createdTask.scheduledDate) {
-        const [y, m, d] = createdTask.scheduledDate.split('-');
+        const [, m, d] = createdTask.scheduledDate.split('-');
         setToastMessage(`Nova ação criada e agendada para ${d}/${m} no Supabase.`);
       } else {
         setToastMessage('Nova ação criada na Fila de Não Agendadas no Supabase.');
@@ -1066,7 +1023,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
         <main className="flex-1 min-h-0 overflow-hidden relative bg-[#f8f9fa]/80 flex flex-col">
           {activeView === 'tag_management' && userRole === 'admin' ? (
             <TagManagementView
-              userRole={userRole}
               isAdmin={isRealAdmin && userRole === 'admin'}
               tasks={tasks}
               onTagsUpdated={(updated) => setTagBuckets(updated)}
@@ -1076,7 +1032,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
             <ExecutiveWeeklySummary
               tasks={tasks}
               teamMembers={teamMembers}
-              todayISO={todayISO}
               todayDate={todayDate}
               onBackToPlanner={goToCalendar}
               onTaskClick={handleTaskClick}
@@ -1084,7 +1039,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
           ) : activeView === 'team_management' && userRole === 'admin' ? (
             <TeamManagementView
               currentUserEmail={user?.email}
-              userRole={userRole}
               isAdmin={isRealAdmin && userRole === 'admin'}
               onBackToPlanner={goToCalendar}
               onProfileUpdated={handleProfilesUpdated}
@@ -1125,7 +1079,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
                     userRole={userRole}
                     todayISO={todayISO}
                     onTaskClick={handleTaskClick}
-                    onToggleStatus={handleToggleStatus}
                     onDragStart={handleDragStart}
                     onDropOnDate={handleDropOnDate}
                     onQuickAddTask={handleQuickAddTask}
@@ -1167,7 +1120,6 @@ export default function Planner({ user, onLogout, viewRole: globalViewRole, exte
               userRole={userRole}
               todayISO={todayISO}
               onTaskClick={handleTaskClick}
-              onToggleStatus={handleToggleStatus}
               onDragStart={handleDragStart}
               onDropOnDate={handleDropOnDate}
               onQuickAddTask={handleQuickAddTask}
