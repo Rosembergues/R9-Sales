@@ -427,7 +427,7 @@ export function buildStandardSalePayload(sale: Sale): Record<string, unknown> {
     client_name: sale.custom_data?.candidate_name || sale.client_name || 'Candidato',
     client_document: sale.client_document || null,
     client_phone: sale.client_phone || null,
-    client_email: sale.client_email || null,
+    // client_email omitido: a tabela sales em produção não possui essa coluna.
     product_name: sale.custom_data?.main_product || sale.product_name || 'Graduação',
     fdi: channelVal, // TEXT
     sale_date: toValidIsoTimestamp(custom.sale_date || sale.sale_date || sale.created_at),
