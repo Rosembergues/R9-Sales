@@ -451,48 +451,46 @@ export const WeeklyRankView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Navegador de Semana (controle no estilo do topo: < Hoje > | Data) */}
-          <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-700 font-medium shadow-xs">
+          {/* Navegador de Semana com identificação clara da semana ativa */}
+          <div className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-2.5 py-1.5 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-700 font-medium shadow-xs">
             <button
               onClick={handlePrevWeek}
-              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer"
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded-lg transition-colors cursor-pointer"
               title="Semana anterior"
               aria-label="Semana anterior"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
 
-            <button
-              onClick={handleCurrentWeek}
-              disabled={weekRange.isCurrent}
-              className={`px-2 py-0.5 rounded text-xs transition-all ${
-                weekRange.isCurrent
-                  ? 'font-bold text-gray-900 cursor-default bg-white shadow-2xs border border-gray-200/60'
-                  : 'font-semibold text-blue-600 hover:text-blue-800 hover:bg-blue-50 cursor-pointer'
-              }`}
-              title={weekRange.isCurrent ? 'Semana atual' : 'Clique para voltar para a semana atual (Hoje)'}
-            >
-              Hoje
-            </button>
+            <div className="px-2.5 py-1 rounded-lg bg-white border border-gray-200/80 shadow-2xs font-bold text-gray-900 text-xs flex items-center gap-1.5">
+              <Calendar className="w-3 h-3 text-blue-600" />
+              <span>{weekRange.shortLabel}</span>
+              {weekRange.isCurrent && (
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded">
+                  Atual
+                </span>
+              )}
+            </div>
 
             <button
               onClick={handleNextWeek}
               disabled={weekRange.isCurrent}
-              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               title={weekRange.isCurrent ? 'Semana atual é a mais recente' : 'Próxima semana'}
               aria-label="Próxima semana"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
 
-            <span className="text-gray-300">|</span>
-
-            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap hidden sm:inline">
-              {weekRange.fullLabel}
-            </span>
-            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap sm:hidden">
-              {weekRange.shortLabel}
-            </span>
+            {!weekRange.isCurrent && (
+              <button
+                onClick={handleCurrentWeek}
+                className="ml-1 px-2 py-0.5 rounded-lg text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/60 transition-colors cursor-pointer"
+                title="Voltar para a semana atual"
+              >
+                Voltar p/ Atual
+              </button>
+            )}
           </div>
 
           <ModalityMultiFilter options={modalityOptions} selected={selectedModalities} onChange={setSelectedModalities} tone="blue" />

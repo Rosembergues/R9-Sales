@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowUpRight,
   BarChart3,
@@ -13,8 +13,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { Sale } from '../../types';
+import { Sale, Goal } from '../../types';
 import { getSaleDateBr, getTodayBrDate, getRealSaleDate } from '../../lib/salesMapper';
+import { supabase, LocalSyncEngine } from '../../lib/supabase';
 
 interface HomeDashboardProps {
   onOpenNewSaleModal: () => void;
@@ -59,10 +60,90 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const todayKey = dateKey(now);
   const yesterdayKey = dateKey(new Date(now.getTime() - 86400000));
 
-  const teamGoalToday = useMemo(
-    () => leaderboard.reduce((sum, entry) => sum + Number(entry.target || 0), 0),
-    [leaderboard]
-  );
+  const [operationalTargets, setOperationalTargets] = useState<{
+    daily: number;
+    weekly: number;
+    monthly: number;
+  }>({ daily: 0, weekly: 0, monthly: 0 });
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchTargets = async () => {
+      try {
+        const todayIso = todayKey;
+        const [{ data: weekPeriod }, { data: monthPeriod }, { data: weeklyGoals }] = await Promise.all([
+          supabase
+            .from('goal_periods')
+            .select('target_total')
+            .eq('period_type', 'week')
+            .lte('reference_start', todayIso)
+            .gte('reference_end', todayIso)
+            .maybeSingle(),
+          supabase
+            .from('goal_periods')
+            .select('target_total')
+            .eq('period_type', 'month')
+            .lte('reference_start', todayIso)
+            .gte('reference_end', todayIso)
+            .maybeSingle(),
+          supabase
+            .from('goals')
+            .select('target_total')
+            .eq('type', 'week')
+            .lte('reference_start', todayIso)
+            .gte('reference_end', todayIso),
+        ]);
+
+        let resolvedWeekly = Number(weekPeriod?.target_total) || 0;
+        if (!resolvedWeekly && weeklyGoals && weeklyGoals.length > 0) {
+          resolvedWeekly = weeklyGoals.reduce((s: number, g: any) => s + (Number(g.target_total) || 0), 0);
+        }
+
+        if (!resolvedWeekly) {
+          const localGoals = LocalSyncEngine.getGoals();
+          const activeLocal = localGoals.filter(
+            (g: Goal) =>
+              (g.type === 'week' || g.type === 'semanal') &&
+              (!g.reference_start || g.reference_start <= todayIso) &&
+              (!g.reference_end || g.reference_end >= todayIso)
+          );
+          if (activeLocal.length > 0) {
+            resolvedWeekly = activeLocal.reduce((s: number, g: Goal) => s + (Number(g.target_total) || 0), 0);
+          }
+        }
+
+        const activeSellers = profiles.filter(p => p.role === 'seller');
+        const fallbackMonthly =
+          activeSellers.reduce((s, p) => s + (Number(p.target_monthly) || 30), 0) || 30;
+
+        const resolvedMonthly = Number(monthPeriod?.target_total) || fallbackMonthly;
+        if (!resolvedWeekly) {
+          resolvedWeekly = Math.max(1, Math.round(resolvedMonthly / 4));
+        }
+
+        const resolvedDaily = Math.max(1, Math.round(resolvedWeekly / 6));
+
+        if (isMounted) {
+          setOperationalTargets({
+            daily: resolvedDaily,
+            weekly: resolvedWeekly,
+            monthly: resolvedMonthly,
+          });
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar metas sincronizadas na Home:', err);
+      }
+    };
+
+    fetchTargets();
+    return () => {
+      isMounted = false;
+    };
+  }, [todayKey, profiles]);
+
+  const teamGoalToday = operationalTargets.daily || Math.max(1, Math.round((profiles.filter(p => p.role === 'seller').length * 5) / 6));
+  const teamGoalWeek = operationalTargets.weekly || (teamGoalToday * 6);
+  const teamGoalMonth = operationalTargets.monthly || (teamGoalWeek * 4);
 
   const todaySales = useMemo(
     () => sales.filter((sale) => getSaleDateBr(sale) === getTodayBrDate()),
@@ -147,8 +228,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const periodData = period === 'today'
     ? { count: todayCount, target: teamGoalToday }
     : period === 'week'
-      ? { count: weekSales.length, target: teamGoalToday * 7 }
-      : { count: monthSales.length, target: teamGoalToday * 30 };
+      ? { count: weekSales.length, target: teamGoalWeek }
+      : { count: monthSales.length, target: teamGoalMonth };
 
   const periodAttainment = periodData.target > 0
     ? Math.round((periodData.count / periodData.target) * 100)
@@ -205,7 +286,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard icon={<ShoppingCart className="w-5 h-5" />} label="Vendas Hoje" value={brNumber(todayCount)} tone="blue" delta={dayDelta} subtitle={`vs. ontem (${brNumber(yesterdaySales.length)})`} />
-        <KpiCard icon={<Target className="w-5 h-5" />} label="Meta Hoje" value={brNumber(teamGoalToday)} tone="green" subtitle="Meta operacional da equipe" />
+        <KpiCard icon={<Target className="w-5 h-5" />} label="Meta Hoje" value={brNumber(teamGoalToday)} tone="green" subtitle={`Meta semanal: ${brNumber(teamGoalWeek)}`} />
         <KpiCard icon={<BarChart3 className="w-5 h-5" />} label="Atingimento Hoje" value={`${attainment}%`} tone="purple" delta={percentDelta(attainment, teamGoalToday > 0 ? Math.round((yesterdaySales.length / teamGoalToday) * 100) : 0)} subtitle={`${brNumber(todayCount)} / ${brNumber(teamGoalToday)}`} />
       </section>
 
@@ -219,7 +300,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               </h2>
               <p className="text-xs text-slate-400 mt-1">Vendas dos últimos 7 dias</p>
             </div>
-            <span className="text-[11px] text-slate-400">Meta: {brNumber(teamGoalToday)}/dia</span>
+            <span className="text-[11px] text-slate-400">Meta: {brNumber(teamGoalToday)}/dia · Semanal: {brNumber(teamGoalWeek)}</span>
           </div>
 
           <div className="h-52 flex items-end gap-2 sm:gap-3">

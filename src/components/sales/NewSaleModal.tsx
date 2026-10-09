@@ -101,8 +101,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   const [candidateName, setCandidateName] = useState('');
   const [saleDateIso, setSaleDateIso] = useState(getTodayDateStr());
   const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI>('Simplificada');
-  const [modality, setModality] = useState<ModalityType>(defaultModalityFor(initialProduct));
+  const [modality, setModality] = useState<ModalityType>(() => defaultModalityFor((initialProduct || 'Graduação') as MainProductType));
   const [shift, setShift] = useState<ShiftType>('Noite');
+
   const [parcelaLeve, setParcelaLeve] = useState<ParcelaLeveOption>('Sem parcelas');
   const [hasBolsaConvenio, setHasBolsaConvenio] = useState(false);
   const [empresaConvenio, setEmpresaConvenio] = useState('');
@@ -157,7 +158,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
     setCandidateName('');
     setSaleDateIso(getTodayDateStr());
     setFdiChannel(initialProduct === 'Pós Graduação' ? 'Pós Graduação' : initialProduct === 'Curso Técnico' ? 'Técnico' : 'Simplificada');
-    setModality(defaultModalityFor(initialProduct));
+    setModality(defaultModalityFor((initialProduct || 'Graduação') as MainProductType));
     setShift('Noite');
     setParcelaLeve('Sem parcelas');
     setHasBolsaConvenio(false);

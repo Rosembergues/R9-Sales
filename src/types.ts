@@ -133,6 +133,8 @@ export interface Goal {
   id: string;
   user_id: string;
   type: GoalType;
+  target_bu_presencial?: number;
+  target_bu_digital?: number;
   target_graduacao?: number;
   target_pos?: number;
   target_tecnico?: number;
@@ -143,6 +145,7 @@ export interface Goal {
   updated_at?: string;
   month?: number;
   year?: number;
+  goal_period_id?: string | null;
 }
 
 export interface DatabaseGoalRecord {
@@ -151,6 +154,8 @@ export interface DatabaseGoalRecord {
   type: GoalType;
   reference_start: string;
   reference_end: string;
+  target_bu_presencial?: number;
+  target_bu_digital?: number;
   target_graduacao?: number;
   target_pos?: number;
   target_tecnico?: number;
@@ -159,10 +164,13 @@ export interface DatabaseGoalRecord {
   updated_at?: string;
   month?: number;
   year?: number;
+  goal_period_id?: string | null;
 }
 
 export interface UserGoalData {
   target_total: number;
+  target_bu_presencial?: number;
+  target_bu_digital?: number;
   target_graduacao: number;
   target_pos: number;
   target_tecnico: number;
@@ -170,6 +178,8 @@ export interface UserGoalData {
 
 export interface ConsultantGoalValues {
   id?: string;
+  target_bu_presencial?: number;
+  target_bu_digital?: number;
   target_graduacao: number;
   target_pos: number;
   target_tecnico: number;

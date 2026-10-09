@@ -11,6 +11,7 @@ import {
   Target, 
   RotateCw, 
   CalendarDays, 
+  Calendar,
   TrendingUp, 
   CheckCircle2,
   Sparkles,
@@ -439,48 +440,46 @@ export const MonthlyRankView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Navegador de Mês (controle no mesmo estilo do rank semanal: < Hoje/Mês Atual > | Data) */}
-          <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-700 font-medium shadow-xs">
+          {/* Navegador de Mês */}
+          <div className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-2.5 py-1.5 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-700 font-medium shadow-xs">
             <button
               onClick={handlePrevMonth}
-              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer"
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded-lg transition-colors cursor-pointer"
               title="Mês anterior"
               aria-label="Mês anterior"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
 
-            <button
-              onClick={handleCurrentMonth}
-              disabled={monthRange.isCurrent}
-              className={`px-2 py-0.5 rounded text-xs transition-all ${
-                monthRange.isCurrent
-                  ? 'font-bold text-gray-900 cursor-default bg-white shadow-2xs border border-gray-200/60'
-                  : 'font-semibold text-purple-600 hover:text-purple-800 hover:bg-purple-50 cursor-pointer'
-              }`}
-              title={monthRange.isCurrent ? 'Mês atual' : 'Clique para voltar para o mês atual'}
-            >
-              {monthRange.isCurrent ? 'Hoje' : 'Mês Atual'}
-            </button>
+            <div className="px-2.5 py-1 rounded-lg bg-white border border-gray-200/80 shadow-2xs font-bold text-gray-900 text-xs flex items-center gap-1.5">
+              <Calendar className="w-3 h-3 text-purple-600" />
+              <span>{monthRange.monthLabel}</span>
+              {monthRange.isCurrent && (
+                <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded">
+                  Atual
+                </span>
+              )}
+            </div>
 
             <button
               onClick={handleNextMonth}
               disabled={monthRange.isCurrent}
-              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-200/70 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               title={monthRange.isCurrent ? 'Mês atual é o mais recente' : 'Próximo mês'}
               aria-label="Próximo mês"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
 
-            <span className="text-gray-300">|</span>
-
-            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap hidden sm:inline">
-              {monthRange.monthLabel}
-            </span>
-            <span className="text-gray-700 font-semibold text-xs whitespace-nowrap sm:hidden">
-              {monthRange.shortLabel}
-            </span>
+            {!monthRange.isCurrent && (
+              <button
+                onClick={handleCurrentMonth}
+                className="ml-1 px-2 py-0.5 rounded-lg text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200/60 transition-colors cursor-pointer"
+                title="Voltar para o mês atual"
+              >
+                Voltar p/ Atual
+              </button>
+            )}
           </div>
 
           <ModalityMultiFilter options={modalityOptions} selected={selectedModalities} onChange={setSelectedModalities} tone="purple" />

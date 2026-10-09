@@ -38,6 +38,8 @@ import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
 import { PerformanceDashboard } from '../seller/PerformanceDashboard';
 import { GoalManagementPage } from '../admin/GoalManagementPage';
+import { AnalyticsPage } from '../admin/AnalyticsPage';
+import { GoalImportPage } from '../admin/GoalImportPage';
 import { LiveTeamLeaderboard } from '../seller/LiveTeamLeaderboard';
 import { ProductSummaryView } from './ProductSummaryView';
 import { SalesSpreadsheetTable } from './SalesSpreadsheetTable';
@@ -74,7 +76,7 @@ export const R9Dashboard: React.FC = () => {
 
   // Security guard: Non-admin or member view mode cannot view admin team management
   useEffect(() => {
-    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas')) {
+    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || activeTab === 'analytics')) {
       setActiveTab('home');
     }
   }, [isActualAdmin, viewRole, activeTab]);
@@ -346,6 +348,20 @@ export const R9Dashboard: React.FC = () => {
                   <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
                   <span>Desempenho</span>
                 </button>
+                {isActualAdmin && viewRole === 'admin' && (
+                  <button
+                    id="nav-analytics"
+                    onClick={() => setActiveTab('analytics')}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                      activeTab === 'analytics'
+                        ? 'bg-blue-500/15 text-blue-300 font-semibold'
+                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Analytics</span>
+                  </button>
+                )}
                 <button
                   id="nav-ranking"
                   onClick={() => setActiveTab('rank_semanal')}
@@ -467,6 +483,24 @@ export const R9Dashboard: React.FC = () => {
                   </div>
                   <span className="text-[10px] font-medium text-blue-200 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded">
                     metas
+                  </span>
+                </button>
+
+                <button
+                  id="nav-importar-metas"
+                  onClick={() => setActiveTab('metas_importacao')}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'metas_importacao'
+                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Importar Metas</span>
+                  </div>
+                  <span className="text-[10px] font-medium text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                    arquivos
                   </span>
                 </button>
 
@@ -634,6 +668,40 @@ export const R9Dashboard: React.FC = () => {
                   setShowNewSaleModal(true);
                 }}
               />
+            )}
+
+            {activeTab === 'analytics' && (
+              <div className="animate-in fade-in duration-200">
+                {isActualAdmin && viewRole === 'admin' ? (
+                  <AnalyticsPage />
+                ) : (
+                  <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center max-w-md mx-auto my-12 space-y-4">
+                    <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                      <Shield className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900">Acesso Restrito a Administradores</h3>
+                    <p className="text-xs text-slate-500">O Analytics oficial de metas é restrito exclusivamente a administradores nesta fase.</p>
+                    <button onClick={() => setActiveTab('home')} className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer">Voltar ao Início</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'metas_importacao' && (
+              <div className="animate-in fade-in duration-200">
+                {isActualAdmin && viewRole === 'admin' ? (
+                  <GoalImportPage onBackToPlanner={() => setActiveTab('canvas')} />
+                ) : (
+                  <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center max-w-md mx-auto my-12 space-y-4">
+                    <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                      <Shield className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900">Acesso Restrito a Administradores</h3>
+                    <p className="text-xs text-slate-500">A importação de metas é restrita exclusivamente a administradores.</p>
+                    <button onClick={() => setActiveTab('home')} className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer">Voltar ao Início</button>
+                  </div>
+                )}
+              </div>
             )}
 
             {activeTab === 'campanhas' && (

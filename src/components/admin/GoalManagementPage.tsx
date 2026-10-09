@@ -1,511 +1,723 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
-import { Goal, GoalType, DatabaseGoalRecord, ConsultantGoalValues } from '../../types';
-import { 
-  Target, 
-  Calendar, 
-  CalendarDays, 
-  CalendarRange, 
-  Save, 
-  RotateCw, 
-  Search, 
-  CheckCircle2, 
-  AlertCircle, 
-  Users, 
-  TrendingUp, 
+import { Goal, DatabaseGoalRecord, ConsultantGoalValues } from '../../types';
+import {
+  GoalFilePreview,
+  GoalImportGroup,
+  summarizeImportedGoals,
+  getModelMetadata,
+  BusinessUnitKey
+} from '../../lib/goalImport';
+import {
+  AlertCircle,
   ArrowLeft,
+  CalendarDays,
+  CalendarRange,
+  CheckCircle2,
+  Info,
+  RotateCw,
+  Save,
+  Search,
+  Target,
+  TrendingUp,
+  Users,
   Sparkles,
-  SlidersHorizontal,
-  FileSpreadsheet,
-  Check
+  ChevronRight,
+  Layers
 } from 'lucide-react';
 
 interface GoalManagementPageProps {
   onBackToPlanner?: () => void;
 }
 
-const MONTHS = [
-  { value: 1, label: 'Janeiro' },
-  { value: 2, label: 'Fevereiro' },
-  { value: 3, label: 'Março' },
-  { value: 4, label: 'Abril' },
-  { value: 5, label: 'Maio' },
-  { value: 6, label: 'Junho' },
-  { value: 7, label: 'Julho' },
-  { value: 8, label: 'Agosto' },
-  { value: 9, label: 'Setembro' },
-  { value: 10, label: 'Outubro' },
-  { value: 11, label: 'Novembro' },
-  { value: 12, label: 'Dezembro' },
-];
+type ConfigType = 'mensal' | 'semanal';
 
-const YEARS = [2025, 2026, 2027, 2028];
+interface TeamConfig {
+  monthlyTarget: number;
+  weeklyTarget: number;
+  weeklyGap: number;
+  weekStart: string;
+  weekEnd: string;
+  academicPeriod: string;
+}
+
+const emptyTeamConfig = (): TeamConfig => ({
+  monthlyTarget: 0,
+  weeklyTarget: 0,
+  weeklyGap: 0,
+  weekStart: '',
+  weekEnd: '',
+  academicPeriod: '2026.3',
+});
+
+const getMonthBounds = (year: number, month: number) => {
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0);
+  const fmt = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  return { start: fmt(start), end: fmt(end) };
+};
+
+const getWeekBounds = (year: number, month: number) => {
+  const today = new Date();
+  const base =
+    today.getFullYear() === year && today.getMonth() + 1 === month
+      ? new Date(today)
+      : new Date(year, month - 1, 1);
+  const day = base.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const start = new Date(base);
+  start.setDate(base.getDate() + mondayOffset);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  const monthBounds = getMonthBounds(year, month);
+  const fmt = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dayValue = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dayValue}`;
+  };
+  return {
+    start: fmt(start < new Date(monthBounds.start) ? new Date(monthBounds.start) : start),
+    end: fmt(end > new Date(monthBounds.end) ? new Date(monthBounds.end) : end),
+  };
+};
+
+const toInt = (value: string | number | undefined | null) =>
+  Math.max(0, Math.round(Number(value) || 0));
 
 export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackToPlanner }) => {
-  const { profiles, refreshProfiles } = useAuth();
-  
-  // Date and filter states
-  const currentDate = new Date();
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
-  const [goalType, setGoalType] = useState<GoalType>('mensal');
-  const [searchTerm, setSearchTerm] = useState('');
+  const { profiles } = useAuth();
+  const now = new Date();
 
-  // Goals state: map of user_id -> 3 product targets + target_total
+  const [configType, setConfigType] = useState<ConfigType>('semanal');
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [searchTerm, setSearchTerm] = useState('');
+  const [teamConfig, setTeamConfig] = useState<TeamConfig>(emptyTeamConfig());
+  const [savedTeamConfig, setSavedTeamConfig] = useState<TeamConfig>(emptyTeamConfig());
   const [goalsValues, setGoalsValues] = useState<Record<string, ConsultantGoalValues>>({});
-  // Baseline saved goals for dirty detection: map of user_id -> saved target_total
   const [savedGoalsMap, setSavedGoalsMap] = useState<Record<string, ConsultantGoalValues>>({});
-  
-  // UI states
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
-  const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  const [bulkGrad, setBulkGrad] = useState<number>(goalType === 'mensal' ? 20 : 5);
-  const [bulkPos, setBulkPos] = useState<number>(goalType === 'mensal' ? 5 : 2);
-  const [bulkTec, setBulkTec] = useState<number>(goalType === 'mensal' ? 5 : 1);
+  const [importedPreviews, setImportedPreviews] = useState<Record<string, GoalFilePreview>>({});
 
-  // Filter only active consultants/profiles
-  const activeConsultants = useMemo(() => {
-    return profiles.filter(p => {
-      if (p.status === 'inactive') return false;
-      return true;
-    });
-  }, [profiles]);
+  const activeConsultants = useMemo(
+    () => profiles.filter(profile => profile.status !== 'inactive'),
+    [profiles]
+  );
 
-  // Filtered by search term
   const displayedConsultants = useMemo(() => {
-    if (!searchTerm.trim()) return activeConsultants;
-    const term = searchTerm.toLowerCase();
-    return activeConsultants.filter(c => 
-      c.name?.toLowerCase().includes(term) || 
-      c.email?.toLowerCase().includes(term)
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return activeConsultants;
+    return activeConsultants.filter(c =>
+      c.name?.toLowerCase().includes(term) || c.email?.toLowerCase().includes(term)
     );
   }, [activeConsultants, searchTerm]);
 
-  // Helper to determine initial goal volume for consultant
-  const getInitialDefaultGoal = useCallback((consultantTargetMonthly?: number, type: GoalType = goalType): ConsultantGoalValues => {
+  const defaultGoal = useCallback((type: ConfigType): ConsultantGoalValues => {
     if (type === 'mensal') {
-      if (consultantTargetMonthly && consultantTargetMonthly > 0 && consultantTargetMonthly < 1000) {
-        const tot = Math.round(consultantTargetMonthly);
-        const grad = Math.max(0, Math.round(tot * 0.7));
-        const pos = Math.max(0, Math.round(tot * 0.2));
-        const tec = Math.max(0, tot - grad - pos);
-        return {
-          target_graduacao: grad,
-          target_pos: pos,
-          target_tecnico: tec,
-          target_total: tot
-        };
-      }
       return {
+        target_bu_presencial: 12,
+        target_bu_digital: 8,
         target_graduacao: 20,
         target_pos: 5,
         target_tecnico: 5,
-        target_total: 30
+        target_total: 30,
       };
     }
     return {
+      target_bu_presencial: 3,
+      target_bu_digital: 2,
       target_graduacao: 5,
       target_pos: 2,
       target_tecnico: 1,
-      target_total: 8
-    };
-  }, [goalType]);
-
-  // Parse helper for database records
-  const parseGoalRecord = useCallback((g: DatabaseGoalRecord | Goal | Record<string, unknown>): ConsultantGoalValues => {
-    const rawTotal = g.target_total !== undefined && g.target_total !== null
-      ? Number(g.target_total)
-      : 0;
-
-    const rawGrad = g.target_graduacao !== undefined && g.target_graduacao !== null
-      ? Number(g.target_graduacao)
-      : (g.target_pos || g.target_tecnico ? 0 : rawTotal);
-
-    const rawPos = Number(g.target_pos) || 0;
-    const rawTec = Number(g.target_tecnico) || 0;
-
-    const grad = Math.max(0, Math.round(rawGrad));
-    const pos = Math.max(0, Math.round(rawPos));
-    const tec = Math.max(0, Math.round(rawTec));
-    const tot = (grad + pos + tec > 0) ? (grad + pos + tec) : Math.max(0, Math.round(rawTotal));
-
-    return {
-      id: typeof g.id === 'string' ? g.id : undefined,
-      target_graduacao: grad,
-      target_pos: pos,
-      target_tecnico: tec,
-      target_total: tot
+      target_total: 8,
     };
   }, []);
 
-  // Load goals from Supabase and LocalSyncEngine for the selected period & type
+  const parseGoal = useCallback((goal: DatabaseGoalRecord | Goal): ConsultantGoalValues => {
+    const buPresencial = toInt(goal.target_bu_presencial ?? 0);
+    const buDigital = toInt(goal.target_bu_digital ?? 0);
+    const gradLegacy = toInt(goal.target_graduacao ?? 0);
+    const pos = toInt(goal.target_pos ?? 0);
+    const tec = toInt(goal.target_tecnico ?? 0);
+
+    // If BU fields were not set yet, estimate from legacy grad
+    const resolvedBuPres = buPresencial || (gradLegacy ? Math.ceil(gradLegacy * 0.6) : 0);
+    const resolvedBuDig = buDigital || (gradLegacy ? Math.floor(gradLegacy * 0.4) : 0);
+    const total = resolvedBuPres + resolvedBuDig + pos + tec || toInt(goal.target_total ?? 0);
+
+    return {
+      id: typeof goal.id === 'string' ? goal.id : undefined,
+      target_bu_presencial: resolvedBuPres,
+      target_bu_digital: resolvedBuDig,
+      target_graduacao: resolvedBuPres + resolvedBuDig,
+      target_pos: pos,
+      target_tecnico: tec,
+      target_total: total,
+    };
+  }, []);
+
+  // 1. Carrega períodos operacionais (goal_periods)
+  const loadTeamConfig = useCallback(async () => {
+    const bounds = getMonthBounds(selectedYear, selectedMonth);
+    const weekBounds = getWeekBounds(selectedYear, selectedMonth);
+    try {
+      const [{ data: monthPeriod }, { data: weekPeriod }] = await Promise.all([
+        supabase
+          .from('goal_periods')
+          .select('*')
+          .eq('period_type', 'month')
+          .eq('reference_start', bounds.start)
+          .eq('reference_end', bounds.end)
+          .maybeSingle(),
+        supabase
+          .from('goal_periods')
+          .select('*')
+          .eq('period_type', 'week')
+          .eq('reference_start', weekBounds.start)
+          .eq('reference_end', weekBounds.end)
+          .maybeSingle(),
+      ]);
+
+      const base: TeamConfig = {
+        ...emptyTeamConfig(),
+        monthlyTarget: Number(monthPeriod?.target_total ?? 0),
+        weeklyTarget: Number(weekPeriod?.target_total ?? 0),
+        weeklyGap: Number(weekPeriod?.gap_total ?? 0),
+        weekStart: weekPeriod?.reference_start || weekBounds.start,
+        weekEnd: weekPeriod?.reference_end || weekBounds.end,
+        academicPeriod:
+          weekPeriod?.academic_period ||
+          monthPeriod?.academic_period ||
+          emptyTeamConfig().academicPeriod,
+      };
+
+      setTeamConfig(base);
+      setSavedTeamConfig(base);
+    } catch (error) {
+      console.error('Erro ao carregar períodos de metas:', error);
+      const base = { ...emptyTeamConfig(), weekStart: weekBounds.start, weekEnd: weekBounds.end };
+      setTeamConfig(base);
+      setSavedTeamConfig(base);
+    }
+  }, [selectedMonth, selectedYear]);
+
+  // 2. Carrega dados importados de metas ativas para o período
+  const loadImportedPreviews = useCallback(async (period: string) => {
+    try {
+      const { data: imports, error } = await supabase
+        .from('goal_imports')
+        .select('id, academic_period, file_name, goal_group, status')
+        .eq('academic_period', period)
+        .eq('status', 'active')
+        .order('imported_at', { ascending: false });
+
+      if (error) throw error;
+
+      const latest: Record<string, any> = {};
+      (imports || []).forEach(item => {
+        if (!latest[item.goal_group]) latest[item.goal_group] = item;
+      });
+
+      const ids = Object.values(latest).map((item: any) => item.id);
+      if (!ids.length) {
+        setImportedPreviews({});
+        return;
+      }
+
+      const { data: rows, error: rowsError } = await supabase
+        .from('goal_daily_data')
+        .select('import_id, reference_date, aa, target, actual')
+        .in('import_id', ids)
+        .order('reference_date', { ascending: true });
+
+      if (rowsError) throw rowsError;
+
+      const next: Record<string, GoalFilePreview> = {};
+      Object.values(latest).forEach((item: any) => {
+        const daily = (rows || []).filter((row: any) => row.import_id === item.id);
+        const dates = daily.map((row: any) => row.reference_date).sort();
+        next[item.goal_group] = {
+          fileName: item.file_name,
+          group: item.goal_group as GoalImportGroup,
+          academicPeriod: item.academic_period,
+          rowCount: daily.length,
+          startDate: dates[0] ?? null,
+          endDate: dates[dates.length - 1] ?? null,
+          rows: daily.map((row: any) => ({
+            date: row.reference_date,
+            aa: row.aa === null ? null : Number(row.aa),
+            target: row.target === null ? null : Number(row.target),
+            actual: row.actual === null ? null : Number(row.actual),
+          })),
+          filters: [],
+          warnings: [],
+        };
+      });
+
+      setImportedPreviews(next);
+    } catch (error) {
+      console.error('Erro ao carregar dados importados de apoio:', error);
+      setImportedPreviews({});
+    }
+  }, []);
+
+  const currentRange = useMemo(() => {
+    const bounds = getMonthBounds(selectedYear, selectedMonth);
+    if (configType === 'mensal') {
+      return { start: bounds.start, end: bounds.end };
+    }
+    return {
+      start: teamConfig.weekStart || bounds.start,
+      end: teamConfig.weekEnd || bounds.end,
+    };
+  }, [configType, selectedMonth, selectedYear, teamConfig.weekEnd, teamConfig.weekStart]);
+
+  // Sum of imported goals in the selected week/month range
+  const importedSummary = useMemo(
+    () => summarizeImportedGoals(importedPreviews, currentRange.start, currentRange.end),
+    [importedPreviews, currentRange]
+  );
+
+  // 3. Carrega metas dos consultores
   const loadGoals = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Check existing records in Supabase public.goals table
-      const typesToMatch = goalType === 'mensal' ? ['mensal', 'month'] : ['semanal', 'week'];
-      const { data: remoteGoals, error } = await supabase
-        .from('goals')
-        .select('*')
-        .in('type', typesToMatch);
+      const type: 'month' | 'week' = configType === 'mensal' ? 'month' : 'week';
+      const bounds = getMonthBounds(selectedYear, selectedMonth);
+      const referenceStart =
+        configType === 'mensal'
+          ? bounds.start
+          : teamConfig.weekStart || getWeekBounds(selectedYear, selectedMonth).start;
+      const referenceEnd =
+        configType === 'mensal'
+          ? bounds.end
+          : teamConfig.weekEnd || getWeekBounds(selectedYear, selectedMonth).end;
 
-      // 2. Check local fallback goals
-      const localGoals = LocalSyncEngine.getGoals();
-
-      const newSavedMap: Record<string, ConsultantGoalValues> = {};
-      const newValuesMap: Record<string, ConsultantGoalValues> = {};
-
-      // Seed with default quantity based on active consultants
+      const next: Record<string, ConsultantGoalValues> = {};
+      const saved: Record<string, ConsultantGoalValues> = {};
       activeConsultants.forEach(c => {
-        const defaultGoal = getInitialDefaultGoal(c.target_monthly, goalType);
-        newSavedMap[c.id] = { ...defaultGoal };
-        newValuesMap[c.id] = { ...defaultGoal };
+        const fallback = defaultGoal(configType);
+        next[c.id] = { ...fallback };
+        saved[c.id] = { ...fallback };
       });
 
-      // Merge local fallback if available
-      if (localGoals && localGoals.length > 0) {
-        localGoals.forEach(g => {
-          if (g.type === goalType || typesToMatch.includes(g.type)) {
-            const parsed = parseGoalRecord(g);
-            newSavedMap[g.user_id] = parsed;
-            newValuesMap[g.user_id] = { ...parsed };
-          }
+      const { data: period } = await supabase
+        .from('goal_periods')
+        .select('id')
+        .eq('period_type', type)
+        .eq('reference_start', referenceStart)
+        .eq('reference_end', referenceEnd)
+        .maybeSingle();
+
+      if (period?.id) {
+        const { data, error } = await supabase
+          .from('goals')
+          .select('*')
+          .eq('goal_period_id', period.id);
+
+        if (error) throw error;
+        ((data as DatabaseGoalRecord[]) || []).forEach(g => {
+          if (!g.user_id) return;
+          const parsed = parseGoal(g);
+          next[g.user_id] = parsed;
+          saved[g.user_id] = { ...parsed };
+        });
+      } else {
+        const { data, error } = await supabase
+          .from('goals')
+          .select('*')
+          .eq('type', type)
+          .eq('reference_start', referenceStart);
+
+        if (error) throw error;
+        ((data as DatabaseGoalRecord[]) || []).forEach(g => {
+          if (!g.user_id) return;
+          const parsed = parseGoal(g);
+          next[g.user_id] = parsed;
+          saved[g.user_id] = { ...parsed };
         });
       }
 
-      // Overwrite with Supabase records if available
-      if (!error && remoteGoals && remoteGoals.length > 0) {
-        (remoteGoals as DatabaseGoalRecord[]).forEach(g => {
-          if (g.user_id) {
-            const parsed = parseGoalRecord(g);
-            newSavedMap[g.user_id] = parsed;
-            newValuesMap[g.user_id] = { ...parsed };
-          }
-        });
-      }
-
-      setSavedGoalsMap(newSavedMap);
-      setGoalsValues(newValuesMap);
-    } catch (err) {
-      console.error('Erro ao carregar metas de vendas:', err);
+      setGoalsValues(next);
+      setSavedGoalsMap(saved);
+    } catch (error) {
+      console.error('Erro ao carregar metas dos consultores:', error);
+      const next: Record<string, ConsultantGoalValues> = {};
+      activeConsultants.forEach(c => {
+        next[c.id] = defaultGoal(configType);
+      });
+      setGoalsValues(next);
+      setSavedGoalsMap(next);
     } finally {
       setIsLoading(false);
     }
-  }, [goalType, activeConsultants, getInitialDefaultGoal, parseGoalRecord]);
+  }, [
+    activeConsultants,
+    configType,
+    defaultGoal,
+    parseGoal,
+    selectedMonth,
+    selectedYear,
+    teamConfig.weekEnd,
+    teamConfig.weekStart,
+  ]);
 
-  // Reload whenever goalType, month, or activeConsultants change, and subscribe to Realtime
+  useEffect(() => {
+    loadTeamConfig();
+  }, [loadTeamConfig]);
+
+  useEffect(() => {
+    loadImportedPreviews(teamConfig.academicPeriod);
+  }, [teamConfig.academicPeriod, loadImportedPreviews]);
+
   useEffect(() => {
     loadGoals();
-    setBulkGrad(goalType === 'mensal' ? 20 : 5);
-    setBulkPos(goalType === 'mensal' ? 5 : 2);
-    setBulkTec(goalType === 'mensal' ? 5 : 1);
+  }, [loadGoals]);
 
-    let debounceTimer: NodeJS.Timeout | null = null;
-    const debouncedReload = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        loadGoals();
-      }, 350);
-    };
-
-    // Inscrição Realtime no canal do Supabase para a tabela 'goals'
-    const channel = supabase
-      .channel('public:goals')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'goals' },
-        (payload: { eventType?: string }) => {
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || !payload.eventType) {
-            debouncedReload();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
-    };
-  }, [goalType, selectedMonth, selectedYear, activeConsultants.length, loadGoals]);
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
-
-  // Handle target value changes for a specific user and product
-  // Automatically updates target_total = target_graduacao + target_pos + target_tecnico
-  const handleProductValueChange = (userId: string, field: 'target_graduacao' | 'target_pos' | 'target_tecnico', value: number) => {
-    const intVal = Math.max(0, Math.round(value));
+  // Updating consultant goal inputs
+  const updateConsultantGoal = (
+    userId: string,
+    field: 'target_bu_presencial' | 'target_bu_digital' | 'target_pos' | 'target_tecnico',
+    value: string
+  ) => {
+    const numeric = toInt(value);
     setGoalsValues(prev => {
-      const current = prev[userId] || getInitialDefaultGoal(undefined, goalType);
-      const updated = {
-        ...current,
-        [field]: intVal
-      };
-      // Soma automática dos 3 produtos
-      updated.target_total = updated.target_graduacao + updated.target_pos + updated.target_tecnico;
-      return {
-        ...prev,
-        [userId]: updated
-      };
+      const current = prev[userId] ?? defaultGoal(configType);
+      const next = { ...current, [field]: numeric };
+      const buPres = next.target_bu_presencial ?? 0;
+      const buDig = next.target_bu_digital ?? 0;
+      next.target_graduacao = buPres + buDig;
+      next.target_total = buPres + buDig + next.target_pos + next.target_tecnico;
+      return { ...prev, [userId]: next };
     });
   };
 
-  // Check if any consultant has modified goal
+  // Check unsaved changes
   const hasUnsavedChanges = useMemo(() => {
-    return activeConsultants.some(c => {
+    if (JSON.stringify(teamConfig) !== JSON.stringify(savedTeamConfig)) return true;
+    for (const c of activeConsultants) {
       const current = goalsValues[c.id];
       const saved = savedGoalsMap[c.id];
-      if (!current || !saved) return false;
-      return (
-        current.target_graduacao !== saved.target_graduacao ||
+      if (!current || !saved) return true;
+      if (
+        (current.target_bu_presencial ?? 0) !== (saved.target_bu_presencial ?? 0) ||
+        (current.target_bu_digital ?? 0) !== (saved.target_bu_digital ?? 0) ||
         current.target_pos !== saved.target_pos ||
         current.target_tecnico !== saved.target_tecnico ||
         current.target_total !== saved.target_total
-      );
-    });
-  }, [activeConsultants, goalsValues, savedGoalsMap]);
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [activeConsultants, goalsValues, savedGoalsMap, savedTeamConfig, teamConfig]);
 
-  // Calculate team aggregates (pure volume of sales/boletos)
-  const teamMetrics = useMemo(() => {
-    let totalTarget = 0;
-    let totalSaved = 0;
-    let totalGraduacao = 0;
-    let totalPos = 0;
-    let totalTecnico = 0;
+  // Sum of goals assigned across consultants
+  const distributedTotals = useMemo(() => {
+    let buPresencial = 0;
+    let buDigital = 0;
+    let pos = 0;
+    let tecnico = 0;
+    let total = 0;
 
     activeConsultants.forEach(c => {
-      const val = goalsValues[c.id];
-      const savedVal = savedGoalsMap[c.id];
-      if (val) {
-        totalTarget += val.target_total;
-        totalGraduacao += val.target_graduacao;
-        totalPos += val.target_pos;
-        totalTecnico += val.target_tecnico;
-      }
-      if (savedVal) {
-        totalSaved += savedVal.target_total;
+      const g = goalsValues[c.id];
+      if (g) {
+        buPresencial += g.target_bu_presencial ?? 0;
+        buDigital += g.target_bu_digital ?? 0;
+        pos += g.target_pos ?? 0;
+        tecnico += g.target_tecnico ?? 0;
+        total += g.target_total ?? 0;
       }
     });
 
-    const averageTarget = activeConsultants.length > 0 
-      ? Math.round(totalTarget / activeConsultants.length) 
-      : 0;
+    return { buPresencial, buDigital, pos, tecnico, total };
+  }, [activeConsultants, goalsValues]);
 
-    const diff = totalTarget - totalSaved;
+  // Distribute imported week goal evenly among active sellers
+  const handleAutoDistributeFromImport = () => {
+    const count = activeConsultants.length;
+    if (count === 0) return;
 
-    return {
-      totalTarget,
-      totalSaved,
-      totalGraduacao,
-      totalPos,
-      totalTecnico,
-      averageTarget,
-      diff,
-      consultantCount: activeConsultants.length
+    const impPres = Math.round(importedSummary.byBu.bu_presencial.target);
+    const impDig = Math.round(importedSummary.byBu.bu_digital.target);
+    const impPos = Math.round(importedSummary.byBu.pos.target);
+    const impTec = Math.round(importedSummary.byBu.tecnico.target);
+
+    const basePres = Math.floor(impPres / count);
+    const remPres = impPres % count;
+
+    const baseDig = Math.floor(impDig / count);
+    const remDig = impDig % count;
+
+    const basePos = Math.floor(impPos / count);
+    const remPos = impPos % count;
+
+    const baseTec = Math.floor(impTec / count);
+    const remTec = impTec % count;
+
+    const next: Record<string, ConsultantGoalValues> = {};
+    activeConsultants.forEach((c, index) => {
+      const buPres = basePres + (index < remPres ? 1 : 0);
+      const buDig = baseDig + (index < remDig ? 1 : 0);
+      const posVal = basePos + (index < remPos ? 1 : 0);
+      const tecVal = baseTec + (index < remTec ? 1 : 0);
+
+      next[c.id] = {
+        target_bu_presencial: buPres,
+        target_bu_digital: buDig,
+        target_graduacao: buPres + buDig,
+        target_pos: posVal,
+        target_tecnico: tecVal,
+        target_total: buPres + buDig + posVal + tecVal,
+      };
+    });
+
+    setGoalsValues(next);
+    setTeamConfig(prev => ({
+      ...prev,
+      weeklyTarget: impPres + impDig + impPos + impTec,
+    }));
+
+    setToast({
+      type: 'info',
+      message: 'Metas da semana distribuídas proporcionalmente com base nos arquivos importados!',
+    });
+  };
+
+  const saveOperationalPeriod = async (
+    type: 'month' | 'week',
+    referenceStart: string,
+    referenceEnd: string
+  ) => {
+    const payload = {
+      academic_period: teamConfig.academicPeriod || emptyTeamConfig().academicPeriod,
+      period_type: type,
+      reference_start: referenceStart,
+      reference_end: referenceEnd,
+      target_total:
+        type === 'month' ? toInt(teamConfig.monthlyTarget) : toInt(teamConfig.weeklyTarget),
+      gap_total: type === 'month' ? 0 : toInt(teamConfig.weeklyGap),
     };
-  }, [activeConsultants, goalsValues, savedGoalsMap]);
 
-  // Save metas with batch upsert on public.goals (saving 4 columns: target_graduacao, target_pos, target_tecnico, target_total)
-  const handleSaveGoals = async () => {
+    const { data: existing, error: findError } = await supabase
+      .from('goal_periods')
+      .select('id')
+      .eq('period_type', type)
+      .eq('reference_start', referenceStart)
+      .eq('reference_end', referenceEnd)
+      .maybeSingle();
+
+    if (findError) throw findError;
+
+    if (existing?.id) {
+      const { error } = await supabase
+        .from('goal_periods')
+        .update(payload)
+        .eq('id', existing.id);
+      if (error) throw error;
+      return existing.id as string;
+    }
+
+    const { data, error } = await supabase
+      .from('goal_periods')
+      .insert(payload)
+      .select('id')
+      .single();
+
+    if (error || !data) throw error || new Error('Não foi possível registrar o período de metas.');
+    return data.id as string;
+  };
+
+  const handleSave = async () => {
     setIsSaving(true);
     setToast(null);
-
     try {
-      // 3. Use os filtros de 'Mês' e 'Ano' atualmente selecionados na interface para calcular o primeiro dia do mês (reference_start) e o último dia do mês (reference_end)
-      const monthPadded = String(selectedMonth).padStart(2, '0');
-      const startDayStr = '01';
-      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
-      const lastDayPadded = String(lastDay).padStart(2, '0');
-      const referenceStart = `${selectedYear}-${monthPadded}-${startDayStr}`;
-      const referenceEnd = `${selectedYear}-${monthPadded}-${lastDayPadded}`;
+      const bounds = getMonthBounds(selectedYear, selectedMonth);
+      const referenceStart = configType === 'mensal' ? bounds.start : teamConfig.weekStart;
+      const referenceEnd = configType === 'mensal' ? bounds.end : teamConfig.weekEnd;
 
-      // Tratamento (de-para) rigoroso para satisfazer a check constraint 'goals_type_check':
-      const apiType: 'month' | 'week' = goalType === 'mensal' ? 'month' : 'week';
+      if (!referenceStart || !referenceEnd) {
+        throw new Error('Informe o início e o fim da semana de referência.');
+      }
 
-      // Build batch upsert payload for public.goals with strictly valid columns:
-      // user_id, type, reference_start, reference_end, target_graduacao, target_pos, target_tecnico, target_total
-      const batchPayload = activeConsultants.map(c => {
-        const userGoal = goalsValues[c.id] || getInitialDefaultGoal(c.target_monthly, goalType);
-        const targetGraduacao = Math.max(0, Math.round(userGoal.target_graduacao));
-        const targetPos = Math.max(0, Math.round(userGoal.target_pos));
-        const targetTecnico = Math.max(0, Math.round(userGoal.target_tecnico));
-        const targetTotal = targetGraduacao + targetPos + targetTecnico;
-        
+      const type: 'month' | 'week' = configType === 'mensal' ? 'month' : 'week';
+      const goalPeriodId = await saveOperationalPeriod(type, referenceStart, referenceEnd);
+
+      const payload = activeConsultants.map(c => {
+        const current = goalsValues[c.id] ?? defaultGoal(configType);
+        const buPres = toInt(current.target_bu_presencial);
+        const buDig = toInt(current.target_bu_digital);
+        const pos = toInt(current.target_pos);
+        const tec = toInt(current.target_tecnico);
+        const total = buPres + buDig + pos + tec;
+
         return {
           user_id: c.id,
-          type: apiType, // estritamente 'month' ou 'week'
+          type,
           reference_start: referenceStart,
           reference_end: referenceEnd,
-          target_graduacao: targetGraduacao,
-          target_pos: targetPos,
-          target_tecnico: targetTecnico,
-          target_total: targetTotal,
+          goal_period_id: goalPeriodId,
+          target_bu_presencial: buPres,
+          target_bu_digital: buDig,
+          target_graduacao: buPres + buDig,
+          target_pos: pos,
+          target_tecnico: tec,
+          target_total: total,
         };
       });
 
-      // 1. Batch upsert directly to Supabase public.goals table
-      const { error: upsertError } = await supabase
+      // Try upserting with target_bu_presencial and target_bu_digital
+      let upsertError: any = null;
+      const { error: fullError } = await supabase
         .from('goals')
-        .upsert(batchPayload, { onConflict: 'user_id,type,reference_start' });
+        .upsert(payload, { onConflict: 'user_id,type,reference_start' });
 
-      if (upsertError) {
-        console.error('❌ [Supabase DB] Erro no upsert de metas:', upsertError);
-        throw upsertError;
+      if (fullError) {
+        upsertError = fullError;
+        // Graceful fallback if supabase columns haven't been added yet:
+        if (fullError.message?.includes('target_bu_presencial')) {
+          console.warn('Colunas de BU não encontradas no Supabase; usando colunas padrão.');
+          const legacyPayload = payload.map(item => ({
+            user_id: item.user_id,
+            type: item.type,
+            reference_start: item.reference_start,
+            reference_end: item.reference_end,
+            goal_period_id: item.goal_period_id,
+            target_graduacao: item.target_graduacao,
+            target_pos: item.target_pos,
+            target_tecnico: item.target_tecnico,
+            target_total: item.target_total,
+          }));
+
+          const { error: fallbackErr } = await supabase
+            .from('goals')
+            .upsert(legacyPayload, { onConflict: 'user_id,type,reference_start' });
+
+          if (fallbackErr) throw fallbackErr;
+          upsertError = null;
+        } else {
+          throw fullError;
+        }
       }
 
-      // 2. Persist locally in LocalSyncEngine for instantaneous fallback & offline resilience
-      const currentLocalGoals = LocalSyncEngine.getGoals();
-      const updatedLocalGoals: Goal[] = [...currentLocalGoals];
-
-      batchPayload.forEach(item => {
-        const existing = savedGoalsMap[item.user_id];
-        const idx = updatedLocalGoals.findIndex(g => g.user_id === item.user_id && (g.type === item.type || (item.type === 'month' && g.type === 'mensal') || (item.type === 'week' && g.type === 'semanal')));
-        const goalRecord: Goal = {
-          id: existing?.id || crypto.randomUUID(),
+      // Sync local storage
+      const local = LocalSyncEngine.getGoals();
+      const merged = [...local];
+      payload.forEach(item => {
+        const index = merged.findIndex(
+          g =>
+            g.user_id === item.user_id &&
+            (g.type === type ||
+              (type === 'month' && g.type === 'mensal') ||
+              (type === 'week' && g.type === 'semanal')) &&
+            g.reference_start === referenceStart
+        );
+        const record: Goal = {
+          id: index >= 0 ? merged[index].id : crypto.randomUUID(),
           user_id: item.user_id,
-          type: item.type as GoalType,
-          target_total: item.target_total,
+          type,
+          target_bu_presencial: item.target_bu_presencial,
+          target_bu_digital: item.target_bu_digital,
           target_graduacao: item.target_graduacao,
           target_pos: item.target_pos,
           target_tecnico: item.target_tecnico,
-          reference_start: item.reference_start,
-          reference_end: item.reference_end,
-          updated_at: new Date().toISOString(),
+          target_total: item.target_total,
+          reference_start: referenceStart,
+          reference_end: referenceEnd,
           month: selectedMonth,
           year: selectedYear,
+          updated_at: new Date().toISOString(),
+          goal_period_id: goalPeriodId,
         };
-        if (idx >= 0) {
-          updatedLocalGoals[idx] = goalRecord;
-        } else {
-          updatedLocalGoals.push(goalRecord);
-        }
+        if (index >= 0) merged[index] = record;
+        else merged.push(record);
       });
-      LocalSyncEngine.saveGoals(updatedLocalGoals);
+      LocalSyncEngine.saveGoals(merged);
 
-      // 3. If monthly, also sync target_monthly on public.profiles and LocalSyncEngine profiles as sales count
-      if (goalType === 'mensal') {
-        for (const item of batchPayload) {
-          try {
-            await supabase
-              .from('profiles')
-              .update({ target_monthly: item.target_total })
-              .eq('id', item.user_id);
-          } catch {
-            // Ignora erro não bloqueante de sync de perfil
-          }
-        }
-        await refreshProfiles();
-      }
-
-      // Update baseline map
-      const updatedSavedMap: Record<string, ConsultantGoalValues> = {};
-      batchPayload.forEach(item => {
-        const existing = savedGoalsMap[item.user_id];
-        updatedSavedMap[item.user_id] = {
-          id: existing?.id,
-          target_graduacao: item.target_graduacao,
-          target_pos: item.target_pos,
-          target_tecnico: item.target_tecnico,
-          target_total: item.target_total
-        };
-      });
-      setSavedGoalsMap(updatedSavedMap);
+      setSavedTeamConfig({ ...teamConfig });
+      setSavedGoalsMap(
+        Object.fromEntries(
+          payload.map(item => [
+            item.user_id,
+            {
+              target_bu_presencial: item.target_bu_presencial,
+              target_bu_digital: item.target_bu_digital,
+              target_graduacao: item.target_graduacao,
+              target_pos: item.target_pos,
+              target_tecnico: item.target_tecnico,
+              target_total: item.target_total,
+            },
+          ])
+        )
+      );
 
       setToast({
         type: 'success',
-        message: `Metas por produto (${goalType.toUpperCase()}) salvas com sucesso! Total da equipe: ${teamMetrics.totalTarget} vendas.`
+        message:
+          configType === 'mensal'
+            ? 'Metas mensais por BU salvas com sucesso no Supabase!'
+            : 'Metas semanais por BU salvas com sucesso no Supabase!',
       });
-    } catch (err: any) {
-      console.error('💥 Erro ao salvar metas de vendas:', err);
+    } catch (error: any) {
+      console.error('Erro ao salvar metas:', error);
       setToast({
         type: 'error',
-        message: err?.message ? `Erro ao salvar metas: ${err.message}` : 'Ocorreu um erro ao processar o salvamento das metas. Tente novamente.'
+        message: error?.message
+          ? `Erro ao salvar: ${error.message}`
+          : 'Não foi possível salvar as metas no Supabase.',
       });
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Bulk set all consultants with specific product goals
-  const handleApplyBulkGoal = (grad: number, pos: number, tec: number) => {
-    const safeGrad = Math.max(0, Math.round(grad));
-    const safePos = Math.max(0, Math.round(pos));
-    const safeTec = Math.max(0, Math.round(tec));
-    const safeTotal = safeGrad + safePos + safeTec;
-
-    const updated: Record<string, ConsultantGoalValues> = {};
-    activeConsultants.forEach(c => {
-      const existingId = savedGoalsMap[c.id]?.id;
-      updated[c.id] = {
-        id: existingId,
-        target_graduacao: safeGrad,
-        target_pos: safePos,
-        target_tecnico: safeTec,
-        target_total: safeTotal
-      };
-    });
-    setGoalsValues(prev => ({ ...prev, ...updated }));
-    setBulkModalOpen(false);
-    setToast({
-      type: 'info',
-      message: `Meta de ${safeTotal} vendas (Grad: ${safeGrad}, Pós: ${safePos}, Téc: ${safeTec}) aplicada a todos os consultores.`
-    });
+  const reset = () => {
+    setTeamConfig({ ...savedTeamConfig });
+    setGoalsValues(
+      Object.fromEntries(
+        activeConsultants.map(c => [c.id, savedGoalsMap[c.id] ?? defaultGoal(configType)])
+      )
+    );
   };
-
-  // Quick reset to saved values
-  const handleResetToSaved = () => {
-    const reverted: Record<string, ConsultantGoalValues> = {};
-    activeConsultants.forEach(c => {
-      reverted[c.id] = savedGoalsMap[c.id] ?? getInitialDefaultGoal(c.target_monthly, goalType);
-    });
-    setGoalsValues(reverted);
-    setToast({
-      type: 'info',
-      message: 'Metas redefinidas para os registros salvos anteriormente.'
-    });
-  };
-
-  const selectedMonthObj = MONTHS.find(m => m.value === selectedMonth);
 
   return (
-    <div className="space-y-6">
-      
-      {/* Toast notification */}
+    <div className="space-y-6 animate-in fade-in duration-300">
       {toast && (
-        <div 
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-xs font-semibold animate-in slide-in-from-bottom-5 duration-200 ${
-            toast.type === 'success' 
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-xs font-semibold ${
+            toast.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
               : toast.type === 'error'
               ? 'bg-red-50 border-red-200 text-red-800'
               : 'bg-blue-50 border-blue-200 text-blue-800'
           }`}
         >
           {toast.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <CheckCircle2 className="w-4 h-4" />
           ) : (
-            <AlertCircle className="w-4 h-4 shrink-0" />
+            <AlertCircle className="w-4 h-4" />
           )}
-          <span>{toast.message}</span>
+          {toast.message}
         </div>
       )}
 
-      {/* 1. TOP HEADER BAR */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+      {/* Top Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
           {onBackToPlanner && (
             <button
               onClick={onBackToPlanner}
-              className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer border border-gray-200"
+              className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl border border-gray-200 transition-colors cursor-pointer"
               title="Voltar"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -513,652 +725,431 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
           )}
           <div>
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#0052cc] border border-blue-100 flex items-center justify-center shadow-2xs">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#0052cc] border border-blue-100 flex items-center justify-center">
                 <Target className="w-4 h-4" />
               </div>
-              <h1 className="text-lg font-bold text-gray-900 font-['Space_Grotesk'] tracking-tight">
-                Gerenciamento de Metas
-              </h1>
-              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-full">
-                Painel Admin
+              <h1 className="text-lg font-bold text-gray-900">Metas dos Consultores por BU</h1>
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                ADMIN
               </span>
             </div>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Defina as metas em volume/quantidade de vendas e boletos para os consultores ativos da equipe.
+            <p className="text-xs text-gray-500 mt-1">
+              Defina a meta semanal de cada consultor por BU (Presencial e Digital). As metas importadas dos arquivos servem como balizador automático da semana.
             </p>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setBulkModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl shadow-2xs transition-colors cursor-pointer"
-            title="Definir mesma meta de vendas para toda a equipe"
+            onClick={reset}
+            disabled={!hasUnsavedChanges}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-xl disabled:opacity-40 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-gray-500" />
-            <span className="hidden sm:inline">Definir Meta em Lote</span>
-            <span className="sm:hidden">Meta em Lote</span>
+            <RotateCw className="w-3.5 h-3.5" /> Descartar
           </button>
-
           <button
-            onClick={loadGoals}
-            disabled={isLoading}
-            className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-            title="Recarregar metas salvas"
-          >
-            <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </button>
-
-          <button
-            id="btn-salvar-metas"
-            onClick={handleSaveGoals}
+            onClick={handleSave}
             disabled={isSaving}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ${
-              hasUnsavedChanges
-                ? 'bg-[#0052cc] hover:bg-[#00478f] text-white ring-2 ring-blue-500/20 active:scale-[0.98]'
-                : 'bg-[#0052cc] hover:bg-[#00478f] text-white'
-            } disabled:opacity-50`}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-[#0052cc] hover:bg-[#00478f] text-white disabled:opacity-50 transition-colors cursor-pointer shadow-sm"
           >
-            {isSaving ? (
-              <>
-                <RotateCw className="w-4 h-4 animate-spin" />
-                <span>Salvando Metas...</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                <span>Salvar Metas</span>
-                {hasUnsavedChanges && (
-                  <span className="w-2 h-2 rounded-full bg-amber-300 animate-pulse" title="Alterações pendentes" />
-                )}
-              </>
-            )}
+            <Save className="w-4 h-4" /> {isSaving ? 'Salvando...' : 'Salvar metas'}
           </button>
         </div>
       </div>
 
-      {/* 2. FILTERS CARD (Mês/Ano, Tipo de Meta) */}
-      <div className="bg-white rounded-2xl border border-gray-200/90 p-4 shadow-2xs space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          
-          {/* Left: Tipo de Meta toggle & Mês/Ano selectors */}
-          <div className="flex flex-wrap items-center gap-3">
-            
-            {/* Toggle Tipo de Meta */}
-            <div className="flex items-center gap-1 bg-gray-100/90 p-1 rounded-xl border border-gray-200/80 text-xs font-semibold">
-              <button
-                id="goal-type-mensal-btn"
-                onClick={() => setGoalType('mensal')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                  goalType === 'mensal'
-                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <CalendarDays className="w-3.5 h-3.5 text-blue-600" />
-                <span>Meta Mensal</span>
-              </button>
-
-              <button
-                id="goal-type-semanal-btn"
-                onClick={() => setGoalType('semanal')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                  goalType === 'semanal'
-                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <CalendarRange className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Meta Semanal</span>
-              </button>
-            </div>
-
-            <div className="h-6 w-px bg-gray-200 hidden sm:block" />
-
-            {/* Mês Selector */}
-            <div className="flex items-center gap-2">
-              <label htmlFor="select-month" className="text-xs font-semibold text-gray-500">
-                Mês:
-              </label>
-              <select
-                id="select-month"
-                value={selectedMonth}
-                onChange={e => setSelectedMonth(Number(e.target.value))}
-                className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-gray-800 shadow-2xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none cursor-pointer"
-              >
-                {MONTHS.map(m => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Ano Selector */}
-            <div className="flex items-center gap-2">
-              <label htmlFor="select-year" className="text-xs font-semibold text-gray-500">
-                Ano:
-              </label>
-              <select
-                id="select-year"
-                value={selectedYear}
-                onChange={e => setSelectedYear(Number(e.target.value))}
-                className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-gray-800 shadow-2xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none cursor-pointer"
-              >
-                {YEARS.map(y => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-
+      {/* Period Selection Controls */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-2xs">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl border border-gray-200 w-fit">
+            <button
+              onClick={() => setConfigType('semanal')}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                configType === 'semanal'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <CalendarRange className="inline w-3.5 h-3.5 mr-1.5" /> Meta semanal (Operação)
+            </button>
+            <button
+              onClick={() => setConfigType('mensal')}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                configType === 'mensal'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <CalendarDays className="inline w-3.5 h-3.5 mr-1.5" /> Meta mensal
+            </button>
           </div>
 
-          {/* Right: Search Input */}
-          <div className="relative w-full lg:w-64">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-xs font-semibold text-gray-500">Mês:</label>
+            <select
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(Number(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white font-medium"
+            >
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  {new Date(2026, i, 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                </option>
+              ))}
+            </select>
+
+            <label className="text-xs font-semibold text-gray-500">Ano:</label>
+            <select
+              value={selectedYear}
+              onChange={e => setSelectedYear(Number(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white font-medium"
+            >
+              {[2026, 2027, 2028].map(year => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+
+            <label className="text-xs font-semibold text-gray-500">Ciclo:</label>
             <input
-              type="text"
-              placeholder="Buscar consultor..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-800 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+              value={teamConfig.academicPeriod}
+              onChange={e => setTeamConfig(v => ({ ...v, academicPeriod: e.target.value }))}
+              className="w-24 px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-blue-700"
+              placeholder="2026.3"
             />
           </div>
-
         </div>
 
-        {/* Changes Indicator Bar if dirty */}
-        {hasUnsavedChanges && (
-          <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs">
-            <div className="flex items-center gap-2 text-amber-800 font-medium">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-              <span>Você possui alterações não salvas nas metas da equipe.</span>
+        {/* Week bounds editor */}
+        {configType === 'semanal' && (
+          <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold text-gray-700">Intervalo da Semana:</span>
+              <div className="flex items-center gap-2 text-xs">
+                <input
+                  type="date"
+                  value={teamConfig.weekStart}
+                  onChange={e => setTeamConfig(v => ({ ...v, weekStart: e.target.value }))}
+                  className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs"
+                />
+                <span className="text-gray-400">até</span>
+                <input
+                  type="date"
+                  value={teamConfig.weekEnd}
+                  onChange={e => setTeamConfig(v => ({ ...v, weekEnd: e.target.value }))}
+                  className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs"
+                />
+              </div>
             </div>
-            <button
-              onClick={handleResetToSaved}
-              className="text-[11px] font-bold text-amber-900 underline hover:text-amber-700 cursor-pointer"
-            >
-              Descartar alterações
-            </button>
+
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-500 font-semibold">Meta da equipe na semana:</label>
+              <input
+                type="number"
+                min="0"
+                value={teamConfig.weeklyTarget || ''}
+                onChange={e => setTeamConfig(v => ({ ...v, weeklyTarget: toInt(e.target.value) }))}
+                className="w-20 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-black text-blue-700 text-center"
+                placeholder="0"
+              />
+              <span className="text-xs text-gray-400">matrículas</span>
+            </div>
           </div>
         )}
-
       </div>
 
-      {/* 3. METRICS SUMMARY CARDS (VOLUME / QUANTIDADE) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        
-        {/* Card 1: Total de Vendas/Boletos da Equipe */}
-        <div className="bg-white rounded-2xl border border-gray-200/80 p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-medium">
-            <span>Total de Vendas/Boletos da Equipe</span>
-            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-              <TrendingUp className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <p className="text-xl font-extrabold text-gray-900 font-['Space_Grotesk'] tracking-tight">
-              {teamMetrics.totalTarget.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-gray-500">vendas</span>
-            </p>
-            <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
-              <span>Tipo:</span>
-              <span className="font-semibold text-blue-700 capitalize">Meta {goalType}</span>
-            </p>
-          </div>
-        </div>
-
-        {/* Card 2: Consultores Ativos */}
-        <div className="bg-white rounded-2xl border border-gray-200/80 p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-medium">
-            <span>Consultores Ativos</span>
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Users className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <p className="text-xl font-extrabold text-gray-900 font-['Space_Grotesk'] tracking-tight">
-              {teamMetrics.consultantCount}
-            </p>
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              Perfis comerciais ativos
-            </p>
-          </div>
-        </div>
-
-        {/* Card 3: Média de Vendas por Consultor */}
-        <div className="bg-white rounded-2xl border border-gray-200/80 p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-medium">
-            <span>Média de Vendas por Consultor</span>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Target className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <p className="text-xl font-extrabold text-gray-900 font-['Space_Grotesk'] tracking-tight">
-              {teamMetrics.averageTarget.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-gray-500">vendas</span>
-            </p>
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              Média estipulada por profissional
-            </p>
-          </div>
-        </div>
-
-        {/* Card 4: Período de Referência */}
-        <div className="bg-white rounded-2xl border border-gray-200/80 p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-medium">
-            <span>Período Vigente</span>
-            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Calendar className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <p className="text-base font-extrabold text-gray-900 font-['Space_Grotesk'] tracking-tight truncate">
-              {selectedMonthObj?.label} / {selectedYear}
-            </p>
-            <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span>Sincronizado Supabase</span>
-            </p>
-          </div>
-        </div>
-
-      </div>
-
-      {/* 4. GOALS TABLE */}
-      <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden">
-        
-        {/* Table Top Toolbar */}
-        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-50/50">
+      {/* BALIZADOR AUTOMÁTICO DA SEMANA (Vindo dos Arquivos Importados) */}
+      <div className="bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 border border-blue-200 rounded-2xl p-5 shadow-2xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-blue-100/80">
           <div>
-            <h2 className="text-sm font-bold text-gray-900 font-['Space_Grotesk'] flex items-center gap-2">
-              <span>Metas dos Consultores</span>
-              <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                {displayedConsultants.length} consultor(es)
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider text-blue-700">
+                Balizador da Semana Oficial (Planilhas Importadas)
               </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                {currentRange.start} → {currentRange.end}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 mt-1">
+              Estes são os valores extraídos automaticamente dos arquivos de metas para o intervalo selecionado. Utilize-os para balizar a cobrança da equipe.
+            </p>
+          </div>
+
+          <button
+            onClick={handleAutoDistributeFromImport}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors cursor-pointer shadow-sm shrink-0"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Distribuir igualmente para os consultores
+          </button>
+        </div>
+
+        {/* 4 Cards das BUs */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="bg-white p-3.5 rounded-xl border border-blue-100 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
+              BU Presencial
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5">Presencial + Semi + Ao Vivo</span>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-xl font-black text-slate-900">
+                {Math.round(importedSummary.byBu.bu_presencial.target)}
+              </span>
+              <span className="text-[11px] font-semibold text-emerald-700">
+                Realizado: {Math.round(importedSummary.byBu.bu_presencial.actual)}
+              </span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px]">
+              <span className="text-gray-400">Distribuído equipe:</span>
+              <strong
+                className={
+                  distributedTotals.buPresencial >= Math.round(importedSummary.byBu.bu_presencial.target)
+                    ? 'text-emerald-700'
+                    : 'text-amber-700'
+                }
+              >
+                {distributedTotals.buPresencial}
+              </strong>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 rounded-xl border border-emerald-100 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+              BU Digital
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5">EAD + DLEX (Flex)</span>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-xl font-black text-slate-900">
+                {Math.round(importedSummary.byBu.bu_digital.target)}
+              </span>
+              <span className="text-[11px] font-semibold text-emerald-700">
+                Realizado: {Math.round(importedSummary.byBu.bu_digital.actual)}
+              </span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px]">
+              <span className="text-gray-400">Distribuído equipe:</span>
+              <strong
+                className={
+                  distributedTotals.buDigital >= Math.round(importedSummary.byBu.bu_digital.target)
+                    ? 'text-emerald-700'
+                    : 'text-amber-700'
+                }
+              >
+                {distributedTotals.buDigital}
+              </strong>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 rounded-xl border border-purple-100 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 block">
+              Pós-Graduação
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5">Presencial + Digital</span>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-xl font-black text-slate-900">
+                {Math.round(importedSummary.byBu.pos.target)}
+              </span>
+              <span className="text-[11px] font-semibold text-emerald-700">
+                Realizado: {Math.round(importedSummary.byBu.pos.actual)}
+              </span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px]">
+              <span className="text-gray-400">Distribuído equipe:</span>
+              <strong
+                className={
+                  distributedTotals.pos >= Math.round(importedSummary.byBu.pos.target)
+                    ? 'text-emerald-700'
+                    : 'text-amber-700'
+                }
+              >
+                {distributedTotals.pos}
+              </strong>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 rounded-xl border border-amber-100 shadow-2xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 block">
+              Curso Técnico
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5">Técnico Presencial</span>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-xl font-black text-slate-900">
+                {Math.round(importedSummary.byBu.tecnico.target)}
+              </span>
+              <span className="text-[11px] font-semibold text-emerald-700">
+                Realizado: {Math.round(importedSummary.byBu.tecnico.actual)}
+              </span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px]">
+              <span className="text-gray-400">Distribuído equipe:</span>
+              <strong
+                className={
+                  distributedTotals.tecnico >= Math.round(importedSummary.byBu.tecnico.target)
+                    ? 'text-emerald-700'
+                    : 'text-amber-700'
+                }
+              >
+                {distributedTotals.tecnico}
+              </strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* CONSULTANTS GOALS TABLE */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+        <div className="p-5 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">
+              Distribuição por Consultor ({configType === 'mensal' ? 'Mensal' : 'Semanal'})
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Edite a meta de cada produto (Graduação, Pós, Técnico). O sistema calcula a soma automática e persiste em <code className="text-xs font-mono text-gray-700 bg-gray-100 px-1 py-0.5 rounded">public.goals</code>.
+              Informe a meta de cada consultor para BU Presencial, BU Digital, Pós e Técnico.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setBulkModalOpen(true)}
-              className="text-[11px] font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200 transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Definir em Lote</span>
-            </button>
-            <button
-              onClick={() => handleApplyBulkGoal(goalType === 'mensal' ? 20 : 5, goalType === 'mensal' ? 5 : 2, goalType === 'mensal' ? 5 : 1)}
-              className="text-[11px] font-semibold text-gray-600 hover:text-blue-700 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg border border-gray-200 transition-colors cursor-pointer"
-            >
-              Padrão ({goalType === 'mensal' ? '30 vendas' : '8 vendas'})
-            </button>
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-gray-500">
+              <Users className="inline w-3.5 h-3.5 mr-1" />
+              {activeConsultants.length} consultores ·{' '}
+              <strong className="text-gray-900 font-bold">{distributedTotals.total}</strong> no total
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-400" />
+              <input
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Buscar consultor"
+                className="pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-xl w-52 bg-slate-50 focus:bg-white transition-colors"
+              />
+            </div>
           </div>
         </div>
 
-        {/* The Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200/80 bg-gray-50/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                <th className="py-3 px-4">Consultor</th>
-                <th className="py-3 px-4">Meta Atual Salva</th>
-                <th className="py-3 px-4 min-w-[320px]">Metas por Produto (Graduação, Pós, Técnico)</th>
-                <th className="py-3 px-4 text-center">Participação na Equipe</th>
-                <th className="py-3 px-4 text-right">Status</th>
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 border-b border-gray-100">
+              <tr>
+                <th className="text-left px-5 py-3 font-bold text-gray-600">Consultor</th>
+                <th className="px-3 py-3 font-bold text-blue-700 text-center">
+                  BU Presencial <br />
+                  <span className="text-[10px] font-normal text-gray-400">Presencial / Semi / Ao Vivo</span>
+                </th>
+                <th className="px-3 py-3 font-bold text-emerald-700 text-center">
+                  BU Digital <br />
+                  <span className="text-[10px] font-normal text-gray-400">EAD / DLEX</span>
+                </th>
+                <th className="px-3 py-3 font-bold text-purple-700 text-center">
+                  Pós-Graduação <br />
+                  <span className="text-[10px] font-normal text-gray-400">Pres. / Digital</span>
+                </th>
+                <th className="px-3 py-3 font-bold text-amber-700 text-center">
+                  Curso Técnico <br />
+                  <span className="text-[10px] font-normal text-gray-400">Presencial</span>
+                </th>
+                <th className="px-5 py-3 text-right font-bold text-gray-900">Total</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 text-xs">
-              {displayedConsultants.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-12 text-center text-gray-400">
-                    <Users className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                    <p className="text-sm font-semibold text-gray-600">Nenhum consultor encontrado</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Tente ajustar o termo de pesquisa acima.</p>
-                  </td>
-                </tr>
-              ) : (
-                displayedConsultants.map(c => {
-                  const currentValue = goalsValues[c.id] || getInitialDefaultGoal(c.target_monthly, goalType);
-                  const savedValue = savedGoalsMap[c.id] || getInitialDefaultGoal(c.target_monthly, goalType);
-                  const isModified = (
-                    currentValue.target_graduacao !== savedValue.target_graduacao ||
-                    currentValue.target_pos !== savedValue.target_pos ||
-                    currentValue.target_tecnico !== savedValue.target_tecnico ||
-                    currentValue.target_total !== savedValue.target_total
-                  );
+            <tbody className="divide-y divide-gray-100">
+              {displayedConsultants.map(consultant => {
+                const goal = goalsValues[consultant.id] ?? defaultGoal(configType);
+                return (
+                  <tr key={consultant.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-5 py-3">
+                      <div className="font-semibold text-gray-900">
+                        {consultant.name || consultant.email}
+                      </div>
+                      <div className="text-[10px] text-gray-400">{consultant.email}</div>
+                    </td>
 
-                  // Percentage of team goal
-                  const pct = teamMetrics.totalTarget > 0 
-                    ? Math.round((currentValue.target_total / teamMetrics.totalTarget) * 100) 
-                    : 0;
+                    <td className="px-3 py-3 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        value={goal.target_bu_presencial ?? 0}
+                        onChange={e =>
+                          updateConsultantGoal(consultant.id, 'target_bu_presencial', e.target.value)
+                        }
+                        className="w-16 text-center px-2 py-1.5 border border-blue-200 bg-blue-50/30 rounded-lg text-sm font-bold text-blue-900 focus:bg-white focus:ring-1 focus:ring-blue-500"
+                      />
+                    </td>
 
-                  const initials = c.name
-                    ? c.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
-                    : 'CO';
+                    <td className="px-3 py-3 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        value={goal.target_bu_digital ?? 0}
+                        onChange={e =>
+                          updateConsultantGoal(consultant.id, 'target_bu_digital', e.target.value)
+                        }
+                        className="w-16 text-center px-2 py-1.5 border border-emerald-200 bg-emerald-50/30 rounded-lg text-sm font-bold text-emerald-900 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </td>
 
-                  return (
-                    <tr 
-                      key={c.id} 
-                      className={`hover:bg-blue-50/30 transition-colors ${
-                        isModified ? 'bg-amber-50/20' : ''
-                      }`}
-                    >
-                      {/* 1. Consultor */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-[#00478f] text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
-                            {initials}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <p className="font-bold text-gray-900 leading-tight">
-                                {c.name || 'Sem nome'}
-                              </p>
-                              {c.role === 'admin' && (
-                                <span className="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">
-                                  Admin
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-gray-400 leading-tight mt-0.5">
-                              {c.email}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
+                    <td className="px-3 py-3 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        value={goal.target_pos ?? 0}
+                        onChange={e =>
+                          updateConsultantGoal(consultant.id, 'target_pos', e.target.value)
+                        }
+                        className="w-16 text-center px-2 py-1.5 border border-purple-200 bg-purple-50/30 rounded-lg text-sm font-bold text-purple-900 focus:bg-white focus:ring-1 focus:ring-purple-500"
+                      />
+                    </td>
 
-                      {/* 2. Meta Atual Salva (Volume de Vendas) */}
-                      <td className="py-3.5 px-4 text-gray-600 font-medium">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="bg-gray-100/80 px-2.5 py-1 rounded-md text-xs font-mono font-bold text-gray-900">
-                              {savedValue.target_total.toLocaleString('pt-BR')} vendas
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-gray-400 font-medium flex items-center gap-1.5">
-                            <span>Grad: <strong className="text-gray-600">{savedValue.target_graduacao}</strong></span>
-                            <span>•</span>
-                            <span>Pós: <strong className="text-gray-600">{savedValue.target_pos}</strong></span>
-                            <span>•</span>
-                            <span>Téc: <strong className="text-gray-600">{savedValue.target_tecnico}</strong></span>
-                          </div>
-                        </div>
-                      </td>
+                    <td className="px-3 py-3 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        value={goal.target_tecnico ?? 0}
+                        onChange={e =>
+                          updateConsultantGoal(consultant.id, 'target_tecnico', e.target.value)
+                        }
+                        className="w-16 text-center px-2 py-1.5 border border-amber-200 bg-amber-50/30 rounded-lg text-sm font-bold text-amber-900 focus:bg-white focus:ring-1 focus:ring-amber-500"
+                      />
+                    </td>
 
-                      {/* 3. Input Nova Meta: 3 inputs numéricos lado a lado com soma automática */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                          {/* Graduação Input */}
-                          <div className="flex flex-col">
-                            <label htmlFor={`goal-grad-${c.id}`} className="text-[10px] font-bold text-blue-700 mb-0.5">
-                              Graduação
-                            </label>
-                            <input
-                              id={`goal-grad-${c.id}`}
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={currentValue.target_graduacao}
-                              onChange={e => handleProductValueChange(c.id, 'target_graduacao', Number(e.target.value) || 0)}
-                              className="w-18 sm:w-20 px-2 py-1.5 text-xs font-bold font-mono text-center rounded-xl border border-gray-200 bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all shadow-2xs"
-                              placeholder="0"
-                            />
-                          </div>
-
-                          {/* Pós Input */}
-                          <div className="flex flex-col">
-                            <label htmlFor={`goal-pos-${c.id}`} className="text-[10px] font-bold text-purple-700 mb-0.5">
-                              Pós
-                            </label>
-                            <input
-                              id={`goal-pos-${c.id}`}
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={currentValue.target_pos}
-                              onChange={e => handleProductValueChange(c.id, 'target_pos', Number(e.target.value) || 0)}
-                              className="w-16 sm:w-18 px-2 py-1.5 text-xs font-bold font-mono text-center rounded-xl border border-gray-200 bg-white text-gray-900 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none transition-all shadow-2xs"
-                              placeholder="0"
-                            />
-                          </div>
-
-                          {/* Técnico Input */}
-                          <div className="flex flex-col">
-                            <label htmlFor={`goal-tec-${c.id}`} className="text-[10px] font-bold text-amber-700 mb-0.5">
-                              Técnico
-                            </label>
-                            <input
-                              id={`goal-tec-${c.id}`}
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={currentValue.target_tecnico}
-                              onChange={e => handleProductValueChange(c.id, 'target_tecnico', Number(e.target.value) || 0)}
-                              className="w-16 sm:w-18 px-2 py-1.5 text-xs font-bold font-mono text-center rounded-xl border border-gray-200 bg-white text-gray-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all shadow-2xs"
-                              placeholder="0"
-                            />
-                          </div>
-
-                          {/* Totalizador automático */}
-                          <div className="flex flex-col justify-end">
-                            <span className="text-[10px] font-bold text-slate-500 mb-0.5">
-                              Total
-                            </span>
-                            <div 
-                              className={`px-2.5 py-1.5 rounded-xl border font-mono font-black text-xs text-center min-w-[54px] shadow-2xs ${
-                                isModified 
-                                  ? 'bg-amber-50 border-amber-300 text-amber-900 ring-1 ring-amber-300' 
-                                  : 'bg-slate-100 border-slate-200 text-slate-800'
-                              }`}
-                              title="Soma automática: Graduação + Pós + Técnico"
-                            >
-                              {currentValue.target_total}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* 4. Participação na Equipe (Progress Bar) */}
-                      <td className="py-3.5 px-4">
-                        <div className="w-32 mx-auto space-y-1">
-                          <div className="flex items-center justify-between text-[10px] font-semibold text-gray-500">
-                            <span>Participação</span>
-                            <span className="font-bold text-gray-800">{pct}%</span>
-                          </div>
-                          <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                            <div 
-                              className="bg-blue-600 h-full rounded-full transition-all duration-300"
-                              style={{ width: `${Math.min(100, pct)}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* 5. Status da Meta */}
-                      <td className="py-3.5 px-4 text-right">
-                        {isModified ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            Modificado
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            Salvo
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
+                    <td className="px-5 py-3 text-right font-black text-sm text-gray-900">
+                      {goal.target_total}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
-
-            {/* Table Footer with Summary */}
-            {displayedConsultants.length > 0 && (
-              <tfoot className="border-t-2 border-gray-200 bg-gray-50 text-xs font-bold text-gray-800">
-                <tr>
-                  <td className="py-3 px-4">
-                    <span>Total da Equipe ({displayedConsultants.length} consultores)</span>
-                  </td>
-                  <td className="py-3 px-4 font-mono text-gray-600">
-                    {teamMetrics.totalSaved.toLocaleString('pt-BR')} vendas
-                  </td>
-                  <td className="py-3 px-4 font-mono text-blue-700 text-sm">
-                    <div className="flex flex-col">
-                      <span>{teamMetrics.totalTarget.toLocaleString('pt-BR')} vendas totais</span>
-                      <span className="text-[10px] text-gray-500 font-medium">
-                        Grad: {teamMetrics.totalGraduacao} • Pós: {teamMetrics.totalPos} • Téc: {teamMetrics.totalTecnico}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-center text-gray-500">
-                    100%
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={handleSaveGoals}
-                      disabled={isSaving}
-                      className="px-3 py-1 bg-[#0052cc] hover:bg-[#00478f] text-white text-[11px] font-bold rounded-lg shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {isSaving ? 'Salvando...' : 'Salvar'}
-                    </button>
-                  </td>
-                </tr>
-              </tfoot>
-            )}
+            <tfoot className="bg-slate-50 border-t border-gray-200 font-bold">
+              <tr>
+                <td className="px-5 py-3 text-gray-700">Total Distribuído para a Equipe</td>
+                <td className="px-3 py-3 text-center text-blue-700 font-black">
+                  {distributedTotals.buPresencial}
+                </td>
+                <td className="px-3 py-3 text-center text-emerald-700 font-black">
+                  {distributedTotals.buDigital}
+                </td>
+                <td className="px-3 py-3 text-center text-purple-700 font-black">
+                  {distributedTotals.pos}
+                </td>
+                <td className="px-3 py-3 text-center text-amber-700 font-black">
+                  {distributedTotals.tecnico}
+                </td>
+                <td className="px-5 py-3 text-right text-gray-900 text-sm font-black">
+                  {distributedTotals.total}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
-
       </div>
 
-      {/* 5. MODAL: DEFINIR META EM LOTE (POR PRODUTO) */}
-      {bulkModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl max-w-md w-full p-6 space-y-4">
-            
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0052cc] flex items-center justify-center">
-                <SlidersHorizontal className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900 font-['Space_Grotesk']">
-                  Definir Meta em Lote por Produto
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Aplique metas uniformes de Graduação, Pós e Técnico para todos os {activeConsultants.length} consultores.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              {/* Graduação Bulk Input */}
-              <div>
-                <label htmlFor="bulk-grad-input" className="text-xs font-semibold text-blue-700 block mb-1">
-                  Meta Graduação (por consultor)
-                </label>
-                <div className="relative">
-                  <input
-                    id="bulk-grad-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={bulkGrad}
-                    onChange={e => setBulkGrad(Number(e.target.value) || 0)}
-                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                    placeholder="Ex: 20"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
-                    vendas
-                  </span>
-                </div>
-              </div>
-
-              {/* Pós Bulk Input */}
-              <div>
-                <label htmlFor="bulk-pos-input" className="text-xs font-semibold text-purple-700 block mb-1">
-                  Meta Pós-Graduação (por consultor)
-                </label>
-                <div className="relative">
-                  <input
-                    id="bulk-pos-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={bulkPos}
-                    onChange={e => setBulkPos(Number(e.target.value) || 0)}
-                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold text-gray-900 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none"
-                    placeholder="Ex: 5"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
-                    vendas
-                  </span>
-                </div>
-              </div>
-
-              {/* Técnico Bulk Input */}
-              <div>
-                <label htmlFor="bulk-tec-input" className="text-xs font-semibold text-amber-700 block mb-1">
-                  Meta Técnico (por consultor)
-                </label>
-                <div className="relative">
-                  <input
-                    id="bulk-tec-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={bulkTec}
-                    onChange={e => setBulkTec(Number(e.target.value) || 0)}
-                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold text-gray-900 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none"
-                    placeholder="Ex: 5"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">
-                    vendas
-                  </span>
-                </div>
-              </div>
-
-              {/* Total Summary */}
-              <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 flex items-start gap-2">
-                <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                <div>
-                  <p>
-                    Meta Total por consultor: <strong>{bulkGrad + bulkPos + bulkTec} vendas</strong>
-                  </p>
-                  <p className="mt-0.5 text-blue-800">
-                    Volume total estimado da equipe: <strong>{((bulkGrad + bulkPos + bulkTec) * activeConsultants.length).toLocaleString('pt-BR')} vendas</strong> ({selectedMonthObj?.label}/{selectedYear}).
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-              <button
-                type="button"
-                onClick={() => setBulkModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApplyBulkGoal(bulkGrad, bulkPos, bulkTec)}
-                className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
-              >
-                Aplicar a Todos
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
+      <div className="flex items-center justify-between text-[11px] text-gray-400 px-1">
+        <span>As metas salvas são refletidas diretamente no ranking semanal e home.</span>
+        <span>
+          {isLoading
+            ? 'Carregando metas...'
+            : hasUnsavedChanges
+            ? 'Há alterações pendentes de salvamento.'
+            : 'Tudo salvo e sincronizado.'}
+        </span>
+      </div>
     </div>
   );
 };

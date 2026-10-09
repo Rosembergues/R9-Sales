@@ -1,48 +1,25 @@
 # R9 Sales
 
-Aplicação web interna para gestão de vendas, metas e desempenho da operação R9.
+## Baseline
+Esta versão parte da baseline aprovada e inclui o primeiro rascunho da **Importação de Metas**.
 
-## Stack
+### Importação de Metas
+A tela administrativa possui cinco destinos explícitos:
+- Graduação — BU Presencial (Presencial + Semipresencial + Ao Vivo)
+- Graduação — BU Digital (EAD + Flex)
+- Pós-Graduação — Pós Presencial (Presencial + Ao Vivo)
+- Pós-Graduação — Pós Digital
+- Curso Técnico — Técnico Presencial
 
-- React + TypeScript
-- Vite
-- Supabase Auth / Database / Realtime
-- Tailwind CSS
-- Lucide React
-- React Hook Form
+O usuário escolhe manualmente qual arquivo pertence a cada grupo. O sistema não tenta adivinhar o grupo.
 
-## Desenvolvimento
+A primeira versão aceita `.xlsx` e `.csv`, identifica Data, AA/AA Dinâmico/Anterior, Meta e Realizado, mostra uma prévia e salva a prévia localmente no navegador para teste. A persistência definitiva no Supabase será definida depois que o fluxo for validado.
 
-```bash
-npm install
-npm run dev
-```
 
-## Validação
+## Fase — Conexão da Importação com Configuração de Metas
 
-```bash
-npm run lint
-npm run build
-```
+A página de Configuração de Metas agora lê os arquivos importados na página de Importação de Metas e exibe os dados como apoio operacional, sem alterar automaticamente as metas dos consultores.
 
-O Supabase é a fonte oficial dos dados quando disponível. O LocalStorage é usado apenas como cache/fila offline para vendas ainda não confirmadas.
+Para o período selecionado, são calculados a partir das linhas importadas: AA acumulado, Meta oficial, Realizado, Atingimento e Gap, além do detalhamento por grupo de importação.
 
-### Banco de dados
-
-O SQL atualizado para criação/migração do banco está disponível em `src/lib/supabase.ts` e pode ser executado pelo SQL Editor do Supabase. A migração também normaliza `sale_date` de registros históricos que ainda guardam a data real apenas em `custom_data`.
-
-## Estrutura principal
-
-- `src/components/dashboard/R9Dashboard.tsx` — shell e navegação principal
-- `src/components/dashboard/HomeDashboard.tsx` — início
-- `src/components/dashboard/SalesSpreadsheetTable.tsx` — vendas/paginação/filtros
-- `src/components/seller/PerformanceDashboard.tsx` — desempenho operacional
-- `src/components/seller/WeeklyRankView.tsx` / `MonthlyRankView.tsx` — rankings
-- `src/context/AuthContext.tsx` — autenticação e perfis
-- `src/context/SalesContext.tsx` — estado e operações de vendas
-- `src/lib/salesMapper.ts` — normalização e payloads
-- `src/lib/supabase.ts` — cliente, cache local e SQL de referência
-
-## Segurança
-
-O cadastro público sempre cria usuários como `seller`. Alterações de papel devem ocorrer por administradores autenticados. Operações que exigem privilégios de administração do Supabase Auth, como criar/excluir usuários de autenticação, não devem usar uma `service_role` no navegador; devem ser implementadas por uma Edge Function ou backend seguro.
+Nesta fase os dados continuam no armazenamento local do navegador. A persistência definitiva dos arquivos e dados importados no Supabase será feita depois que o fluxo e os cálculos forem validados.

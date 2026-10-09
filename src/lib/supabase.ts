@@ -58,20 +58,68 @@ create table if not exists public.profiles (
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 3. Tabela de Metas por Produto (Goals)
+-- 3. Tabela de Metas por Produto e BU (Goals)
 create table if not exists public.goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references public.profiles(id) on delete cascade not null,
   type text not null check (type in ('month', 'week', 'mensal', 'semanal')),
   reference_start date not null,
   reference_end date not null,
+  target_bu_presencial integer default 0 check (target_bu_presencial >= 0),
+  target_bu_digital integer default 0 check (target_bu_digital >= 0),
   target_graduacao integer default 0 check (target_graduacao >= 0),
   target_pos integer default 0 check (target_pos >= 0),
   target_tecnico integer default 0 check (target_tecnico >= 0),
   target_total integer default 0 check (target_total >= 0),
+  goal_period_id uuid,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
   constraint goals_user_type_ref_unique unique (user_id, type, reference_start)
+);
+
+-- Garantir colunas de BU na tabela goals caso a tabela já exista
+alter table public.goals add column if not exists target_bu_presencial integer default 0;
+alter table public.goals add column if not exists target_bu_digital integer default 0;
+alter table public.goals add column if not exists goal_period_id uuid;
+
+-- 3.1. Tabela de Períodos Operacionais de Metas (Goal Periods)
+create table if not exists public.goal_periods (
+  id uuid primary key default gen_random_uuid(),
+  academic_period text not null default '2026.3',
+  period_type text not null check (period_type in ('month', 'week')),
+  reference_start date not null,
+  reference_end date not null,
+  target_total integer default 0,
+  gap_total integer default 0,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint goal_periods_type_dates_unique unique (period_type, reference_start, reference_end)
+);
+
+-- 3.2. Tabela de Importações de Metas por Modelo de Ensino (Goal Imports)
+create table if not exists public.goal_imports (
+  id uuid primary key default gen_random_uuid(),
+  academic_period text not null,
+  product text not null,
+  goal_group text not null,
+  file_name text not null,
+  imported_by uuid references public.profiles(id),
+  status text not null default 'active',
+  imported_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 3.3. Tabela de Dados Diários Importados de Metas (Goal Daily Data)
+create table if not exists public.goal_daily_data (
+  id uuid primary key default gen_random_uuid(),
+  import_id uuid references public.goal_imports(id) on delete cascade not null,
+  academic_period text not null,
+  product text not null,
+  goal_group text not null,
+  reference_date date not null,
+  aa numeric,
+  target numeric,
+  actual numeric,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 -- 4. Tabela de Campanhas e Formulários Dinâmicos (Campaigns)
@@ -130,6 +178,25 @@ alter table public.profiles enable row level security;
 alter table public.goals enable row level security;
 alter table public.sales enable row level security;
 alter table public.campaigns enable row level security;
+alter table public.goal_periods enable row level security;
+alter table public.goal_imports enable row level security;
+alter table public.goal_daily_data enable row level security;
+
+-- Políticas para Goal Periods, Imports e Daily Data
+drop policy if exists "Períodos de metas visíveis por autenticados" on public.goal_periods;
+create policy "Períodos de metas visíveis por autenticados" on public.goal_periods for select using (auth.role() = 'authenticated');
+drop policy if exists "Admins gerenciam períodos de metas" on public.goal_periods;
+create policy "Admins gerenciam períodos de metas" on public.goal_periods for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+
+drop policy if exists "Importações visíveis por autenticados" on public.goal_imports;
+create policy "Importações visíveis por autenticados" on public.goal_imports for select using (auth.role() = 'authenticated');
+drop policy if exists "Admins gerenciam importações" on public.goal_imports;
+create policy "Admins gerenciam importações" on public.goal_imports for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+
+drop policy if exists "Dados diários visíveis por autenticados" on public.goal_daily_data;
+create policy "Dados diários visíveis por autenticados" on public.goal_daily_data for select using (auth.role() = 'authenticated');
+drop policy if exists "Admins gerenciam dados diários" on public.goal_daily_data;
+create policy "Admins gerenciam dados diários" on public.goal_daily_data for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
 
 -- ============================================================
 -- POLÍTICAS RLS (Row Level Security)
