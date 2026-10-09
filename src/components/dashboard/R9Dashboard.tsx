@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { Calendar, ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare } from 'lucide-react';
+import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
 import { PerformanceDashboard } from '../seller/PerformanceDashboard';
@@ -116,94 +116,36 @@ export const R9Dashboard: React.FC = () => {
   const userRoleText = currentUser?.role === 'admin' ? 'Administrator' : 'Vendedor';
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] flex flex-col font-sans text-slate-800 selection:bg-[#00478f] selection:text-white">
+    <div className="h-screen overflow-hidden bg-[#F8F9FA] flex flex-col font-sans text-slate-800 selection:bg-[#00478f] selection:text-white">
       
-      {/* 1. TOP HEADER BAR */}
-      <header className="h-16 bg-[#f6f8fc] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30">
-        {/* Left: Sidebar Toggle */}
-        <div className="flex items-center gap-3">
-          <button
-            id="sidebar-toggle-btn"
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-white rounded-xl transition-colors cursor-pointer border border-transparent hover:border-slate-200"
-            title="Alternar Barra Lateral"
-          >
-            <PanelLeft className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Right: Date, Role View Selector & Logout */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="hidden md:flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm">
-            <Calendar className="w-4 h-4 text-slate-500" />
-            {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-          </div>
-          
-          {/* O botão de trocar entre a visão de membro e administrador deve estar disponível apenas para administradores */}
-          {isActualAdmin && (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden sm:inline">
-                VISUALIZAR:
-              </span>
-              <div className="inline-flex rounded-lg bg-gray-100 p-0.5 border border-gray-200 text-xs">
-                <button
-                  id="view-mode-admin-btn"
-                  onClick={() => setViewRole('admin')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                    viewRole === 'admin'
-                      ? 'bg-[#0052cc] text-white shadow-xs font-semibold'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <Shield className="w-3.5 h-3.5" />
-                  <span>Admin</span>
-                </button>
-                <button
-                  id="view-mode-member-btn"
-                  onClick={() => setViewRole('membro')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                    viewRole === 'membro'
-                      ? 'bg-[#0052cc] text-white shadow-xs font-semibold'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>Membro</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          <button
-            id="logout-btn"
-            onClick={() => signOut()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-red-200"
-            title="Sair da Conta"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline font-medium">Sair</span>
-          </button>
-
-        </div>
-
-      </header>
-
       {/* 2. BODY LAYOUT: SIDEBAR + MAIN CANVAS */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         
         {/* LEFT SIDEBAR */}
-        <aside className={`r9-sidebar ${isSidebarCollapsed ? 'w-0 sm:w-16 overflow-hidden' : 'w-64'} bg-[#0f1b2d] border-r border-[#24334b] flex flex-col justify-between transition-all duration-200 z-20 shrink-0 select-none`}>
+        <aside className={`r9-sidebar ${isSidebarCollapsed ? 'w-16 overflow-hidden' : 'w-64'} h-full min-h-0 bg-[#0f1b2d] border-r border-[#24334b] flex flex-col transition-all duration-200 z-20 shrink-0 select-none`}>
           
-          <div className="p-3 space-y-4 overflow-y-auto">
-            {!isSidebarCollapsed && (
+          <div className="flex-1 min-h-0 p-3 space-y-4 overflow-y-auto">
+            {!isSidebarCollapsed ? (
               <div className="px-2 pt-2 pb-1 flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-950/30">
+                <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-950/30 shrink-0">
                   <span className="text-white font-black text-lg font-['Space_Grotesk']">R9</span>
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="text-white font-black tracking-tight text-lg font-['Space_Grotesk']">R9 SALES</div>
                   <div className="text-[10px] text-slate-400 font-semibold tracking-wider">OPERAÇÃO COMERCIAL</div>
                 </div>
+              </div>
+            ) : (
+              <div className="flex justify-center pt-2 pb-1">
+                <button
+                  id="sidebar-toggle-btn"
+                  onClick={() => setIsSidebarCollapsed(false)}
+                  className="p-2 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                  title="Expandir menu lateral"
+                  aria-label="Expandir menu lateral"
+                >
+                  <PanelLeft className="w-5 h-5" />
+                </button>
               </div>
             )}
             
@@ -224,8 +166,11 @@ export const R9Dashboard: React.FC = () => {
                   </div>
                 </div>
                 <button
+                  id="sidebar-toggle-btn"
                   onClick={() => setIsSidebarCollapsed(true)}
-                  className="text-slate-400 hover:text-white p-1"
+                  className="text-slate-400 hover:text-white p-1 rounded-md transition-colors cursor-pointer"
+                  title="Recolher menu lateral"
+                  aria-label="Recolher menu lateral"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -496,10 +441,6 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-          </div>
-
-          {/* Bottom Sidebar: ADMINISTRAÇÃO & User Footer */}
-          <div className="p-3 border-t border-[#24334b] space-y-3">
             {/* A aba de administração deve ser visivel apenas para administradores */}
             {isActualAdmin && viewRole === 'admin' && !isSidebarCollapsed && (
               <div className="space-y-1">
@@ -579,50 +520,71 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* Bottom mini user bar */}
-            {!isSidebarCollapsed ? (
-              <div className="flex items-center justify-between pt-2 border-t border-[#24334b]">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-[#00478f] text-white font-bold text-[10px] flex items-center justify-center">
-                    {userInitials}
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-gray-800 leading-tight">
-                      {userName}
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full ${isActualAdmin ? 'bg-blue-500' : 'bg-emerald-500'}`} />
-                      <span className="text-[10px] text-gray-400">
-                        {isActualAdmin ? 'Administrador' : 'Membro / Vendedor'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+          </div>
 
-                <div className="flex items-center gap-1 text-gray-400">
-                  <button className="p-1 hover:text-gray-700 transition-colors">
-                    <Tag className="w-3.5 h-3.5" />
+          {/* Controles fixos no rodapé do menu lateral */}
+          <div className="shrink-0 p-3 border-t border-[#24334b] bg-[#0f1b2d] space-y-2.5">
+            {isActualAdmin && (
+              <div className={isSidebarCollapsed ? 'flex flex-col items-center gap-1.5' : 'space-y-1.5'}>
+                {!isSidebarCollapsed && (
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                    VISUALIZAÇÃO
+                  </p>
+                )}
+                <div className={isSidebarCollapsed
+                  ? 'flex flex-col gap-1.5'
+                  : 'flex w-full rounded-lg bg-[#162338] p-1 border border-[#26364d] text-xs'}>
+                  <button
+                    id="view-mode-admin-btn"
+                    onClick={() => setViewRole('admin')}
+                    title="Visualizar como administrador"
+                    aria-label="Visualizar como administrador"
+                    aria-pressed={viewRole === 'admin'}
+                    className={`${isSidebarCollapsed ? 'w-10 h-9 justify-center' : 'flex-1 justify-center px-2 py-2'} flex items-center gap-1.5 rounded-md font-medium transition-all cursor-pointer ${
+                      viewRole === 'admin'
+                        ? 'bg-[#0052cc] text-white shadow-sm'
+                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5 shrink-0" />
+                    {!isSidebarCollapsed && <span>Admin</span>}
                   </button>
-                  <button className="p-1 hover:text-gray-700 transition-colors">
-                    <Users className="w-3.5 h-3.5" />
+                  <button
+                    id="view-mode-member-btn"
+                    onClick={() => setViewRole('membro')}
+                    title="Visualizar como membro"
+                    aria-label="Visualizar como membro"
+                    aria-pressed={viewRole === 'membro'}
+                    className={`${isSidebarCollapsed ? 'w-10 h-9 justify-center' : 'flex-1 justify-center px-2 py-2'} flex items-center gap-1.5 rounded-md font-medium transition-all cursor-pointer ${
+                      viewRole === 'membro'
+                        ? 'bg-[#0052cc] text-white shadow-sm'
+                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <User className="w-3.5 h-3.5 shrink-0" />
+                    {!isSidebarCollapsed && <span>Membro</span>}
                   </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex justify-center">
-                <div className="w-7 h-7 rounded-full bg-[#00478f] text-white font-bold text-[10px] flex items-center justify-center">
-                  {userInitials}
                 </div>
               </div>
             )}
 
+            <button
+              id="logout-btn"
+              onClick={() => signOut()}
+              className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5'} px-3 py-2.5 text-xs font-semibold text-slate-300 hover:text-red-200 hover:bg-red-500/10 rounded-xl transition-colors cursor-pointer`}
+              title="Sair da conta"
+              aria-label="Sair da conta"
+            >
+              <LogOut className="w-4 h-4 shrink-0" />
+              {!isSidebarCollapsed && <span>Sair da conta</span>}
+            </button>
           </div>
 
         </aside>
 
         {/* MAIN WORKSPACE CANVAS */}
-        <main className="flex-1 overflow-y-auto bg-[#f6f8fc]">
-          <div className="w-full max-w-[1680px] mx-auto p-4 sm:p-6 lg:p-7 min-h-[calc(100vh-4rem)]">
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-[#f6f8fc]">
+          <div className="w-full max-w-[1680px] mx-auto p-4 sm:p-6 lg:p-7 min-h-full">
             
             {/* Planner integrado — compartilha a sessão autenticada do R9 Sales */}
             {(activeTab === 'planner' || activeTab === 'planner_summary') && currentUser && (
