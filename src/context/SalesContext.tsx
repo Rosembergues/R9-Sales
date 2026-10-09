@@ -62,11 +62,12 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const client = getSupabaseClient();
     const localCampaigns = LocalSyncEngine.getCampaigns();
     const localSales = LocalSyncEngine.getSales();
+    const deletedIds = LocalSyncEngine.getDeletedSaleIds();
 
     // O cache local é apenas fallback inicial/offline. Quando o servidor responde,
     // seus dados passam a ser a fonte oficial e substituem o snapshot local.
     setCampaigns(localCampaigns);
-    setSales(localSales);
+    setSales(localSales.filter(s => !deletedIds.has(String(s.id))));
 
     if (client) {
       try {
@@ -92,31 +93,49 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         try {
-          const normalized = (remoteSales || []).map(row => {
-            const sale = normalizeRemoteSale(row);
-            if (!sale.seller_name || sale.seller_name.trim() === '' || sale.seller_name === 'Consultor') {
-              const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as { created_by?: string }).created_by);
-              if (matchedProfile) sale.seller_name = matchedProfile.name;
-              else if (row.collaborator_name && row.collaborator_name !== 'Consultor') sale.seller_name = row.collaborator_name;
-            }
-            return sale;
-          });
+          const currentDeleted = LocalSyncEngine.getDeletedSaleIds();
+          const normalized = (remoteSales || [])
+            .map(row => {
+              const sale = normalizeRemoteSale(row);
+              if (!sale.seller_name || sale.seller_name.trim() === '' || sale.seller_name === 'Consultor') {
+                const matchedProfile = profiles.find(p => p.id === sale.seller_id || p.id === (row as { created_by?: string }).created_by);
+                if (matchedProfile) sale.seller_name = matchedProfile.name;
+                else if (row.collaborator_name && row.collaborator_name !== 'Consultor') sale.seller_name = row.collaborator_name;
+              }
+              return sale;
+            })
+            .filter(sale => !currentDeleted.has(String(sale.id)));
 
           // Tenta primeiro sincronizar vendas que ficaram offline.
           const pendingSales = LocalSyncEngine.getPendingSales();
           const stillPending: Sale[] = [];
           for (const pendingSale of pendingSales) {
+            // Se a venda foi excluída, NUNCA ressuscita no Supabase
+            if (currentDeleted.has(String(pendingSale.id))) {
+              continue;
+            }
+
             const { error: pendingError } = await client.from('sales').insert(buildR9SalePayload(pendingSale));
-            if (pendingError) stillPending.push(pendingSale);
+            if (pendingError) {
+              // Se o erro for chave primária duplicada (23505), a venda já existe no banco.
+              // Não a mantemos na fila para evitar que seja ressuscitada caso seja excluída depois.
+              if (pendingError.code === '23505' || pendingError.message?.includes('duplicate key')) {
+                continue;
+              }
+              stillPending.push(pendingSale);
+            }
           }
           LocalSyncEngine.savePendingSales(stillPending);
 
-          // Reconsulta somente quando havia itens pendentes; assim o cache nunca
-          // é tratado como uma segunda fonte de verdade.
+          // Reconsulta somente quando havia itens pendentes sincronizados com sucesso
           let authoritative = normalized;
           if (pendingSales.length > 0 && stillPending.length < pendingSales.length) {
             const { data: refreshed } = await client.from('sales').select('*').order('created_at', { ascending: false });
-            if (refreshed) authoritative = refreshed.map(row => normalizeRemoteSale(row));
+            if (refreshed) {
+              authoritative = refreshed
+                .map(row => normalizeRemoteSale(row))
+                .filter(sale => !currentDeleted.has(String(sale.id)));
+            }
           }
 
           setSales(authoritative);
@@ -168,6 +187,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             try {
               const deletedId = String(payload.old?.id || '');
               if (deletedId) {
+                LocalSyncEngine.addDeletedSaleId(deletedId);
+                LocalSyncEngine.clearPendingSale(deletedId);
                 setSales((prev) => prev.filter((sale) => sale.id !== deletedId));
               }
             } catch (err) {
@@ -266,8 +287,11 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return { data: [], count: 0, error: error.message };
     }
 
-    const normalized = (data || []).map(row => normalizeRemoteSale(row));
-    return { data: normalized, count: count || 0 };
+    const deletedIds = LocalSyncEngine.getDeletedSaleIds();
+    const normalized = (data || [])
+      .map(row => normalizeRemoteSale(row))
+      .filter(s => !deletedIds.has(String(s.id)));
+    return { data: normalized, count: Math.max(0, (count || 0) - ((data?.length || 0) - normalized.length)) };
   }, []);
 
   const activeCampaigns = useMemo(() => {
@@ -687,7 +711,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return { success: true, sale: updatedItem };
   };
 
-  // Delete Sale (Admin)
+  // Delete Sale (Admin ou Autor)
   const deleteSale = async (saleId: string) => {
     const client = getSupabaseClient();
     if (!client) {
@@ -695,20 +719,50 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     try {
-      const { error: delErr } = await client.from('sales').delete().eq('id', saleId);
+      // 1. Marca imediatamente a exclusão nas travas locais contra ressuscitação
+      LocalSyncEngine.addDeletedSaleId(saleId);
+      LocalSyncEngine.clearPendingSale(saleId);
+      const remainingLocal = LocalSyncEngine.getSales().filter(s => s.id !== saleId);
+      LocalSyncEngine.saveSales(remainingLocal);
+
+      // 2. Executa a exclusão no Supabase com .select('id') para inspecionar os registros afetados
+      const { data: deletedRows, error: delErr } = await client
+        .from('sales')
+        .delete()
+        .eq('id', saleId)
+        .select('id');
+
       if (delErr) {
         logSupabaseError('deleteSale', delErr, { saleId });
-        return { success: false, error: delErr.message || 'Erro ao excluir a venda.' };
+        return { success: false, error: delErr.message || 'Erro ao excluir a venda no banco de dados.' };
       }
 
+      // 3. Validação de segurança RLS: PostgREST retorna status 200/204 sem erro quando RLS bloqueia o delete
+      if (!deletedRows || deletedRows.length === 0) {
+        // Verifica se a venda ainda existe no banco
+        const { data: existingRow, error: checkErr } = await client
+          .from('sales')
+          .select('id, seller_id, collaborator_id')
+          .eq('id', saleId)
+          .maybeSingle();
+
+        if (!checkErr && existingRow) {
+          console.error('❌ [Supabase Sales] Falha de RLS: O registro existe no banco mas o DELETE afetou 0 linhas.', existingRow);
+          return {
+            success: false,
+            error: 'Permissão insuficiente no Supabase (RLS): O banco de dados recusou a exclusão desta venda. Verifique se seu perfil possui cargo de administrador ativo no banco de dados ou se você é o autor do lançamento.'
+          };
+        }
+      }
+
+      // 4. Exclusão confirmada no servidor ou o item já não existia no banco
       const updated = sales.filter(s => s.id !== saleId);
       setSales(updated);
       LocalSyncEngine.saveSales(updated);
-      LocalSyncEngine.clearPendingSale(saleId);
       return { success: true };
     } catch (err: any) {
       console.error('💥 [Supabase Sales] Exceção no delete:', err);
-      return { success: false, error: err?.message || 'Erro ao excluir a venda.' };
+      return { success: false, error: err?.message || 'Erro inesperado ao excluir a venda.' };
     }
   };
 

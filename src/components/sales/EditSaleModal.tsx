@@ -148,10 +148,11 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
 
   if (!isOpen || !sale) return null;
 
-  // Permissão: o proprietário da venda pode editar a própria venda; admin pode editar qualquer venda.
+  // Permissão: o proprietário da venda pode editar/excluir a própria venda; admin pode editar/excluir qualquer venda.
   const isAdmin = currentUser?.role === 'admin';
   const isOwner = Boolean(currentUser && sale.seller_id === currentUser.id);
   const canEdit = isAdmin || isOwner;
+  const canDelete = isAdmin || isOwner;
   if (!canEdit) {
     return (
       <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
@@ -278,13 +279,18 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     }
 
     setIsDeleting(true);
+    setErrorMessage(null);
     const result = await deleteSale(sale.id);
     setIsDeleting(false);
 
     if (result.success) {
-      onSuccess?.();
-      onClose();
+      setSuccessToast('Venda excluída com sucesso!');
+      setTimeout(() => {
+        onSuccess?.();
+        onClose();
+      }, 500);
     } else {
+      setConfirmDelete(false);
       setErrorMessage(result.error || 'Erro ao excluir venda.');
     }
   };
@@ -568,9 +574,9 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           {/* Footer Actions */}
           <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
             
-            {/* Exclusão somente para Admin */}
+            {/* Exclusão para Admin ou Autor da venda */}
             <div>
-              {isAdmin ? (
+              {canDelete ? (
                 confirmDelete ? (
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-red-600 font-semibold">Confirmar?</span>
@@ -578,7 +584,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                       type="button"
                       onClick={handleDelete}
                       disabled={isDeleting}
-                      className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                      className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
                     >
                       {isDeleting ? 'Excluindo...' : 'Sim, Excluir'}
                     </button>
@@ -597,7 +603,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                     className="px-3 py-1.5 text-red-600 hover:bg-red-50 border border-red-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Excluir</span>
+                    <span>Excluir Lançamento</span>
                   </button>
                 )
               ) : null}

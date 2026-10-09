@@ -847,6 +847,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
         isOpen={!!editingSale}
         sale={editingSale}
         onClose={() => setEditingSale(null)}
+        onSuccess={() => setEditingSale(null)}
       />
 
     </div>

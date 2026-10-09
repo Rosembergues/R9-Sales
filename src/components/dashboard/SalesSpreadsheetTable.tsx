@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Search, ChevronDown, ArrowUp, ArrowDown, Plus, X, FileSpreadsheet, Edit3, RotateCcw, Shield } from 'lucide-react';
 import { Sale, MainProductType } from '../../types';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { EditSaleModal } from '../sales/EditSaleModal';
 import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay, getRealSaleDate, parseDateString } from '../../lib/salesMapper';
+import { supabase, LocalSyncEngine } from '../../lib/supabase';
 
 interface SalesSpreadsheetTableProps {
   onOpenNewSaleModal?: () => void;
@@ -113,8 +114,8 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
     };
   };
 
-  // A página de vendas consulta somente os registros necessários no Supabase.
-  useEffect(() => {
+  // Carrega e atualiza a página atual de vendas, filtrando itens excluídos
+  const loadCurrentPage = useCallback(() => {
     let cancelled = false;
     setIsPageLoading(true);
     setPageError(null);
@@ -128,7 +129,9 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
       onlyToday,
     }).then(result => {
       if (cancelled) return;
-      setPageSales(result.data);
+      const deletedIds = LocalSyncEngine.getDeletedSaleIds();
+      const validSales = result.data.filter(s => !deletedIds.has(String(s.id)));
+      setPageSales(validSales);
       setTotalRemoteSales(result.count);
       setPageError(result.error || null);
       setIsPageLoading(false);
@@ -141,6 +144,35 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
     });
     return () => { cancelled = true; };
   }, [fetchSalesPage, currentPage, searchTerm, selectedProductFilter, sortField, sortDirection, onlyToday]);
+
+  useEffect(() => {
+    const cleanup = loadCurrentPage();
+    return cleanup;
+  }, [loadCurrentPage]);
+
+  // Listener Realtime dedicado para remoção imediata de vendas excluídas
+  useEffect(() => {
+    const channel = supabase
+      .channel('sales_spreadsheet_table_sync')
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'sales' },
+        (payload: any) => {
+          const deletedId = String(payload.old?.id || '');
+          if (deletedId) {
+            setPageSales(prev => prev.filter(s => s.id !== deletedId));
+            setTotalRemoteSales(prev => Math.max(0, prev - 1));
+            setSelectedSale(curr => (curr && curr.id === deletedId ? null : curr));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Distinct values for each column (for the Excel filter dropdowns)
   const distinctColumnValues = useMemo(() => {
@@ -1140,11 +1172,25 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
         </div>
       )}
 
-      {/* MODAL DE EDIÇÃO DE VENDA (ADMIN) */}
+      {/* MODAL DE EDIÇÃO DE VENDA (ADMIN/AUTOR) */}
       <EditSaleModal
         isOpen={!!editingSale}
         sale={editingSale}
         onClose={() => setEditingSale(null)}
+        onSuccess={() => {
+          if (editingSale) {
+            const saleId = editingSale.id;
+            if (LocalSyncEngine.isSaleDeleted(saleId)) {
+              setPageSales(prev => prev.filter(s => s.id !== saleId));
+              setTotalRemoteSales(prev => Math.max(0, prev - 1));
+              setSelectedSale(null);
+            } else {
+              loadCurrentPage();
+            }
+          } else {
+            loadCurrentPage();
+          }
+        }}
       />
 
     </div>

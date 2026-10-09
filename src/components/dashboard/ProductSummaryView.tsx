@@ -665,6 +665,7 @@ export const ProductSummaryView: React.FC<ProductSummaryViewProps> = ({
         isOpen={!!editingSale}
         sale={editingSale}
         onClose={() => setEditingSale(null)}
+        onSuccess={() => setSelectedSaleDetail(null)}
       />
 
     </div>

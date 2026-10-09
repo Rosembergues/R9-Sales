@@ -358,10 +358,17 @@ create trigger protect_sale_owner_fields
   before insert or update on public.sales
   for each row execute function public.protect_sale_owner_fields();
 drop policy if exists "Apenas administradores podem excluir vendas" on public.sales;
-create policy "Apenas administradores podem excluir vendas" 
+drop policy if exists "Admins ou autor podem excluir vendas" on public.sales;
+create policy "Admins ou autor podem excluir vendas" 
   on public.sales for delete 
   using (
-    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+    seller_id = auth.uid()::text or
+    collaborator_id = auth.uid()::text or
+    exists (
+      select 1 from public.profiles 
+      where id::text = auth.uid()::text 
+        and lower(role) in ('admin', 'administrador')
+    )
   );
 
 -- Políticas para Campaigns
@@ -614,6 +621,36 @@ export class LocalSyncEngine {
   static clearPendingSale(saleId: string) {
     const pending = this.getPendingSales().filter(s => s.id !== saleId);
     this.savePendingSales(pending);
+  }
+
+  static getDeletedSaleIds(): Set<string> {
+    try {
+      const stored = localStorage.getItem('salesflow_deleted_sales_v1');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return new Set(parsed.map(String));
+        }
+      }
+      return new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  static addDeletedSaleId(saleId: string) {
+    try {
+      const deletedSet = this.getDeletedSaleIds();
+      deletedSet.add(String(saleId));
+      const list = Array.from(deletedSet).slice(-500);
+      localStorage.setItem('salesflow_deleted_sales_v1', JSON.stringify(list));
+    } catch (e) {
+      console.error('Failed to mark sale as deleted locally', e);
+    }
+  }
+
+  static isSaleDeleted(saleId: string): boolean {
+    return this.getDeletedSaleIds().has(String(saleId));
   }
 
   static getCurrentUser(): Profile | null {
