@@ -95,7 +95,7 @@ export const ModalityMultiFilter: React.FC<ModalityMultiFilterProps> = ({
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggle(option)}
-                    className="sr-only"
+                    className="sr-only" name="src_components_seller_modalitymultifilter_tsx_input_1"
                   />
                   <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${checked ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'}`}>
                     {checked && <Check className="w-3 h-3 text-white" />}

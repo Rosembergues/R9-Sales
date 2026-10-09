@@ -466,7 +466,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
                     type="checkbox"
                     checked={isChecked}
                     onChange={() => toggleColumnFilterValue(columnKey, val)}
-                    className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" name="src_components_dashboard_salesspreadsheettable_tsx_input_1"
                   />
                   <span className="text-[11px] text-gray-700 truncate">{val}</span>
                 </label>
@@ -509,7 +509,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
               placeholder="Buscar em toda a planilha..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-7 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-800 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              className="w-full pl-8 pr-7 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-800 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all" name="src_components_dashboard_salesspreadsheettable_tsx_input_2"
             />
             {searchTerm && (
               <button 

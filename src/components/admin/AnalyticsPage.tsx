@@ -302,14 +302,22 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
     });
   }, [previews, startDate, endDate, selectedBu]);
 
-  // Pacing and KPIs
-  const achievement = pct(summary.actual, summary.target);
-  const gap = summary.target - summary.actual;
-  const daysInPeriod = dailyRows.length || 1;
-  const currentPace = summary.actual / daysInPeriod;
-  const targetPace = summary.target / daysInPeriod;
+  // KPIs: meta oficial do intervalo completo, meta acumulada até hoje,
+  // realizado oficial acumulado até hoje e gap entre esses acumulados.
+  const todayIso = (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  })();
+  const cumulativeRows = dailyRows.filter(row => row.date <= todayIso);
+  const metaDia = cumulativeRows.reduce((total, row) => total + row.target, 0);
+  const realizadoOficialAteHoje = cumulativeRows.reduce((total, row) => total + row.actual, 0);
+  const achievement = pct(realizadoOficialAteHoje, metaDia);
+  const gap = metaDia - realizadoOficialAteHoje;
+  const daysInPeriod = Math.max(1, cumulativeRows.length);
+  const currentPace = realizadoOficialAteHoje / daysInPeriod;
+  const targetPace = metaDia / daysInPeriod;
 
-  // Remaining days pace (assuming up to end of date range)
+  // Mantido para compatibilidade com os indicadores de ritmo existentes.
   const remainingPace = gap > 0 ? gap / Math.max(1, daysInPeriod) : 0;
 
   return (
@@ -368,14 +376,14 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
               type="date"
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="text-xs font-medium text-gray-700 border-none outline-none"
+              className="text-xs font-medium text-gray-700 border-none outline-none" name="src_components_admin_analyticspage_tsx_input_1"
             />
             <span className="text-gray-400">até</span>
             <input
               type="date"
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="text-xs font-medium text-gray-700 border-none outline-none"
+              className="text-xs font-medium text-gray-700 border-none outline-none" name="src_components_admin_analyticspage_tsx_input_2"
             />
           </div>
 
@@ -443,7 +451,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* COMPARATIVO TRIPLO: Meta Oficial vs Realizado Oficial vs Vendas CRM */}
+      {/* Indicadores oficiais: meta do período, meta acumulada, realizado oficial e gap */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {/* Card 1: Meta Oficial */}
         <div className="p-4 rounded-2xl bg-white border border-blue-200 shadow-2xs">
@@ -455,43 +463,34 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
             {fmtInt(summary.target)}
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Média de {fmt(targetPace, 1)} matrículas / dia
+            Meta total no intervalo selecionado
           </p>
         </div>
 
-        {/* Card 2: Realizado Oficial */}
+        {/* Card 2: Meta acumulada até hoje */}
+        <div className="p-4 rounded-2xl bg-white border border-indigo-200 shadow-2xs">
+          <div className="flex items-center justify-between text-indigo-700">
+            <span className="text-[10px] font-bold uppercase tracking-wider">Meta Dia (acumulada até hoje)</span>
+            <CalendarDays className="w-4 h-4" />
+          </div>
+          <div className="text-2xl font-black text-indigo-700 mt-2 font-['Space_Grotesk']">
+            {fmtInt(metaDia)}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Soma das metas diárias até {dateToBr(todayIso)}</p>
+        </div>
+
+        {/* Card 3: Realizado Oficial acumulado até hoje */}
         <div className="p-4 rounded-2xl bg-white border border-emerald-200 shadow-2xs">
           <div className="flex items-center justify-between text-emerald-700">
-            <span className="text-[10px] font-bold uppercase tracking-wider">Realizado Oficial (Planilha)</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider">Realizado Oficial</span>
             <CheckCircle2 className="w-4 h-4" />
           </div>
           <div className="text-2xl font-black text-emerald-700 mt-2 font-['Space_Grotesk']">
-            {fmtInt(summary.actual)}
+            {fmtInt(realizadoOficialAteHoje)}
           </div>
           <div className="mt-1 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Atingimento:</span>
+            <span className="text-slate-400">Atingimento até hoje:</span>
             <strong className="text-slate-900">{achievement !== null ? `${fmt(achievement, 1)}%` : '—'}</strong>
-          </div>
-        </div>
-
-        {/* Card 3: Vendas Lançadas no CRM */}
-        <div className="p-4 rounded-2xl bg-white border border-purple-200 shadow-2xs">
-          <div className="flex items-center justify-between text-purple-700">
-            <span className="text-[10px] font-bold uppercase tracking-wider">Lançamentos CRM (Equipe)</span>
-            <Flame className="w-4 h-4" />
-          </div>
-          <div className="text-2xl font-black text-purple-700 mt-2 font-['Space_Grotesk']">
-            {totalCrmSales}
-          </div>
-          <div className="mt-1 flex items-center justify-between text-xs">
-            <span className="text-slate-400">vs. Oficial:</span>
-            <span
-              className={`font-semibold ${
-                totalCrmSales >= summary.actual ? 'text-emerald-700' : 'text-amber-700'
-              }`}
-            >
-              {totalCrmSales >= summary.actual ? `+${totalCrmSales - Math.round(summary.actual)} no CRM` : `${totalCrmSales - Math.round(summary.actual)} no CRM`}
-            </span>
           </div>
         </div>
 
@@ -505,7 +504,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
             {gap > 0 ? fmtInt(gap) : 'Superada!'}
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            {gap > 0 ? `Faltam ${fmtInt(gap)} matrículas no ciclo` : 'Meta do período atingida'}
+            {gap > 0 ? `Faltam ${fmtInt(gap)} matrículas para a meta acumulada de hoje` : 'Meta acumulada até hoje atingida'}
           </p>
         </div>
       </div>

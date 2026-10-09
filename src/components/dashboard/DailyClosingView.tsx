@@ -410,7 +410,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                   value={formatToIso(selectedDate)}
                   onChange={handleDateInputChange}
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                  title="Clique para escolher a data"
+                  title="Clique para escolher a data" name="src_components_dashboard_dailyclosingview_tsx_input_1"
                 />
               </div>
 
@@ -765,7 +765,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
               placeholder="Buscar aluno, consultor, canal..."
               value={tableSearch}
               onChange={(e) => setTableSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-gray-50 hover:bg-gray-100/70 focus:bg-white text-xs border border-gray-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+              className="w-full pl-9 pr-3 py-1.5 bg-gray-50 hover:bg-gray-100/70 focus:bg-white text-xs border border-gray-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors" name="src_components_dashboard_dailyclosingview_tsx_input_2"
             />
           </div>
         </div>

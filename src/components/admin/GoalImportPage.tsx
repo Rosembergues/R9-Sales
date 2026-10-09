@@ -407,7 +407,7 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
                   onChange={e => setNewPeriodInput(e.target.value)}
                   placeholder="2027.2"
                   className="w-16 px-2 py-1 text-xs border border-blue-400 rounded-lg bg-white"
-                  autoFocus
+                  autoFocus name="src_components_admin_goalimportpage_tsx_input_1"
                 />
                 <button
                   type="submit"
@@ -633,7 +633,7 @@ const TeachingModelCard: React.FC<TeachingModelCardProps> = ({
             const f = e.target.files?.[0];
             if (f) onFile(f);
             e.currentTarget.value = '';
-          }}
+          }} name="src_components_admin_goalimportpage_tsx_input_2"
         />
 
         {isLoaded ? (

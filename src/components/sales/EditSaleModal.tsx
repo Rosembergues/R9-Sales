@@ -351,7 +351,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 <select
                   value={sellerId}
                   onChange={(e) => setSellerId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors cursor-pointer" name="src_components_sales_editsalemodal_tsx_select_1"
                 >
                   {availableConsultants.map(p => (
                     <option key={p.id} value={p.id}>
@@ -377,7 +377,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 value={saleDate}
                 onChange={(e) => setSaleDate(e.target.value)}
                 placeholder="Ex: 01/09/2026"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-mono" name="src_components_sales_editsalemodal_tsx_input_2"
               />
             </div>
           </div>
@@ -395,7 +395,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 onChange={(e) => setOpportunityNumber(e.target.value)}
                 placeholder="Ex: 955552929"
                 required
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-mono" name="src_components_sales_editsalemodal_tsx_input_3"
               />
             </div>
 
@@ -410,7 +410,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 onChange={(e) => setCandidateName(e.target.value)}
                 placeholder="Nome completo do aluno"
                 required
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-semibold"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-semibold" name="src_components_sales_editsalemodal_tsx_input_4"
               />
             </div>
           </div>
@@ -433,7 +433,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                     else if (newProduct === 'Curso Técnico') setFdiChannel('Técnico');
                   }
                 }}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-semibold"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-semibold" name="src_components_sales_editsalemodal_tsx_select_5"
               >
                 <option value="Graduação">Graduação</option>
                 <option value="Pós Graduação">Pós Graduação</option>
@@ -449,7 +449,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <select
                 value={fdiChannel}
                 onChange={(e) => setFdiChannel(e.target.value as ProductChannelFDI)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_6"
               >
                 {FDI_CHANNELS.map(ch => {
                   const isDisabled = isFdiChannelDisabled(ch, mainProduct);
@@ -470,7 +470,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <select
                 value={modality}
                 onChange={(e) => setModality(e.target.value as ModalityType)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_7"
               >
                 <option value="Presencial">Presencial</option>
                 <option value="Semipresencial">Semipresencial</option>
@@ -492,7 +492,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <select
                 value={shift}
                 onChange={(e) => setShift(e.target.value as ShiftType)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_8"
               >
                 <option value="Noite">Noite</option>
                 <option value="Manhã">Manhã</option>
@@ -512,7 +512,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <select
                 value={parcelaLeve}
                 onChange={(e) => setParcelaLeve(e.target.value as ParcelaLeveOption)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_9"
               >
                 {PARCELA_LEVE_OPTIONS.map(opt => (
                   <option key={opt} value={opt}>{opt}</option>
@@ -531,7 +531,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                     type="checkbox"
                     checked={hasBolsaConvenio}
                     onChange={(e) => setHasBolsaConvenio(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" name="src_components_sales_editsalemodal_tsx_input_10"
                   />
                   <span className="text-slate-700 font-medium">Possui Bolsa Convênio Empresa</span>
                 </label>
@@ -542,7 +542,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                     value={empresaConvenio}
                     onChange={(e) => setEmpresaConvenio(e.target.value)}
                     placeholder="Qual Empresa Parceira?"
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_input_11"
                   />
                 )}
               </div>
@@ -561,7 +561,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
               placeholder="Anotações internas, canal de captação, etc."
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_textarea_12"
             />
           </div>
 

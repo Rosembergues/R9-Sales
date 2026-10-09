@@ -368,19 +368,19 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
               <div className="space-y-4">
                 <FieldLabel icon={<Users className="w-4 h-4" />} label="Consultor" />
-                <select value={selectedSellerId} onChange={e => setSelectedSellerId(e.target.value)} className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]">
+                <select value={selectedSellerId} onChange={e => setSelectedSellerId(e.target.value)} className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_select_1">
                   {availableConsultants.map(p => <option key={p.id} value={p.id}>{p.name}{p.id === currentUser?.id ? ' (você)' : ''}</option>)}
                 </select>
 
                 <FieldLabel icon={<Hash className="w-4 h-4" />} label="Oportunidade" />
-                <input value={opportunityNumber} onChange={e => setOpportunityNumber(e.target.value)} placeholder="Número da oportunidade" inputMode="numeric" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+                <input value={opportunityNumber} onChange={e => setOpportunityNumber(e.target.value)} placeholder="Número da oportunidade" inputMode="numeric" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_2" />
 
                 <FieldLabel icon={<User className="w-4 h-4" />} label="Aluno" />
-                <input value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Nome completo do aluno" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+                <input value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Nome completo do aluno" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_3" />
 
                 <FieldLabel icon={<CalendarDays className="w-4 h-4" />} label="Data" />
                 <div className="flex gap-2">
-                  <input type="date" value={saleDateIso} onChange={e => setSaleDateIso(e.target.value)} className="flex-1 h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+                  <input type="date" value={saleDateIso} onChange={e => setSaleDateIso(e.target.value)} className="flex-1 h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_4" />
                   <button type="button" onClick={() => setSaleDateIso(getTodayDateStr())} className="px-4 rounded-xl bg-gray-100 border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-[#0052cc]">Hoje</button>
                 </div>
               </div>
@@ -451,13 +451,13 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
                   <ChoiceButton active={hasBolsaConvenio} label="Sim" onClick={() => setHasBolsaConvenio(true)} />
                 </div>
                 {hasBolsaConvenio && (
-                  <input value={empresaConvenio} onChange={e => setEmpresaConvenio(e.target.value)} placeholder="Nome da empresa" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+                  <input value={empresaConvenio} onChange={e => setEmpresaConvenio(e.target.value)} placeholder="Nome da empresa" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_5" />
                 )}
               </div>
 
               <div>
                 <FieldLabel icon={<FileText className="w-4 h-4" />} label="Observação (opcional)" />
-                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Alguma informação relevante sobre esta venda?" className="mt-2 w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none resize-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" />
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Alguma informação relevante sobre esta venda?" className="mt-2 w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none resize-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_textarea_6" />
               </div>
 
               <div className="rounded-2xl bg-gray-50 border border-gray-200 p-4">

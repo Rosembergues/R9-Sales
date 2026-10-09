@@ -143,7 +143,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Ex: Campanha Expansão Varejo 2026"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" name="src_components_admin_createcampaignmodal_tsx_input_1"
               />
             </div>
 
@@ -157,7 +157,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="EX: VAREJO-2026"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 font-mono uppercase placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 font-mono uppercase placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" name="src_components_admin_createcampaignmodal_tsx_input_2"
               />
             </div>
           </div>
@@ -171,7 +171,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Explique o objetivo da campanha e as regras de lançamento..."
-              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" name="src_components_admin_createcampaignmodal_tsx_textarea_3"
             />
           </div>
 
@@ -185,7 +185,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
                 required
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" name="src_components_admin_createcampaignmodal_tsx_input_4"
               />
             </div>
 
@@ -198,7 +198,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
                 required
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" name="src_components_admin_createcampaignmodal_tsx_input_5"
               />
             </div>
           </div>
@@ -253,13 +253,13 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
                   placeholder="Nome do Campo (ex: CNPJ, Canal, etc.)"
                   value={newFieldLabel}
                   onChange={(e) => setNewFieldLabel(e.target.value)}
-                  className="sm:col-span-5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
+                  className="sm:col-span-5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500" name="src_components_admin_createcampaignmodal_tsx_input_6"
                 />
 
                 <select
                   value={newFieldType}
                   onChange={(e) => setNewFieldType(e.target.value as any)}
-                  className="sm:col-span-3 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-indigo-500"
+                  className="sm:col-span-3 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-indigo-500" name="src_components_admin_createcampaignmodal_tsx_select_7"
                 >
                   <option value="text">Texto Curto</option>
                   <option value="number">Número</option>
@@ -282,7 +282,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
                   placeholder="Opções separadas por vírgula (ex: Opção 1, Opção 2, Opção 3)"
                   value={newFieldOptions}
                   onChange={(e) => setNewFieldOptions(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500" name="src_components_admin_createcampaignmodal_tsx_input_8"
                 />
               )}
             </div>

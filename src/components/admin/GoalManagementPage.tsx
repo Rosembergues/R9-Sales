@@ -788,7 +788,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
             <select
               value={selectedMonth}
               onChange={e => setSelectedMonth(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white font-medium"
+              className="px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white font-medium" name="src_components_admin_goalmanagementpage_tsx_select_1"
             >
               {Array.from({ length: 12 }, (_, i) => (
                 <option key={i + 1} value={i + 1}>
@@ -801,7 +801,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
             <select
               value={selectedYear}
               onChange={e => setSelectedYear(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white font-medium"
+              className="px-3 py-2 border border-gray-200 rounded-xl text-xs bg-white font-medium" name="src_components_admin_goalmanagementpage_tsx_select_2"
             >
               {[2026, 2027, 2028].map(year => (
                 <option key={year} value={year}>
@@ -815,7 +815,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               value={teamConfig.academicPeriod}
               onChange={e => setTeamConfig(v => ({ ...v, academicPeriod: e.target.value }))}
               className="w-24 px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-blue-700"
-              placeholder="2026.3"
+              placeholder="2026.3" name="src_components_admin_goalmanagementpage_tsx_input_3"
             />
           </div>
         </div>
@@ -830,14 +830,14 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                   type="date"
                   value={teamConfig.weekStart}
                   onChange={e => setTeamConfig(v => ({ ...v, weekStart: e.target.value }))}
-                  className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs"
+                  className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs" name="src_components_admin_goalmanagementpage_tsx_input_4"
                 />
                 <span className="text-gray-400">até</span>
                 <input
                   type="date"
                   value={teamConfig.weekEnd}
                   onChange={e => setTeamConfig(v => ({ ...v, weekEnd: e.target.value }))}
-                  className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs"
+                  className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs" name="src_components_admin_goalmanagementpage_tsx_input_5"
                 />
               </div>
             </div>
@@ -850,7 +850,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                 value={teamConfig.weeklyTarget || ''}
                 onChange={e => setTeamConfig(v => ({ ...v, weeklyTarget: toInt(e.target.value) }))}
                 className="w-20 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-black text-blue-700 text-center"
-                placeholder="0"
+                placeholder="0" name="src_components_admin_goalmanagementpage_tsx_input_6"
               />
               <span className="text-xs text-gray-400">matrículas</span>
             </div>
@@ -1019,7 +1019,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 placeholder="Buscar consultor"
-                className="pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-xl w-52 bg-slate-50 focus:bg-white transition-colors"
+                className="pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-xl w-52 bg-slate-50 focus:bg-white transition-colors" name="src_components_admin_goalmanagementpage_tsx_input_7"
               />
             </div>
           </div>
@@ -1069,7 +1069,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         onChange={e =>
                           updateConsultantGoal(consultant.id, 'target_bu_presencial', e.target.value)
                         }
-                        className="w-16 text-center px-2 py-1.5 border border-blue-200 bg-blue-50/30 rounded-lg text-sm font-bold text-blue-900 focus:bg-white focus:ring-1 focus:ring-blue-500"
+                        className="w-16 text-center px-2 py-1.5 border border-blue-200 bg-blue-50/30 rounded-lg text-sm font-bold text-blue-900 focus:bg-white focus:ring-1 focus:ring-blue-500" name="src_components_admin_goalmanagementpage_tsx_input_8"
                       />
                     </td>
 
@@ -1081,7 +1081,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         onChange={e =>
                           updateConsultantGoal(consultant.id, 'target_bu_digital', e.target.value)
                         }
-                        className="w-16 text-center px-2 py-1.5 border border-emerald-200 bg-emerald-50/30 rounded-lg text-sm font-bold text-emerald-900 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                        className="w-16 text-center px-2 py-1.5 border border-emerald-200 bg-emerald-50/30 rounded-lg text-sm font-bold text-emerald-900 focus:bg-white focus:ring-1 focus:ring-emerald-500" name="src_components_admin_goalmanagementpage_tsx_input_9"
                       />
                     </td>
 
@@ -1093,7 +1093,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         onChange={e =>
                           updateConsultantGoal(consultant.id, 'target_pos', e.target.value)
                         }
-                        className="w-16 text-center px-2 py-1.5 border border-purple-200 bg-purple-50/30 rounded-lg text-sm font-bold text-purple-900 focus:bg-white focus:ring-1 focus:ring-purple-500"
+                        className="w-16 text-center px-2 py-1.5 border border-purple-200 bg-purple-50/30 rounded-lg text-sm font-bold text-purple-900 focus:bg-white focus:ring-1 focus:ring-purple-500" name="src_components_admin_goalmanagementpage_tsx_input_10"
                       />
                     </td>
 
@@ -1105,7 +1105,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         onChange={e =>
                           updateConsultantGoal(consultant.id, 'target_tecnico', e.target.value)
                         }
-                        className="w-16 text-center px-2 py-1.5 border border-amber-200 bg-amber-50/30 rounded-lg text-sm font-bold text-amber-900 focus:bg-white focus:ring-1 focus:ring-amber-500"
+                        className="w-16 text-center px-2 py-1.5 border border-amber-200 bg-amber-50/30 rounded-lg text-sm font-bold text-amber-900 focus:bg-white focus:ring-1 focus:ring-amber-500" name="src_components_admin_goalmanagementpage_tsx_input_11"
                       />
                     </td>
 

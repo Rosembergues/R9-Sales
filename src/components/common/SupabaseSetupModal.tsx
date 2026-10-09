@@ -141,7 +141,7 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({ onClose 
                   placeholder="https://xyzcompany.supabase.co"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500" name="src_components_common_supabasesetupmodal_tsx_input_1"
                 />
               </div>
 
@@ -154,7 +154,7 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({ onClose 
                   placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
                   value={anonKey}
                   onChange={(e) => setAnonKey(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500" name="src_components_common_supabasesetupmodal_tsx_input_2"
                 />
               </div>
             </div>

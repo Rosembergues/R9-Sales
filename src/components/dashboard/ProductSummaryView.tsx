@@ -423,7 +423,7 @@ export const ProductSummaryView: React.FC<ProductSummaryViewProps> = ({
                 placeholder="Buscar por oportunidade, candidato, FDI..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#0052cc] w-full sm:w-64 shadow-2xs"
+                className="pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#0052cc] w-full sm:w-64 shadow-2xs" name="src_components_dashboard_productsummaryview_tsx_input_1"
               />
             </div>
 
@@ -442,7 +442,7 @@ export const ProductSummaryView: React.FC<ProductSummaryViewProps> = ({
             <select
               value={selectedShiftFilter}
               onChange={(e) => setSelectedShiftFilter(e.target.value)}
-              className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-gray-700 focus:outline-none focus:border-[#0052cc]"
+              className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-gray-700 focus:outline-none focus:border-[#0052cc]" name="src_components_dashboard_productsummaryview_tsx_select_2"
             >
               <option value="all">Todos os Turnos</option>
               <option value="Manhã">Manhã</option>
