@@ -18,9 +18,27 @@ function isValidUUID(val?: string | null): boolean {
 // Canal global de broadcast para sincronização instantânea entre múltiplos usuários
 let realtimeSyncChannel: any = null;
 
-// Rastreabilidade de conclusão por administrador é armazenada em campos_customizados.
-// A tabela tarefas deste projeto não possui a coluna nativa completed_by_admin.
-const hasNativeCompletedByAdminColumn = false;
+// Rastreabilidade: Detecção dinâmica e segura da coluna nativa completed_by_admin no Supabase
+let hasNativeCompletedByAdminColumn = false;
+let checkedNativeColumn = false;
+
+async function checkNativeCompletedByAdminColumn() {
+  if (checkedNativeColumn) return;
+  checkedNativeColumn = true;
+  try {
+    const { error } = await supabase.from('tarefas').select('completed_by_admin').limit(1);
+    if (!error) {
+      hasNativeCompletedByAdminColumn = true;
+      console.info('[SUPABASE] Coluna nativa completed_by_admin ativa no schema da tabela tarefas.');
+    }
+  } catch {
+    hasNativeCompletedByAdminColumn = false;
+  }
+}
+
+if (typeof window !== 'undefined') {
+  checkNativeCompletedByAdminColumn();
+}
 
 // Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
 const recurrenceLocks = new Set<string>();
@@ -349,8 +367,20 @@ export function mapDbRowToTask(row: any): Task {
     assignedTo: primaryAssignedTo,
     assignedToIds,
     bucket: row.bucket ?? row.categoria ?? 'Operacional',
-    startDate: row.data_inicio ?? row.start_date ?? row.startDate ?? undefined,
-    endDate: row.data_fim ?? row.end_date ?? row.endDate ?? undefined,
+    startDate: normalizeDateOnly(
+      row.data_inicio !== undefined
+        ? row.data_inicio
+        : row.start_date !== undefined
+        ? row.start_date
+        : row.startDate ?? null
+    ) ?? undefined,
+    endDate: normalizeDateOnly(
+      row.data_fim !== undefined
+        ? row.data_fim
+        : row.end_date !== undefined
+        ? row.end_date
+        : row.endDate ?? null
+    ) ?? undefined,
     recurrenceSeriesId: rawCustom && typeof rawCustom === 'object' && rawCustom.recurrenceSeriesId ? String(rawCustom.recurrenceSeriesId) : undefined,
     scheduledDate: normalizeDateOnly(
       row.data_agendada !== undefined
