@@ -71,7 +71,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     const fetchTargets = async () => {
       try {
         const todayIso = todayKey;
-        const [{ data: weekPeriod }, { data: monthPeriod }, { data: weeklyGoals }] = await Promise.all([
+        const [{ data: weekPeriod }, { data: monthPeriod }, { data: weeklyGoals }, { data: activeImports, error: importsError }] = await Promise.all([
           supabase
             .from('goal_periods')
             .select('target_total')
@@ -92,7 +92,46 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             .eq('type', 'week')
             .lte('reference_start', todayIso)
             .gte('reference_end', todayIso),
+          supabase
+            .from('goal_imports')
+            .select('id, academic_period, goal_group, imported_at')
+            .eq('status', 'active')
+            .order('imported_at', { ascending: false }),
         ]);
+
+        // A meta diária da Home vem exclusivamente das duas BUs de Graduação.
+        // Selecionamos um único ciclo acadêmico para não somar ciclos diferentes.
+        let resolvedDaily = 0;
+        if (importsError) throw importsError;
+        const imports = activeImports || [];
+        if (imports.length > 0) {
+          const currentAcademicPeriod = imports[0].academic_period;
+          const buGroupIds = new Set([
+            'graduacao_presencial',
+            'graduacao_semipresencial',
+            'graduacao_aovivo',
+            'graduacao_ead',
+            'graduacao_dlex',
+            'graduacao_bu_presencial',
+            'graduacao_bu_digital',
+          ]);
+          const relevantImportIds = imports
+            .filter(item => item.academic_period === currentAcademicPeriod && buGroupIds.has(item.goal_group))
+            .map(item => item.id);
+
+          if (relevantImportIds.length > 0) {
+            const { data: dailyRows, error: dailyError } = await supabase
+              .from('goal_daily_data')
+              .select('target')
+              .eq('reference_date', todayIso)
+              .in('import_id', relevantImportIds);
+            if (dailyError) throw dailyError;
+            resolvedDaily = (dailyRows || []).reduce(
+              (sum, row) => sum + (row.target === null || row.target === undefined ? 0 : Number(row.target) || 0),
+              0
+            );
+          }
+        }
 
         let resolvedWeekly = Number(weekPeriod?.target_total) || 0;
         if (!resolvedWeekly && weeklyGoals && weeklyGoals.length > 0) {
@@ -121,8 +160,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           resolvedWeekly = Math.max(1, Math.round(resolvedMonthly / 4));
         }
 
-        const resolvedDaily = Math.max(1, Math.round(resolvedWeekly / 6));
-
         if (isMounted) {
           setOperationalTargets({
             daily: resolvedDaily,
@@ -141,7 +178,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     };
   }, [todayKey, profiles]);
 
-  const teamGoalToday = operationalTargets.daily || Math.max(1, Math.round((profiles.filter(p => p.role === 'seller').length * 5) / 6));
+  const teamGoalToday = operationalTargets.daily;
   const teamGoalWeek = operationalTargets.weekly || (teamGoalToday * 6);
   const teamGoalMonth = operationalTargets.monthly || (teamGoalWeek * 4);
 
