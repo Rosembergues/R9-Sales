@@ -104,6 +104,9 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
       const ids = Object.values(latest).map((item: any) => item.id);
       if (!ids.length) {
         setPreviews({});
+        const fallback = monthBounds();
+        setStartDate(fallback.start);
+        setEndDate(fallback.end);
         return;
       }
 
@@ -138,6 +141,20 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ onBack }) => {
       });
 
       setPreviews(next);
+
+      // O intervalo padrão do Analytics acompanha a extensão total dos arquivos
+      // ativos do ciclo acadêmico selecionado (não apenas o mês corrente).
+      // A apuração considera todos os modelos importados, independentemente do BU
+      // atualmente selecionado, para manter um período consistente entre filtros.
+      const importedDates = Object.values(next)
+        .flatMap((preview: GoalFilePreview) => preview.rows.map(row => row.date))
+        .filter((date): date is string => Boolean(date))
+        .sort();
+
+      if (importedDates.length > 0) {
+        setStartDate(importedDates[0]);
+        setEndDate(importedDates[importedDates.length - 1]);
+      }
     } catch (error) {
       console.error('Erro ao carregar dados do Analytics:', error);
       setPreviews({});
