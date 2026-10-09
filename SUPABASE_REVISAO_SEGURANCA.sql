@@ -64,8 +64,7 @@ begin
        where id::text = auth.uid()::text and role = 'admin'
      ) then
     if tg_op = 'INSERT' then
-      if new.seller_id is distinct from auth.uid()::text
-         or (new.collaborator_id is not null and new.collaborator_id is distinct from auth.uid()::text) then
+      if new.seller_id is distinct from auth.uid()::text then
         raise exception 'Consultores só podem cadastrar vendas em seu próprio nome';
       end if;
 
@@ -77,7 +76,6 @@ begin
       new.seller_email := coalesce(v_profile_email, new.seller_email);
     else
       if new.seller_id is distinct from old.seller_id
-         or new.collaborator_id is distinct from old.collaborator_id
          or new.seller_name is distinct from old.seller_name
          or new.collaborator_name is distinct from old.collaborator_name
          or new.seller_email is distinct from old.seller_email then
@@ -87,7 +85,7 @@ begin
 
     new.custom_data := coalesce(new.custom_data, '{}'::jsonb) || jsonb_build_object(
       'seller_id', new.seller_id,
-      'collaborator_id', new.collaborator_id,
+      'collaborator_id', new.seller_id,
       'seller_name', new.seller_name,
       'collaborator_name', new.collaborator_name,
       'seller_email', new.seller_email

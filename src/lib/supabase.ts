@@ -321,8 +321,7 @@ begin
   if auth.uid() is not null
      and not exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin') then
     if tg_op = 'INSERT' then
-      if new.seller_id is distinct from auth.uid()::text
-         or (new.collaborator_id is not null and new.collaborator_id is distinct from auth.uid()::text) then
+      if new.seller_id is distinct from auth.uid()::text then
         raise exception 'Consultores só podem cadastrar vendas em seu próprio nome';
       end if;
 
@@ -333,7 +332,6 @@ begin
       new.seller_email := coalesce(v_profile_email, new.seller_email);
     else
       if new.seller_id is distinct from old.seller_id
-         or new.collaborator_id is distinct from old.collaborator_id
          or new.seller_name is distinct from old.seller_name
          or new.collaborator_name is distinct from old.collaborator_name
          or new.seller_email is distinct from old.seller_email then
@@ -345,7 +343,7 @@ begin
     -- transferência indireta de autoria via custom_data.
     new.custom_data := coalesce(new.custom_data, '{}'::jsonb) || jsonb_build_object(
       'seller_id', new.seller_id,
-      'collaborator_id', new.collaborator_id,
+      'collaborator_id', new.seller_id,
       'seller_name', new.seller_name,
       'collaborator_name', new.collaborator_name,
       'seller_email', new.seller_email
@@ -385,7 +383,8 @@ create policy "Admins podem criar, editar ou excluir campanhas"
 create index if not exists idx_sales_created_at_desc on public.sales (created_at desc);
 create index if not exists idx_sales_sale_date_desc on public.sales (sale_date desc);
 create index if not exists idx_sales_seller_id on public.sales (seller_id);
-create index if not exists idx_sales_collaborator_id on public.sales (collaborator_id);
+-- A tabela usa seller_id; collaborator_id é espelhado apenas em custom_data.
+create index if not exists idx_sales_seller_id on public.sales (seller_id);
 create index if not exists idx_sales_campaign_id on public.sales (campaign_id);
 create index if not exists idx_sales_product_name on public.sales (product_name);
 create index if not exists idx_sales_fdi on public.sales (fdi);
