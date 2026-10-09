@@ -5,6 +5,8 @@ import { supabase, LocalSyncEngine } from '../../lib/supabase';
 import { getRealSaleDate, normalizeRemoteSale } from '../../lib/salesMapper';
 import { Sale, Goal, DatabaseGoalRecord, UserGoalData } from '../../types';
 import { ModalityMultiFilter } from './ModalityMultiFilter';
+import { RankingOperationSelector } from './RankingOperationSelector';
+import { getRankingOperationTarget, RANKING_OPERATION_OPTIONS, saleMatchesRankingOperation, type RankingOperation } from './rankingUtils';
 import { Trophy, Crown, Flame, RotateCw, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 
 interface WeeklyLeaderboardEntry {
@@ -31,22 +33,24 @@ interface WeeklyLeaderboardEntry {
 
 // Helper to parse date string (DD/MM/YYYY or YYYY-MM-DD or ISO) to Date object
 function parseGoalData(g: DatabaseGoalRecord | Goal): UserGoalData {
-  const targetTotal = g.target_total !== undefined ? Number(g.target_total) : 0;
-
-  const hasSpecificTargets = g.target_graduacao !== undefined || g.target_pos !== undefined || g.target_tecnico !== undefined;
-  
-  const targetGraduacao = hasSpecificTargets
-    ? (Number(g.target_graduacao) || 0)
-    : (targetTotal > 0 ? targetTotal : 0);
+  const targetTotal = g.target_total !== undefined ? Number(g.target_total) || 0 : 0;
+  const targetBuPresencial = g.target_bu_presencial != null ? Number(g.target_bu_presencial) || 0 : undefined;
+  const targetBuDigital = g.target_bu_digital != null ? Number(g.target_bu_digital) || 0 : undefined;
+  const hasBuTargets = targetBuPresencial !== undefined || targetBuDigital !== undefined;
+  const buGraduacaoTarget = (targetBuPresencial || 0) + (targetBuDigital || 0);
+  const legacyGraduacaoTarget = Number(g.target_graduacao) || (targetTotal > 0 ? targetTotal : 0);
+  const targetGraduacao = hasBuTargets && buGraduacaoTarget > 0 ? buGraduacaoTarget : legacyGraduacaoTarget;
   const targetPos = Number(g.target_pos) || 0;
   const targetTecnico = Number(g.target_tecnico) || 0;
-  const finalTotal = targetTotal > 0 ? targetTotal : (targetGraduacao + targetPos + targetTecnico);
+  const finalTotal = targetTotal > 0 ? targetTotal : targetGraduacao + targetPos + targetTecnico;
 
   return {
+    target_bu_presencial: targetBuPresencial,
+    target_bu_digital: targetBuDigital,
     target_graduacao: targetGraduacao,
     target_pos: targetPos,
     target_tecnico: targetTecnico,
-    target_total: finalTotal
+    target_total: finalTotal,
   };
 }
 
@@ -61,6 +65,7 @@ export const WeeklyRankView: React.FC = () => {
   // Navigation across previous and current weeks (0 = current, -1 = last week, -2 = 2 weeks ago...)
   const [weekOffset, setWeekOffset] = useState<number>(0);
   const [selectedModalities, setSelectedModalities] = useState<string[]>([]);
+  const [selectedOperation, setSelectedOperation] = useState<RankingOperation>('graduacao_total');
 
   const handlePrevWeek = () => {
     setWeekOffset(prev => prev - 1);
@@ -274,16 +279,21 @@ export const WeeklyRankView: React.FC = () => {
     });
   }, [salesToUse, weekRange]);
 
+  const operationSales = useMemo(
+    () => weeklySales.filter(sale => saleMatchesRankingOperation(sale, selectedOperation)),
+    [weeklySales, selectedOperation],
+  );
+
   const modalityOptions = useMemo(() => {
-    return Array.from(new Set(weeklySales.map(s => s.custom_data?.modality).filter(Boolean) as string[]))
+    return Array.from(new Set(operationSales.map(s => s.custom_data?.modality).filter(Boolean) as string[]))
       .sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [weeklySales]);
+  }, [operationSales]);
 
   const filteredWeeklySales = useMemo(() => {
-    if (selectedModalities.length === 0) return weeklySales;
+    if (selectedModalities.length === 0) return operationSales;
     const selected = new Set(selectedModalities.map(value => value.toLowerCase()));
-    return weeklySales.filter(s => selected.has((s.custom_data?.modality || '').toLowerCase()));
-  }, [weeklySales, selectedModalities]);
+    return operationSales.filter(s => selected.has((s.custom_data?.modality || '').toLowerCase()));
+  }, [operationSales, selectedModalities]);
 
   useEffect(() => {
     setSelectedModalities(current => {
@@ -330,14 +340,21 @@ export const WeeklyRankView: React.FC = () => {
       const targetPos = userGoal?.target_pos ?? 0;
       const targetTec = userGoal?.target_tecnico ?? 0;
       let targetTotal = userGoal?.target_total ?? (targetGrad + targetPos + targetTec);
+      let targetOperation = getRankingOperationTarget(userGoal, selectedOperation);
       if (targetTotal <= 0 && consultant.target_monthly && consultant.target_monthly > 0) {
         targetTotal = consultant.target_monthly >= 1000 ? 30 : Math.round(consultant.target_monthly);
       }
-      const hasTarget = targetTotal > 0;
+      if (targetOperation <= 0 && selectedOperation === 'todos_produtos' && targetTotal > 0) {
+        targetOperation = targetTotal;
+      }
+      if (targetOperation <= 0 && selectedOperation === 'graduacao_total' && targetGrad <= 0 && targetTotal > 0) {
+        targetOperation = targetTotal;
+      }
+      const hasTarget = targetOperation > 0;
 
       // Formula: (Total de Vendas / Meta Total) * 100 e Graduação isolada
       // Tratamento de Meta Zero: 0% sem quebrar ou dividir por zero
-      const percentageReached = targetTotal > 0 ? Math.round((totalCount / targetTotal) * 100) : 0;
+      const percentageReached = targetOperation > 0 ? Math.round((totalCount / targetOperation) * 100) : 0;
       const percentageGraduacao = targetGrad > 0 ? Math.round((graduacaoCount / targetGrad) * 100) : 0;
       const percentagePos = targetPos > 0 ? Math.round((posCount / targetPos) * 100) : 0;
       const percentageTecnico = targetTec > 0 ? Math.round((tecnicoCount / targetTec) * 100) : 0;
@@ -348,13 +365,13 @@ export const WeeklyRankView: React.FC = () => {
         email: consultant.email,
         avatar_url: consultant.avatar_url,
         total_sales: totalCount,
-        target: targetTotal,
-        target_graduacao: targetGrad,
+        target: targetOperation,
+        target_graduacao: targetOperation,
         target_pos: targetPos,
         target_tecnico: targetTec,
-        target_total: targetTotal,
+        target_total: targetOperation,
         percentage_reached: percentageReached,
-        percentage_graduacao: percentageGraduacao,
+        percentage_graduacao: percentageReached,
         percentage_pos: percentagePos,
         percentage_tecnico: percentageTecnico,
         has_target: hasTarget,
@@ -378,15 +395,17 @@ export const WeeklyRankView: React.FC = () => {
       ...item,
       position: index + 1,
     }));
-  }, [profiles, filteredWeeklySales, goalsMap]);
+  }, [profiles, filteredWeeklySales, goalsMap, selectedOperation]);
 
   const topThree = leaderboard.slice(0, 3);
+  const selectedOperationLabel = RANKING_OPERATION_OPTIONS.find(option => option.value === selectedOperation)?.label || 'Graduação Total';
 
   // Total metrics of the week
   const totalWeeklySales = filteredWeeklySales.length;
-  const totalWeeklyGoals: number = (Object.values(goalsMap) as UserGoalData[]).reduce((acc: number, val: UserGoalData) => acc + (Number(val.target_total) || 0), 0);
-  const overallWeekPercentage = totalWeeklyGoals > 0 
-    ? Math.round((totalWeeklySales / totalWeeklyGoals) * 100) 
+  const totalWeeklyGoals = (Object.values(goalsMap) as UserGoalData[])
+    .reduce((acc, goal) => acc + getRankingOperationTarget(goal, selectedOperation), 0);
+  const overallWeekPercentage = totalWeeklyGoals > 0
+    ? Math.round((totalWeeklySales / totalWeeklyGoals) * 100)
     : 0;
 
   return (
@@ -482,11 +501,20 @@ export const WeeklyRankView: React.FC = () => {
         </div>
       </div>
 
+      <RankingOperationSelector
+        value={selectedOperation}
+        onChange={(operation) => {
+          setSelectedOperation(operation);
+          setSelectedModalities([]);
+        }}
+        tone="blue"
+      />
+
       {/* Summary Highlights */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
           <span className="text-xs text-slate-500 font-medium">
-            {weekRange.isCurrent ? 'Boletos Confirmados na Semana' : `Boletos Confirmados (${weekRange.shortLabel})`}
+            {weekRange.isCurrent ? `Vendas de ${selectedOperationLabel} na semana` : `Vendas de ${selectedOperationLabel} (${weekRange.shortLabel})`}
           </span>
           <div className="text-2xl font-black text-slate-900 font-['Space_Grotesk'] mt-1">
             {totalWeeklySales} <span className="text-xs font-semibold text-slate-500">vendas</span>
@@ -494,14 +522,14 @@ export const WeeklyRankView: React.FC = () => {
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
-          <span className="text-xs text-slate-500 font-medium">Meta Semanal Coletiva (public.goals)</span>
+          <span className="text-xs text-slate-500 font-medium">Meta Semanal Coletiva — {selectedOperationLabel}</span>
           <div className="text-2xl font-black text-blue-700 font-['Space_Grotesk'] mt-1">
             {totalWeeklyGoals > 0 ? `${totalWeeklyGoals} vendas` : 'A definir'}
           </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
-          <span className="text-xs text-slate-500 font-medium">Atingimento da Equipe</span>
+          <span className="text-xs text-slate-500 font-medium">Atingimento da Equipe — {selectedOperationLabel}</span>
           <div className="text-2xl font-black text-emerald-600 font-['Space_Grotesk'] mt-1">
             {overallWeekPercentage}%
           </div>
@@ -531,50 +559,41 @@ export const WeeklyRankView: React.FC = () => {
                 {topThree[1].total_sales} <span className="text-sm font-semibold text-slate-500">{topThree[1].total_sales === 1 ? 'Boleto' : 'Boletos'}</span>
               </div>
 
-              {/* Goal Progress Card: Flagship Graduação na barra de progresso */}
+              {/* Goal progress for selected operation */}
               <div className="w-full mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-left space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700">Meta Graduação (Principal):</span>
-                  {topThree[1].target_graduacao > 0 ? (
+                  <span className="font-bold text-slate-700">Meta {selectedOperationLabel}:</span>
+                  {topThree[1].target > 0 ? (
                     <span className={`font-black ${
-                      topThree[1].percentage_graduacao >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
+                      topThree[1].percentage_reached >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
                     }`}>
-                      {topThree[1].percentage_graduacao}%
+                      {topThree[1].percentage_reached}%
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-400 italic">Sem meta</span>
                   )}
                 </div>
 
-                {topThree[1].target_graduacao > 0 ? (
+                {topThree[1].target > 0 ? (
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
                         className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500 bg-no-repeat"
                         style={{ 
-                          width: `${Math.min(topThree[1].percentage_graduacao, 100)}%`,
-                          backgroundSize: topThree[1].percentage_graduacao > 0 
-                            ? `${(100 / Math.min(topThree[1].percentage_graduacao, 100)) * 100}% 100%` 
+                          width: `${Math.min(topThree[1].percentage_reached, 100)}%`,
+                          backgroundSize: topThree[1].percentage_reached > 0 
+                            ? `${(100 / Math.min(topThree[1].percentage_reached, 100)) * 100}% 100%` 
                             : '100% 100%'
                         }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-500 text-right font-medium">
-                      {topThree[1].graduacao_count}/{topThree[1].target_graduacao} boletos graduação
+                      {topThree[1].total_sales}/{topThree[1].target} vendas de {selectedOperationLabel}
                     </div>
                   </>
                 ) : (
-                  <div className="text-[11px] text-slate-400">Meta de graduação não definida</div>
+                  <div className="text-[11px] text-slate-400">Meta da operação não definida</div>
                 )}
-              </div>
-
-              {/* Product breakdown (Pós e Técnico visíveis em formato textual/resumido) */}
-              <div className="w-full flex items-center justify-between text-xs text-slate-600 mt-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-                <span>Grad: <strong className="text-slate-900">{topThree[1].graduacao_count}/{topThree[1].target_graduacao > 0 ? topThree[1].target_graduacao : 0}</strong></span>
-                <span>•</span>
-                <span>Pós: <strong className="text-purple-700">{topThree[1].pos_count}/{topThree[1].target_pos > 0 ? topThree[1].target_pos : 0}</strong></span>
-                <span>•</span>
-                <span>Téc: <strong className="text-amber-700">{topThree[1].tecnico_count}/{topThree[1].target_tecnico > 0 ? topThree[1].target_tecnico : 0}</strong></span>
               </div>
             </div>
           )}
@@ -599,50 +618,41 @@ export const WeeklyRankView: React.FC = () => {
                 {topThree[0].total_sales} <span className="text-base font-semibold text-amber-700">{topThree[0].total_sales === 1 ? 'Boleto' : 'Boletos'}</span>
               </div>
 
-              {/* Goal Progress Card: Flagship Graduação na barra de progresso */}
+              {/* Goal progress for selected operation */}
               <div className="w-full mt-3 p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 text-left space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-800">Meta Graduação (Principal):</span>
-                  {topThree[0].target_graduacao > 0 ? (
+                  <span className="font-bold text-slate-800">Meta {selectedOperationLabel}:</span>
+                  {topThree[0].target > 0 ? (
                     <span className={`font-black text-sm ${
-                      topThree[0].percentage_graduacao >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
+                      topThree[0].percentage_reached >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
                     }`}>
-                      {topThree[0].percentage_graduacao}%
+                      {topThree[0].percentage_reached}%
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-400 italic">Sem meta</span>
                   )}
                 </div>
 
-                {topThree[0].target_graduacao > 0 ? (
+                {topThree[0].target > 0 ? (
                   <>
                     <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
                       <div 
                         className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500 bg-no-repeat"
                         style={{ 
-                          width: `${Math.min(topThree[0].percentage_graduacao, 100)}%`,
-                          backgroundSize: topThree[0].percentage_graduacao > 0 
-                            ? `${(100 / Math.min(topThree[0].percentage_graduacao, 100)) * 100}% 100%` 
+                          width: `${Math.min(topThree[0].percentage_reached, 100)}%`,
+                          backgroundSize: topThree[0].percentage_reached > 0 
+                            ? `${(100 / Math.min(topThree[0].percentage_reached, 100)) * 100}% 100%` 
                             : '100% 100%'
                         }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-600 text-right font-semibold">
-                      {topThree[0].graduacao_count}/{topThree[0].target_graduacao} boletos graduação
+                      {topThree[0].total_sales}/{topThree[0].target} vendas de {selectedOperationLabel}
                     </div>
                   </>
                 ) : (
-                  <div className="text-[11px] text-slate-400">Meta de graduação não definida</div>
+                  <div className="text-[11px] text-slate-400">Meta da operação não definida</div>
                 )}
-              </div>
-
-              {/* Product breakdown (Pós e Técnico visíveis em formato textual/resumido) */}
-              <div className="w-full flex items-center justify-between text-xs text-slate-700 mt-3 bg-amber-50/70 px-3.5 py-1.5 rounded-lg border border-amber-200/70">
-                <span>Graduação: <strong className="text-slate-900">{topThree[0].graduacao_count}/{topThree[0].target_graduacao > 0 ? topThree[0].target_graduacao : 0}</strong></span>
-                <span>•</span>
-                <span>Pós: <strong className="text-purple-700">{topThree[0].pos_count}/{topThree[0].target_pos > 0 ? topThree[0].target_pos : 0}</strong></span>
-                <span>•</span>
-                <span>Técnico: <strong className="text-amber-700">{topThree[0].tecnico_count}/{topThree[0].target_tecnico > 0 ? topThree[0].target_tecnico : 0}</strong></span>
               </div>
             </div>
           )}
@@ -666,50 +676,41 @@ export const WeeklyRankView: React.FC = () => {
                 {topThree[2].total_sales} <span className="text-sm font-semibold text-slate-500">{topThree[2].total_sales === 1 ? 'Boleto' : 'Boletos'}</span>
               </div>
 
-              {/* Goal Progress Card: Flagship Graduação na barra de progresso */}
+              {/* Goal progress for selected operation */}
               <div className="w-full mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-left space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700">Meta Graduação (Principal):</span>
-                  {topThree[2].target_graduacao > 0 ? (
+                  <span className="font-bold text-slate-700">Meta {selectedOperationLabel}:</span>
+                  {topThree[2].target > 0 ? (
                     <span className={`font-black ${
-                      topThree[2].percentage_graduacao >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
+                      topThree[2].percentage_reached >= 100 ? 'text-emerald-700 font-extrabold' : 'text-emerald-600'
                     }`}>
-                      {topThree[2].percentage_graduacao}%
+                      {topThree[2].percentage_reached}%
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-400 italic">Sem meta</span>
                   )}
                 </div>
 
-                {topThree[2].target_graduacao > 0 ? (
+                {topThree[2].target > 0 ? (
                   <>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
                         className="h-full rounded-full transition-all duration-300 bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-500 bg-no-repeat"
                         style={{ 
-                          width: `${Math.min(topThree[2].percentage_graduacao, 100)}%`,
-                          backgroundSize: topThree[2].percentage_graduacao > 0 
-                            ? `${(100 / Math.min(topThree[2].percentage_graduacao, 100)) * 100}% 100%` 
+                          width: `${Math.min(topThree[2].percentage_reached, 100)}%`,
+                          backgroundSize: topThree[2].percentage_reached > 0 
+                            ? `${(100 / Math.min(topThree[2].percentage_reached, 100)) * 100}% 100%` 
                             : '100% 100%'
                         }}
                       />
                     </div>
                     <div className="text-[11px] text-slate-500 text-right font-medium">
-                      {topThree[2].graduacao_count}/{topThree[2].target_graduacao} boletos graduação
+                      {topThree[2].total_sales}/{topThree[2].target} vendas de {selectedOperationLabel}
                     </div>
                   </>
                 ) : (
-                  <div className="text-[11px] text-slate-400">Meta de graduação não definida</div>
+                  <div className="text-[11px] text-slate-400">Meta da operação não definida</div>
                 )}
-              </div>
-
-              {/* Product breakdown (Pós e Técnico visíveis em formato textual/resumido) */}
-              <div className="w-full flex items-center justify-between text-xs text-slate-600 mt-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-                <span>Grad: <strong className="text-slate-900">{topThree[2].graduacao_count}/{topThree[2].target_graduacao > 0 ? topThree[2].target_graduacao : 0}</strong></span>
-                <span>•</span>
-                <span>Pós: <strong className="text-purple-700">{topThree[2].pos_count}/{topThree[2].target_pos > 0 ? topThree[2].target_pos : 0}</strong></span>
-                <span>•</span>
-                <span>Téc: <strong className="text-amber-700">{topThree[2].tecnico_count}/{topThree[2].target_tecnico > 0 ? topThree[2].target_tecnico : 0}</strong></span>
               </div>
             </div>
           )}
@@ -721,7 +722,7 @@ export const WeeklyRankView: React.FC = () => {
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-xs">
         <div className="px-6 py-4 bg-slate-50/75 border-b border-slate-200 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Tabela Geral de Classificação Semanal ({weekRange.shortLabel})
+            Ranking de {selectedOperationLabel} — Semana ({weekRange.shortLabel})
           </span>
           <span className="text-xs text-slate-500 font-medium">
             Total de {leaderboard.length} consultores avaliados
@@ -734,11 +735,11 @@ export const WeeklyRankView: React.FC = () => {
               <tr>
                 <th className="py-3 px-4 sm:px-6 w-16">Posição</th>
                 <th className="py-3 px-4">Consultor</th>
-                <th className="py-3 px-4 font-bold text-slate-900">Total Boletos</th>
-                <th className="py-3 px-4 hidden sm:table-cell min-w-[130px]">Graduação</th>
-                <th className="py-3 px-4 hidden sm:table-cell min-w-[130px]">Pós-Graduação</th>
-                <th className="py-3 px-4 hidden sm:table-cell min-w-[130px]">Técnico</th>
-                <th className="py-3 px-4 sm:px-6 text-right min-w-[180px]">Progresso da Meta</th>
+                <th className="py-3 px-4 font-bold text-slate-900">Vendas da operação</th>
+                
+                
+                
+                <th className="py-3 px-4 sm:px-6 text-right min-w-[180px]">Atingimento da Meta</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -799,70 +800,7 @@ export const WeeklyRankView: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Graduação: Indicador Duplo (fração + mini barra) */}
-                    <td className="py-3.5 px-4 hidden sm:table-cell">
-                      <div className="space-y-1">
-                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                          <span className="font-bold text-slate-900">{seller.graduacao_count}</span>
-                          <span className="text-slate-400 font-medium">/{seller.target_graduacao > 0 ? seller.target_graduacao : 0}</span>
-                          {seller.target_graduacao > 0 && (
-                            <span className="text-[10px] text-blue-600 font-bold ml-0.5">
-                              ({seller.percentage_graduacao}%)
-                            </span>
-                          )}
-                        </div>
-                        <div className="w-16 sm:w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-600 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(seller.percentage_graduacao, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Pós-Graduação: Indicador Duplo (fração + mini barra) */}
-                    <td className="py-3.5 px-4 hidden sm:table-cell">
-                      <div className="space-y-1">
-                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                          <span className="font-bold text-slate-900">{seller.pos_count}</span>
-                          <span className="text-slate-400 font-medium">/{seller.target_pos > 0 ? seller.target_pos : 0}</span>
-                          {seller.target_pos > 0 && (
-                            <span className="text-[10px] text-purple-600 font-bold ml-0.5">
-                              ({seller.percentage_pos}%)
-                            </span>
-                          )}
-                        </div>
-                        <div className="w-16 sm:w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-purple-600 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(seller.percentage_pos, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Técnico: Indicador Duplo (fração + mini barra) */}
-                    <td className="py-3.5 px-4 hidden sm:table-cell">
-                      <div className="space-y-1">
-                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                          <span className="font-bold text-slate-900">{seller.tecnico_count}</span>
-                          <span className="text-slate-400 font-medium">/{seller.target_tecnico > 0 ? seller.target_tecnico : 0}</span>
-                          {seller.target_tecnico > 0 && (
-                            <span className="text-[10px] text-amber-600 font-bold ml-0.5">
-                              ({seller.percentage_tecnico}%)
-                            </span>
-                          )}
-                        </div>
-                        <div className="w-16 sm:w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-amber-500 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(seller.percentage_tecnico, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* PROGRESSO DA META: Grande Consolidador Geral (Total / target_total) com barra maior */}
+                    {/* Progresso da meta da operação selecionada */}
                     <td className="py-3.5 px-4 sm:px-6 text-right">
                       {seller.has_target ? (
                         <div className="inline-block space-y-1 text-right">
@@ -873,7 +811,7 @@ export const WeeklyRankView: React.FC = () => {
                               {seller.percentage_reached}%
                             </span>
                             <span className="text-slate-500 font-medium text-[11px]">
-                              ({seller.total_sales}/{seller.target_total} total)
+                              ({seller.total_sales}/{seller.target} vendas)
                             </span>
                           </div>
                           <div className="w-28 sm:w-36 h-2.5 bg-slate-100 rounded-full overflow-hidden ml-auto">
@@ -891,7 +829,7 @@ export const WeeklyRankView: React.FC = () => {
                       ) : (
                         <div className="inline-block space-y-1 text-right">
                           <div className="text-xs text-slate-400 font-medium">
-                            0% ({seller.total_sales}/0 total)
+                            Sem meta configurada ({seller.total_sales} vendas)
                           </div>
                           <div className="w-28 sm:w-36 h-2.5 bg-slate-100 rounded-full overflow-hidden ml-auto" />
                         </div>
