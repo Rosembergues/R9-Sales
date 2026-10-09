@@ -87,9 +87,16 @@ export function useIdleTimeout({
 
     isLoggingOutRef.current = false;
 
-    // Recupera última atividade persistida caso a página tenha sido recarregada
-    const storedLast = localStorage.getItem(STORAGE_LAST_ACTIVITY_KEY);
-    const lastTimestamp = storedLast ? Number(storedLast) : Date.now();
+    // Recupera última atividade persistida caso a página tenha sido recarregada.
+    // O acesso pode lançar SecurityError em contextos que bloqueiam localStorage.
+    let storedLast: string | null = null;
+    try {
+      storedLast = localStorage.getItem(STORAGE_LAST_ACTIVITY_KEY);
+    } catch {
+      // Sem persistência disponível, inicia a contagem a partir deste carregamento.
+    }
+    const parsedLast = storedLast ? Number(storedLast) : NaN;
+    const lastTimestamp = Number.isFinite(parsedLast) && parsedLast > 0 ? parsedLast : Date.now();
     const elapsed = Date.now() - lastTimestamp;
 
     if (elapsed >= timeoutMs) {

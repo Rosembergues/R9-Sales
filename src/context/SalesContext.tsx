@@ -43,6 +43,15 @@ interface SalesContextType {
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
 
+// Identificadores com apenas os últimos dígitos do relógio repetiam após 16m40s.
+// Use UUID quando disponível, com fallback suficientemente único para navegadores antigos.
+function createEntityId(prefix: string): string {
+  const randomId = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return `${prefix}-${randomId}`;
+}
+
 export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, profiles } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -221,7 +230,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const q = searchTerm.trim();
     if (q) {
-      const escaped = q.replace(/[%_,]/g, ' ');
+      const escaped = q.replace(/[%,_()\\]/g, ' ');
       query = query.or([
         `seller_name.ilike.%${escaped}%`,
         `client_name.ilike.%${escaped}%`,
@@ -233,7 +242,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     if (productFilter && productFilter !== 'Todos') {
-      const escapedProduct = productFilter.replace(/[%_,]/g, ' ');
+      const escapedProduct = productFilter.replace(/[%,_()\\]/g, ' ');
       query = query.or(`product_name.ilike.%${escapedProduct}%,product.ilike.%${escapedProduct}%`);
     }
 
@@ -395,7 +404,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const resolvedFdi = (saleData as any).fdi || saleData.custom_data?.fdi || saleData.custom_data?.fdi_channel || 'Simplificada';
     const rawSaleDate = saleData.custom_data?.sale_date || (saleData as any).sale_date || new Date().toISOString();
 
-    const newSaleId = `sale-${Date.now().toString().slice(-6)}`;
+    const newSaleId = createEntityId('sale');
     const newSale: Sale = {
       id: newSaleId,
       campaign_id: saleData.campaign_id,
@@ -693,7 +702,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Create Campaign
   const createCampaign = async (campaignData: Omit<Campaign, 'id' | 'created_at'>) => {
-    const newId = `camp-${Date.now().toString().slice(-6)}`;
+    const newId = createEntityId('camp');
     const newCampaign: Campaign = {
       ...campaignData,
       id: newId,

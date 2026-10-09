@@ -8,7 +8,7 @@ interface AuthContextType {
   loading: boolean;
   isSupabaseConnected: boolean;
   supabaseConfig: SupabaseConfig;
-  signUp: (data: { name: string; email: string; password: string; role: UserRole }) => Promise<{ success: boolean; error?: string }>;
+  signUp: (data: { name: string; email: string; password: string }) => Promise<{ success: boolean; error?: string }>;
   signIn: (data: { email: string; password?: string }) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   updateUserRole: (userId: string, newRole: UserRole) => Promise<{ success: boolean; error?: string }>;
@@ -35,19 +35,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Recupera o perfil do usuário logado fazendo um select na tabela profiles
    * filtrando pelo ID da sessão atual no Supabase.
    */
-  const fetchAndSetUserProfile = async (userId: string, authUserMeta?: { name?: string; email?: string; role?: string }): Promise<Profile | null> => {
+  const fetchAndSetUserProfile = async (userId: string, authUserMeta?: { name?: string; email?: string }): Promise<Profile | null> => {
     const buildFallbackProfile = (): Profile | null => {
       if (!authUserMeta) return null;
       const fallbackProfile: Profile = {
         id: userId,
         name: authUserMeta.name || authUserMeta.email?.split('@')[0] || 'Usuário',
         email: authUserMeta.email || '',
-        role: (authUserMeta.role as UserRole) || 'seller',
+        // Fallback seguro: o cargo só pode vir do perfil persistido no banco.
+        role: 'seller',
         avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authUserMeta.name || userId)}`,
         created_at: new Date().toISOString(),
         status: 'active',
         phone: '',
-        target_monthly: authUserMeta.role === 'seller' ? 30 : 0,
+        target_monthly: 30,
       };
       setCurrentUser(fallbackProfile);
       LocalSyncEngine.setCurrentUser(fallbackProfile);
@@ -136,7 +137,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchAndSetUserProfile(session.user.id, {
           name: session.user.user_metadata?.name,
           email: session.user.email,
-          role: session.user.user_metadata?.role,
         });
       } else {
         setCurrentUser(null);
@@ -180,7 +180,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await fetchAndSetUserProfile(session.user.id, {
                 name: session.user.user_metadata?.name,
                 email: session.user.email,
-                role: session.user.user_metadata?.role,
               });
               await refreshProfiles();
             } catch (err) {
@@ -198,21 +197,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * FLUXO DE CADASTRO (SIGN UP)
-   * Utiliza EXCLUSIVAMENTE supabase.auth.signUp({ email, password, options: { data: { name, role } } })
+   * Utiliza supabase.auth.signUp com nome; o cargo inicial é definido pelo banco como 'seller'.
    * NÃO faz inserção manual na tabela profiles nem gera IDs manuais.
    * O banco executa o trigger handle_new_user automaticamente.
    */
-  const signUp = async ({ name, email, password, role }: { name: string; email: string; password: string; role: UserRole }) => {
+  const signUp = async ({ name, email, password }: { name: string; email: string; password: string }) => {
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: {
-            name,
-            role,
-          },
+          data: { name },
         },
       });
 
@@ -226,7 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.session?.user) {
         // Aguarda a trigger do banco gravar o perfil
         await new Promise(r => setTimeout(r, 400));
-        await fetchAndSetUserProfile(data.session.user.id, { name, email, role });
+        await fetchAndSetUserProfile(data.session.user.id, { name, email });
         await refreshProfiles();
       }
 
@@ -272,7 +268,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await fetchAndSetUserProfile(data.user.id, {
         name: data.user.user_metadata?.name,
         email: data.user.email,
-        role: data.user.user_metadata?.role,
       });
 
       await refreshProfiles();

@@ -4,7 +4,7 @@ import { CalendarDays, LayoutGrid, ChevronLeft, ChevronRight, CheckCircle2, Inbo
 import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket } from '../types.ts';
 import { getWeekDates, formatWeekInterval, getMonthGrid, MONTH_NAMES_PT, formatISO } from '../utils/dateUtils.ts';
 import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
-import { taskService, mapDbRowToTask, getTaskSyncChannel } from '../services/taskService.ts';
+import { taskService, mapDbRowToTask, subscribeTaskMutations } from '../services/taskService.ts';
 import { userService, UserProfile } from '../services/userService.ts';
 import { tagService } from '../services/tagService.ts';
 import { supabase } from '../../lib/supabase';
@@ -279,7 +279,6 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
       .subscribe();
 
     // 2. Canal Broadcast em tempo real para sincronização instantânea entre abas e usuários
-    const syncChannel = getTaskSyncChannel();
     const handleBroadcastEvent = (eventPayload: any) => {
       const payload = eventPayload?.payload;
       if (!payload) return;
@@ -305,7 +304,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
       }
     };
 
-    syncChannel.on('broadcast', { event: 'task_mutation' }, handleBroadcastEvent);
+    const unsubscribeTaskMutations = subscribeTaskMutations(handleBroadcastEvent);
 
     // 3. Heartbeat elástico de consistência (a cada 60s) apenas se a aba estiver ativa e visível
     const heartbeatInterval = setInterval(() => {
@@ -328,6 +327,8 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      // Remove apenas o listener desta tela; o canal compartilhado continua disponível para envios.
+      unsubscribeTaskMutations();
       supabase.removeChannel(postgresChannel);
       clearInterval(heartbeatInterval);
       window.removeEventListener('focus', handleFocus);

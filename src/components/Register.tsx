@@ -40,8 +40,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
       const result = await signUp({
         name: data.name.trim(),
         email: data.email.trim(),
-        password: data.password,
-        role: 'seller'
+        password: data.password
       });
 
       if (!result.success) {

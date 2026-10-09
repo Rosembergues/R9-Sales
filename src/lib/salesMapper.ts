@@ -464,7 +464,15 @@ export function logSupabaseError(
   if (error.details) console.error('Detalhes:', error.details);
   if (error.hint) console.error('Dica (Hint):', error.hint);
   if (payloadSent) {
-    console.error('Objeto enviado no .insert() / .update():', payloadSent);
+    const summarizeFields = (value: unknown): string[] => {
+      if (!value || typeof value !== 'object') return [];
+      return Object.keys(value as Record<string, unknown>);
+    };
+    const fieldSummary = Array.isArray(payloadSent)
+      ? payloadSent.map((item) => summarizeFields(item))
+      : summarizeFields(payloadSent);
+    // Não imprimir valores de clientes (documento, telefone, e-mail ou nome) no console.
+    console.error('Campos do payload enviado (valores omitidos por privacidade):', fieldSummary);
   }
   console.groupEnd();
 }

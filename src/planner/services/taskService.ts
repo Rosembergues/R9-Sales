@@ -15,8 +15,10 @@ function isValidUUID(val?: string | null): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 }
 
-// Canal global de broadcast para sincronização instantânea entre múltiplos usuários
+// Canal global de broadcast e assinantes da tela ativa do planejador.
+// O canal é compartilhado para envio, mas cada componente pode registrar/remover seu listener.
 let realtimeSyncChannel: any = null;
+const taskMutationListeners = new Set<(eventPayload: any) => void>();
 
 // A coluna completed_by_admin não existe em public.tarefas no banco atual.
 // A rastreabilidade fica somente em campos_customizados para evitar consultas/escritas
@@ -151,9 +153,27 @@ export function getTaskSyncChannel() {
         broadcast: { ack: false, self: false },
       },
     });
+    realtimeSyncChannel.on('broadcast', { event: 'task_mutation' }, (eventPayload: any) => {
+      taskMutationListeners.forEach((listener) => {
+        try {
+          listener(eventPayload);
+        } catch (err) {
+          console.error('Erro ao processar broadcast do planejador:', err);
+        }
+      });
+    });
     realtimeSyncChannel.subscribe();
   }
   return realtimeSyncChannel;
+}
+
+/** Registra um listener da tela ativa sem deixar callbacks presos após desmontagem. */
+export function subscribeTaskMutations(listener: (eventPayload: any) => void): () => void {
+  taskMutationListeners.add(listener);
+  getTaskSyncChannel();
+  return () => {
+    taskMutationListeners.delete(listener);
+  };
 }
 
 export function broadcastTaskMutation(

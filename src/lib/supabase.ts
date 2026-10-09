@@ -202,6 +202,29 @@ create policy "Admins gerenciam dados diários" on public.goal_daily_data for al
 -- POLÍTICAS RLS (Row Level Security)
 -- ============================================================
 
+-- Impede escalada de privilégio por alteração direta do próprio perfil.
+-- O RLS é por linha; este trigger restringe especificamente a mudança de role.
+create or replace function public.protect_profile_role_changes()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.role is distinct from old.role
+     and auth.uid() is not null
+     and not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Apenas administradores podem alterar o papel do usuário';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_profile_role_changes on public.profiles;
+create trigger protect_profile_role_changes
+  before update on public.profiles
+  for each row execute function public.protect_profile_role_changes();
+
 -- Políticas para Profiles
 drop policy if exists "Perfis são visíveis por todos os autenticados" on public.profiles;
 create policy "Perfis são visíveis por todos os autenticados" 
@@ -261,9 +284,13 @@ create policy "Leitura de vendas permitida"
   using (auth.role() = 'authenticated');
 
 drop policy if exists "Usuários autenticados podem inserir vendas" on public.sales;
-create policy "Usuários autenticados podem inserir vendas" 
+drop policy if exists "Usuários podem inserir vendas próprias ou admins" on public.sales;
+create policy "Usuários podem inserir vendas próprias ou admins" 
   on public.sales for insert 
-  with check (auth.role() = 'authenticated');
+  with check (
+    seller_id = auth.uid()::text
+    or exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+  );
 
 drop policy if exists "Admins ou autor podem atualizar vendas" on public.sales;
 create policy "Admins ou autor podem atualizar vendas" 
@@ -285,15 +312,44 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_profile_name text;
+  v_profile_email text;
 begin
-  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
-    if new.seller_id is distinct from old.seller_id
-       or new.collaborator_id is distinct from old.collaborator_id
-       or new.seller_name is distinct from old.seller_name
-       or new.collaborator_name is distinct from old.collaborator_name
-       or new.seller_email is distinct from old.seller_email then
-      raise exception 'Apenas administradores podem alterar o vendedor da venda';
+  -- Chamadas autenticadas feitas por consultores só podem criar/editar vendas próprias.
+  -- service_role/SQL administrativo (auth.uid() nulo) permanece no contexto confiável do servidor.
+  if auth.uid() is not null
+     and not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    if tg_op = 'INSERT' then
+      if new.seller_id is distinct from auth.uid()::text
+         or (new.collaborator_id is not null and new.collaborator_id is distinct from auth.uid()::text) then
+        raise exception 'Consultores só podem cadastrar vendas em seu próprio nome';
+      end if;
+
+      select name, email into v_profile_name, v_profile_email
+      from public.profiles where id = auth.uid();
+      new.seller_name := coalesce(v_profile_name, new.seller_name);
+      new.collaborator_name := coalesce(v_profile_name, new.collaborator_name, new.seller_name);
+      new.seller_email := coalesce(v_profile_email, new.seller_email);
+    else
+      if new.seller_id is distinct from old.seller_id
+         or new.collaborator_id is distinct from old.collaborator_id
+         or new.seller_name is distinct from old.seller_name
+         or new.collaborator_name is distinct from old.collaborator_name
+         or new.seller_email is distinct from old.seller_email then
+        raise exception 'Apenas administradores podem alterar o vendedor da venda';
+      end if;
     end if;
+
+    -- Os campos espelhados no JSON também são normalizados para não permitir
+    -- transferência indireta de autoria via custom_data.
+    new.custom_data := coalesce(new.custom_data, '{}'::jsonb) || jsonb_build_object(
+      'seller_id', new.seller_id,
+      'collaborator_id', new.collaborator_id,
+      'seller_name', new.seller_name,
+      'collaborator_name', new.collaborator_name,
+      'seller_email', new.seller_email
+    );
   end if;
   return new;
 end;
@@ -301,7 +357,7 @@ $$;
 
 drop trigger if exists protect_sale_owner_fields on public.sales;
 create trigger protect_sale_owner_fields
-  before update on public.sales
+  before insert or update on public.sales
   for each row execute function public.protect_sale_owner_fields();
 drop policy if exists "Apenas administradores podem excluir vendas" on public.sales;
 create policy "Apenas administradores podem excluir vendas" 
