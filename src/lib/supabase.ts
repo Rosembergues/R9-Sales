@@ -186,17 +186,17 @@ alter table public.goal_daily_data enable row level security;
 drop policy if exists "Períodos de metas visíveis por autenticados" on public.goal_periods;
 create policy "Períodos de metas visíveis por autenticados" on public.goal_periods for select using (auth.role() = 'authenticated');
 drop policy if exists "Admins gerenciam períodos de metas" on public.goal_periods;
-create policy "Admins gerenciam períodos de metas" on public.goal_periods for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+create policy "Admins gerenciam períodos de metas" on public.goal_periods for all using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
 
 drop policy if exists "Importações visíveis por autenticados" on public.goal_imports;
 create policy "Importações visíveis por autenticados" on public.goal_imports for select using (auth.role() = 'authenticated');
 drop policy if exists "Admins gerenciam importações" on public.goal_imports;
-create policy "Admins gerenciam importações" on public.goal_imports for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+create policy "Admins gerenciam importações" on public.goal_imports for all using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
 
 drop policy if exists "Dados diários visíveis por autenticados" on public.goal_daily_data;
 create policy "Dados diários visíveis por autenticados" on public.goal_daily_data for select using (auth.role() = 'authenticated');
 drop policy if exists "Admins gerenciam dados diários" on public.goal_daily_data;
-create policy "Admins gerenciam dados diários" on public.goal_daily_data for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+create policy "Admins gerenciam dados diários" on public.goal_daily_data for all using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
 
 -- ============================================================
 -- POLÍTICAS RLS (Row Level Security)
@@ -213,7 +213,7 @@ as $$
 begin
   if new.role is distinct from old.role
      and auth.uid() is not null
-     and not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+     and not exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin') then
     raise exception 'Apenas administradores podem alterar o papel do usuário';
   end if;
   return new;
@@ -236,7 +236,7 @@ create policy "Usuários podem atualizar seus próprios perfis ou admins podem a
   on public.profiles for update 
   using (
     auth.uid() = id or 
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 -- Perfis são criados exclusivamente pelo trigger handle_new_user (SECURITY DEFINER)
@@ -246,14 +246,14 @@ drop policy if exists "Admins podem inserir perfis" on public.profiles;
 create policy "Admins podem inserir perfis"
   on public.profiles for insert
   with check (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 drop policy if exists "Apenas admins podem excluir perfis" on public.profiles;
 create policy "Apenas admins podem excluir perfis" 
   on public.profiles for delete 
   using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 -- Políticas para Goals (Metas)
@@ -268,10 +268,10 @@ drop policy if exists "Apenas administradores podem gerenciar metas" on public.g
 create policy "Apenas administradores podem gerenciar metas" 
   on public.goals for all 
   using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   )
   with check (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 -- Políticas para Sales (Vendas)
@@ -289,7 +289,7 @@ create policy "Usuários podem inserir vendas próprias ou admins"
   on public.sales for insert 
   with check (
     seller_id = auth.uid()::text
-    or exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 drop policy if exists "Admins ou autor podem atualizar vendas" on public.sales;
@@ -297,11 +297,11 @@ create policy "Admins ou autor podem atualizar vendas"
   on public.sales for update 
   using (
     seller_id = auth.uid()::text or
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   )
   with check (
     seller_id = auth.uid()::text or
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 -- Proteção adicional: consultores não podem transferir uma venda para outro vendedor
@@ -319,7 +319,7 @@ begin
   -- Chamadas autenticadas feitas por consultores só podem criar/editar vendas próprias.
   -- service_role/SQL administrativo (auth.uid() nulo) permanece no contexto confiável do servidor.
   if auth.uid() is not null
-     and not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+     and not exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin') then
     if tg_op = 'INSERT' then
       if new.seller_id is distinct from auth.uid()::text
          or (new.collaborator_id is not null and new.collaborator_id is distinct from auth.uid()::text) then
@@ -327,7 +327,7 @@ begin
       end if;
 
       select name, email into v_profile_name, v_profile_email
-      from public.profiles where id = auth.uid();
+      from public.profiles where id::text = auth.uid()::text;
       new.seller_name := coalesce(v_profile_name, new.seller_name);
       new.collaborator_name := coalesce(v_profile_name, new.collaborator_name, new.seller_name);
       new.seller_email := coalesce(v_profile_email, new.seller_email);
@@ -363,7 +363,7 @@ drop policy if exists "Apenas administradores podem excluir vendas" on public.sa
 create policy "Apenas administradores podem excluir vendas" 
   on public.sales for delete 
   using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 -- Políticas para Campaigns
@@ -376,7 +376,7 @@ drop policy if exists "Admins podem criar, editar ou excluir campanhas" on publi
 create policy "Admins podem criar, editar ou excluir campanhas" 
   on public.campaigns for all 
   using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
 -- ============================================================
