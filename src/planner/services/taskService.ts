@@ -18,27 +18,9 @@ function isValidUUID(val?: string | null): boolean {
 // Canal global de broadcast para sincronização instantânea entre múltiplos usuários
 let realtimeSyncChannel: any = null;
 
-// Rastreabilidade: Detecção dinâmica e segura da coluna nativa completed_by_admin no Supabase
-let hasNativeCompletedByAdminColumn = false;
-let checkedNativeColumn = false;
-
-async function checkNativeCompletedByAdminColumn() {
-  if (checkedNativeColumn) return;
-  checkedNativeColumn = true;
-  try {
-    const { error } = await supabase.from('tarefas').select('completed_by_admin').limit(1);
-    if (!error) {
-      hasNativeCompletedByAdminColumn = true;
-      console.info('[SUPABASE] Coluna nativa completed_by_admin ativa no schema da tabela tarefas.');
-    }
-  } catch {
-    hasNativeCompletedByAdminColumn = false;
-  }
-}
-
-if (typeof window !== 'undefined') {
-  checkNativeCompletedByAdminColumn();
-}
+// A coluna completed_by_admin não existe em public.tarefas no banco atual.
+// A rastreabilidade fica somente em campos_customizados para evitar consultas/escritas
+// a uma coluna física inexistente.
 
 // Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
 const recurrenceLocks = new Set<string>();
@@ -561,10 +543,8 @@ export function mapTaskToDbPayload(
     payload.campos_customizados.completedByAdmin = isCompletedByAdmin;
     payload.campos_customizados.finalizada_por_admin = isCompletedByAdmin;
 
-    // Se a coluna nativa existir na tabela tarefas do Supabase, envia no nível raiz
-    if (hasNativeCompletedByAdminColumn) {
-      payload.completed_by_admin = isCompletedByAdmin;
-    }
+    // Não enviar completed_by_admin no nível raiz: essa coluna não existe em tarefas.
+    // Os três aliases ficam dentro de campos_customizados, que é JSONB.
   }
 
   if ('comments' in task && task.comments !== undefined) {
