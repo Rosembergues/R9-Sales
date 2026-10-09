@@ -571,6 +571,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
           type,
           reference_start: referenceStart,
           reference_end: referenceEnd,
+          academic_period: teamConfig.academicPeriod || emptyTeamConfig().academicPeriod,
           goal_period_id: goalPeriodId,
           target_bu_presencial: buPres,
           target_bu_digital: buDig,
@@ -585,7 +586,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       let upsertError: any = null;
       const { error: fullError } = await supabase
         .from('goals')
-        .upsert(payload, { onConflict: 'user_id,type,reference_start' });
+        .upsert(payload, { onConflict: 'user_id,type,reference_start,academic_period' });
 
       if (fullError) {
         upsertError = fullError;
@@ -597,6 +598,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
             type: item.type,
             reference_start: item.reference_start,
             reference_end: item.reference_end,
+            academic_period: item.academic_period,
             goal_period_id: item.goal_period_id,
             target_graduacao: item.target_graduacao,
             target_pos: item.target_pos,
@@ -606,7 +608,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
 
           const { error: fallbackErr } = await supabase
             .from('goals')
-            .upsert(legacyPayload, { onConflict: 'user_id,type,reference_start' });
+            .upsert(legacyPayload, { onConflict: 'user_id,type,reference_start,academic_period' });
 
           if (fallbackErr) throw fallbackErr;
           upsertError = null;
