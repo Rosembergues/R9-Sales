@@ -264,7 +264,7 @@ export const WeeklyRankView: React.FC = () => {
     const map = new Map<string, Sale>();
     contextSales.forEach(s => map.set(s.id, s));
     remoteSales.forEach(s => map.set(s.id, s));
-    return Array.from(map.values());
+    return Array.from(map.values()).filter(s => !LocalSyncEngine.isSaleDeleted(s.id));
   }, [remoteSales, contextSales]);
 
   // Filter sales within the selected week strictly based on real sale date (sale_date)

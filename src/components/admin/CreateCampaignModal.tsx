@@ -85,7 +85,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ onClos
       start_date: startDate,
       end_date: endDate,
       fields,
-      created_by: currentUser?.id || '',
+      created_by: currentUser?.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(currentUser.id) ? currentUser.id : null,
     });
 
     setLoading(false);

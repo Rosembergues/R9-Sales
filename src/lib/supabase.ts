@@ -391,7 +391,6 @@ create index if not exists idx_sales_created_at_desc on public.sales (created_at
 create index if not exists idx_sales_sale_date_desc on public.sales (sale_date desc);
 create index if not exists idx_sales_seller_id on public.sales (seller_id);
 -- A tabela usa seller_id; collaborator_id é espelhado apenas em custom_data.
-create index if not exists idx_sales_seller_id on public.sales (seller_id);
 create index if not exists idx_sales_campaign_id on public.sales (campaign_id);
 create index if not exists idx_sales_product_name on public.sales (product_name);
 create index if not exists idx_sales_fdi on public.sales (fdi);
@@ -445,6 +444,59 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 -- ============================================================
+-- Categorias customizadas do Planner
+create table if not exists public.tags_bucket (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null unique,
+  color text default '#004691',
+  description text default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.tags_bucket enable row level security;
+drop policy if exists "Authenticated users can read tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can read tags_bucket" on public.tags_bucket for select to authenticated using (true);
+drop policy if exists "Authenticated users can insert tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can insert tags_bucket" on public.tags_bucket for insert to authenticated with check (true);
+drop policy if exists "Authenticated users can update tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can update tags_bucket" on public.tags_bucket for update to authenticated using (true) with check (true);
+drop policy if exists "Authenticated users can delete tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can delete tags_bucket" on public.tags_bucket for delete to authenticated using (true);
+
+-- 8. Planner: tabela principal de tarefas
+create table if not exists public.tarefas (
+  id text primary key,
+  titulo text not null,
+  descricao text default '',
+  prioridade text default 'Alta',
+  recorrencia text,
+  bucket text default 'Operacional',
+  responsavel_id text,
+  data_inicio date,
+  data_fim date,
+  data_agendada date,
+  status text default 'pendente',
+  tags jsonb not null default '[]'::jsonb,
+  campos_customizados jsonb not null default '{}'::jsonb,
+  comentarios jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.tarefas enable row level security;
+drop policy if exists "Authenticated users can read tarefas" on public.tarefas;
+create policy "Authenticated users can read tarefas" on public.tarefas
+  for select to authenticated using (true);
+drop policy if exists "Authenticated users can insert tarefas" on public.tarefas;
+create policy "Authenticated users can insert tarefas" on public.tarefas
+  for insert to authenticated with check (true);
+drop policy if exists "Authenticated users can update tarefas" on public.tarefas;
+create policy "Authenticated users can update tarefas" on public.tarefas
+  for update to authenticated using (true) with check (true);
+drop policy if exists "Authenticated users can delete tarefas" on public.tarefas;
+create policy "Authenticated users can delete tarefas" on public.tarefas
+  for delete to authenticated using (true);
+
 -- 9. Habilitar Supabase Realtime para tabelas críticas
 -- ============================================================
 do $$
@@ -468,6 +520,18 @@ end $$;
 do $$
 begin
   alter publication supabase_realtime add table public.sales;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.tarefas;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.tags_bucket;
 exception when others then null;
 end $$;
 
@@ -646,6 +710,16 @@ export class LocalSyncEngine {
       localStorage.setItem('salesflow_deleted_sales_v1', JSON.stringify(list));
     } catch (e) {
       console.error('Failed to mark sale as deleted locally', e);
+    }
+  }
+
+  static removeDeletedSaleId(saleId: string) {
+    try {
+      const deletedSet = this.getDeletedSaleIds();
+      deletedSet.delete(String(saleId));
+      localStorage.setItem('salesflow_deleted_sales_v1', JSON.stringify(Array.from(deletedSet)));
+    } catch (e) {
+      console.error('Failed to restore locally marked sale', e);
     }
   }
 

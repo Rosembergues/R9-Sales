@@ -301,34 +301,33 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         .eq('reference_end', referenceEnd)
         .maybeSingle();
 
+      let loadedGoals: DatabaseGoalRecord[] = [];
       if (period?.id) {
         const { data, error } = await supabase
           .from('goals')
           .select('*')
           .eq('goal_period_id', period.id);
-
         if (error) throw error;
-        ((data as DatabaseGoalRecord[]) || []).forEach(g => {
-          if (!g.user_id) return;
-          const parsed = parseGoal(g);
-          next[g.user_id] = parsed;
-          saved[g.user_id] = { ...parsed };
-        });
-      } else {
+        loadedGoals = (data as DatabaseGoalRecord[]) || [];
+      }
+      // Complementa também quando o período existe, mas as metas individuais antigas
+      // ainda não possuem goal_period_id. Aceita os tipos em inglês e português.
+      if (!period?.id || loadedGoals.length === 0) {
+        const legacyTypes = configType === 'mensal' ? ['month', 'mensal'] : ['week', 'semanal'];
         const { data, error } = await supabase
           .from('goals')
           .select('*')
-          .eq('type', type)
+          .in('type', legacyTypes)
           .eq('reference_start', referenceStart);
-
         if (error) throw error;
-        ((data as DatabaseGoalRecord[]) || []).forEach(g => {
-          if (!g.user_id) return;
-          const parsed = parseGoal(g);
-          next[g.user_id] = parsed;
-          saved[g.user_id] = { ...parsed };
-        });
+        loadedGoals = (data as DatabaseGoalRecord[]) || [];
       }
+      loadedGoals.forEach(g => {
+        if (!g.user_id) return;
+        const parsed = parseGoal(g);
+        next[g.user_id] = parsed;
+        saved[g.user_id] = { ...parsed };
+      });
 
       setGoalsValues(next);
       setSavedGoalsMap(saved);

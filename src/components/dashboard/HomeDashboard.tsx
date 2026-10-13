@@ -89,7 +89,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           supabase
             .from('goals')
             .select('target_total')
-            .eq('type', 'week')
+            .in('type', ['week', 'semanal'])
             .lte('reference_start', todayIso)
             .gte('reference_end', todayIso),
           supabase

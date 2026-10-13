@@ -75,7 +75,7 @@ export interface Campaign {
   start_date: string;
   end_date: string;
   fields: CampaignField[];
-  created_by: string;
+  created_by: string | null;
   created_at: string;
 }
 

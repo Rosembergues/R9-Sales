@@ -328,10 +328,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Você não pode excluir sua própria conta conectada.' };
     }
     try {
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+      const { data, error } = await supabase.from('profiles').delete().eq('id', userId).select('id');
       if (error) {
         console.error('❌ [Supabase DB] Erro ao excluir perfil:', error.message);
         return { success: false, error: error.message };
+      }
+      if (!data || data.length === 0) {
+        return { success: false, error: 'Nenhum perfil foi excluído. Verifique suas permissões de administrador (RLS).' };
       }
       setProfiles(prev => prev.filter(p => p.id !== userId));
       return { success: true };

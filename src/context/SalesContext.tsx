@@ -56,6 +56,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { currentUser, profiles } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Load initial sales & campaigns
   const loadData = useCallback(async () => {
@@ -89,6 +90,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (salesError) {
           logSupabaseError('loadData - Consulta tabela sales', salesError);
           // Mantém o cache somente quando a consulta ao servidor falha.
+          setIsInitialized(true);
           return;
         }
 
@@ -147,6 +149,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Sem resposta do servidor: mantém o snapshot local como fallback offline.
       }
     }
+    setIsInitialized(true);
   }, [profiles]);
 
   useEffect(() => {
@@ -205,12 +208,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, []);
 
-  // Sincroniza o cache local sempre que a lista de vendas for atualizada
+  // Sincroniza o cache local também quando a lista fica vazia, depois da carga inicial.
   useEffect(() => {
-    if (sales.length > 0) {
-      LocalSyncEngine.saveSales(sales);
-    }
-  }, [sales]);
+    if (isInitialized) LocalSyncEngine.saveSales(sales);
+  }, [sales, isInitialized]);
 
   const fetchSalesPage = useCallback(async ({
     page,
@@ -733,6 +734,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         .select('id');
 
       if (delErr) {
+        LocalSyncEngine.removeDeletedSaleId(saleId);
+        LocalSyncEngine.saveSales(sales);
         logSupabaseError('deleteSale', delErr, { saleId });
         return { success: false, error: delErr.message || 'Erro ao excluir a venda no banco de dados.' };
       }
@@ -742,15 +745,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Verifica se a venda ainda existe no banco
         const { data: existingRow, error: checkErr } = await client
           .from('sales')
-          .select('id, seller_id, collaborator_id')
+          .select('id, seller_id, custom_data')
           .eq('id', saleId)
           .maybeSingle();
 
-        if (!checkErr && existingRow) {
-          console.error('❌ [Supabase Sales] Falha de RLS: O registro existe no banco mas o DELETE afetou 0 linhas.', existingRow);
+        if (checkErr || existingRow) {
+          LocalSyncEngine.removeDeletedSaleId(saleId);
+          LocalSyncEngine.saveSales(sales);
+          if (existingRow) console.error('❌ [Supabase Sales] Falha de RLS: O registro existe no banco mas o DELETE afetou 0 linhas.', existingRow);
           return {
             success: false,
-            error: 'Permissão insuficiente no Supabase (RLS): O banco de dados recusou a exclusão desta venda. Verifique se seu perfil possui cargo de administrador ativo no banco de dados ou se você é o autor do lançamento.'
+            error: existingRow
+              ? 'Permissão insuficiente no Supabase (RLS): o banco recusou a exclusão desta venda.'
+              : 'O Supabase não confirmou a exclusão da venda. Verifique a conexão e tente novamente.'
           };
         }
       }
@@ -761,6 +768,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       LocalSyncEngine.saveSales(updated);
       return { success: true };
     } catch (err: any) {
+      LocalSyncEngine.removeDeletedSaleId(saleId);
+      LocalSyncEngine.saveSales(sales);
       console.error('💥 [Supabase Sales] Exceção no delete:', err);
       return { success: false, error: err?.message || 'Erro inesperado ao excluir a venda.' };
     }
