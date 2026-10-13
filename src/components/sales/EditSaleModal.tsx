@@ -148,11 +148,11 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
 
   if (!isOpen || !sale) return null;
 
-  // Permissão: o proprietário da venda pode editar/excluir a própria venda; admin pode editar/excluir qualquer venda.
+  // Permissões: o proprietário pode editar a própria venda; somente administradores podem excluir vendas.
   const isAdmin = currentUser?.role === 'admin';
   const isOwner = Boolean(currentUser && sale.seller_id === currentUser.id);
   const canEdit = isAdmin || isOwner;
-  const canDelete = isAdmin || isOwner;
+  const canDelete = isAdmin;
   if (!canEdit) {
     return (
       <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
@@ -574,7 +574,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           {/* Footer Actions */}
           <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
             
-            {/* Exclusão para Admin ou Autor da venda */}
+            {/* Exclusão exclusiva para administradores */}
             <div>
               {canDelete ? (
                 confirmDelete ? (
