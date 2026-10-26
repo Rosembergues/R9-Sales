@@ -152,7 +152,7 @@ export default function WeeklyView({
 
               {/* Lista de Ações do Dia */}
               <div
-                className={`flex-1 p-2.5 overflow-y-auto space-y-2.5 transition-colors ${
+                className={`planner-task-list flex-1 p-2.5 overflow-y-auto space-y-2.5 transition-colors ${
                   isDragOver ? 'bg-blue-50/20' : 'bg-transparent'
                 }`}
               >

@@ -934,7 +934,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   };
 
   return (
-    <div className={`r9-planner-shell ${externalNavigation ? 'h-[calc(100vh-7.5rem)] min-h-[620px]' : 'h-[calc(100vh-4rem)] min-h-[620px]'} w-full flex flex-col bg-white overflow-hidden select-none font-sans text-zinc-900 rounded-2xl border border-slate-200 shadow-sm`}>
+    <div className={`r9-planner-shell ${externalNavigation ? 'h-[calc(100dvh-6rem)] min-h-[620px]' : 'h-[calc(100vh-4rem)] min-h-[620px]'} w-full flex flex-col bg-white overflow-hidden select-none font-sans text-zinc-900 rounded-2xl border border-slate-200 shadow-sm`}>
       {/* Cabeçalho integrado ao R9 Sales: identidade única, sem perfil/logo/menu duplicado. */}
       <header
         id="planner-main-header"

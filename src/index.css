@@ -22,3 +22,9 @@
 .r9-sidebar .bg-gray-100 { background-color: rgba(255,255,255,.08) !important; }
 .r9-sidebar button:hover:not([class*="bg-blue-"]) { background-color: rgba(255,255,255,.08) !important; }
 .r9-sidebar .bg-white { background-color: transparent !important; }
+
+.planner-task-list {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+  overscroll-behavior: contain;
+}

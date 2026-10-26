@@ -179,7 +179,7 @@ export default function TaskCard({
         <div className="flex-1 min-w-0 pr-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <h4
-              className={`text-[12.5px] font-semibold leading-snug break-words transition-colors ${
+              className={`text-[13px] font-semibold leading-snug break-words transition-colors ${
                 isConcluida
                   ? 'line-through text-slate-400 font-normal'
                   : isOverdue
@@ -211,8 +211,8 @@ export default function TaskCard({
                 <span>Admin</span>
               </span>
             )}
-            {task.recurrence && task.recurrence !== 'Nenhuma' && <Repeat className="w-3 h-3 text-slate-400" aria-label="Tarefa recorrente" />}
-            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${isConcluida ? 'bg-emerald-50 text-emerald-700' : isEmAndamento ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{isConcluida ? 'Concluída' : isEmAndamento ? 'Em andamento' : 'Pendente'}</span>
+            {task.recurrence && task.recurrence !== 'Nenhuma' && <Repeat className="w-3 h-3 text-slate-400 shrink-0" aria-label="Tarefa recorrente" />}
+            {isConcluida || isEmAndamento ? <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${isConcluida ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>{isConcluida ? 'Concluída' : 'Em andamento'}</span> : null}
             {!isConcluida && <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${task.priority === 'Urgente' ? 'bg-rose-50 text-rose-700' : task.priority === 'Alta' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{task.priority}</span>}
           </div>
         </div>
