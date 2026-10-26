@@ -13,6 +13,7 @@ interface MonthlyViewProps {
   onDragStart: (e: React.DragEvent, task: Task) => void;
   onDropOnDate: (dateString: string, e: React.DragEvent) => void;
   onQuickAddTask: (dateString: string) => void;
+  onRescheduleOverdue?: () => void;
 }
 
 export default function MonthlyView({
@@ -25,9 +26,12 @@ export default function MonthlyView({
   onDragStart,
   onDropOnDate,
   onQuickAddTask,
+  onRescheduleOverdue,
 }: MonthlyViewProps) {
   const isAdmin = userRole === 'admin';
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  const overdueTasks = tasks.filter((task) => task.scheduledDate && task.scheduledDate < todayISO && task.status !== 'concluida');
 
   const getPriorityDot = (priority: string) => {
     switch (priority) {
@@ -45,6 +49,12 @@ export default function MonthlyView({
 
   return (
     <div className="h-full w-full p-3 sm:p-4 md:p-5 overflow-y-auto bg-[#f8f9fa]/90 flex flex-col select-none">
+      {overdueTasks.length > 0 && <section className="mb-2 shrink-0 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-2 flex items-center gap-2 text-xs">
+        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+        <span className="font-semibold text-rose-900">Atrasadas · {overdueTasks.length}</span>
+        <div className="flex-1 flex gap-1 overflow-hidden">{overdueTasks.slice(0, 3).map((task) => <button key={task.id} onClick={() => onTaskClick(task)} className="max-w-40 truncate text-rose-800 hover:underline">{task.title}</button>)}{overdueTasks.length > 3 && <span className="text-rose-700">+{overdueTasks.length - 3}</span>}</div>
+        {isAdmin && <button onClick={onRescheduleOverdue} className="shrink-0 rounded-md bg-white px-2 py-1 font-semibold text-rose-800 border border-rose-200 hover:bg-rose-100">Reagendar para hoje</button>}
+      </section>}
       {/* Cabeçalho dos Dias da Semana */}
       <div className="grid grid-cols-7 gap-2 mb-2 shrink-0">
         {WEEKDAYS_SHORT_PT.map((dayName) => (
@@ -85,7 +95,7 @@ export default function MonthlyView({
                   onDropOnDate(dateISO, e);
                 }
               }}
-              className={`min-h-[105px] rounded-xl border p-2 flex flex-col justify-between transition-all group ${
+              className={`relative min-h-[105px] rounded-xl border p-2 flex flex-col justify-between transition-all group ${
                 isDragOver
                   ? 'border-blue-500 ring-2 ring-blue-500/25 bg-blue-50/40'
                   : cell.isToday
@@ -129,8 +139,8 @@ export default function MonthlyView({
               </div>
 
               {/* Lista compacta de tarefas no dia */}
-              <div className="flex-1 overflow-y-auto space-y-1 pr-0.5 max-h-[95px]">
-                {dayTasks.map((task) => {
+              <div className="flex-1 space-y-1 pr-0.5">
+                {dayTasks.slice(0, 3).map((task) => {
                   const isConcluida = task.status === 'concluida';
                   const isOverdue = Boolean(
                     task.scheduledDate &&
@@ -163,7 +173,7 @@ export default function MonthlyView({
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
                         {isOverdue ? (
-                          <AlertCircle className="w-3 h-3 text-rose-600 shrink-0 animate-pulse" />
+                          <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
                         ) : (
                           <span
                             className={`w-1.5 h-1.5 rounded-full shrink-0 ${getPriorityDot(
@@ -200,7 +210,12 @@ export default function MonthlyView({
                     </div>
                   );
                 })}
+                {dayTasks.length > 3 && <button type="button" onClick={() => setExpandedDate(expandedDate === dateISO ? null : dateISO)} className="w-full text-left text-[10px] font-semibold text-blue-700 hover:underline">+{dayTasks.length - 3} mais</button>}
               </div>
+
+              {expandedDate === dateISO && dayTasks.length > 3 && <div className="absolute z-20 top-8 left-1 right-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
+                {dayTasks.slice(3).map((task) => <button key={task.id} type="button" onClick={() => { setExpandedDate(null); onTaskClick(task); }} className="block w-full truncate rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-50">{task.title}</button>)}
+              </div>}
 
               {isDragOver && (
                 <div className="mt-1 text-[10px] text-center text-blue-600 font-semibold bg-blue-50/80 p-1 rounded border border-dashed border-blue-400">

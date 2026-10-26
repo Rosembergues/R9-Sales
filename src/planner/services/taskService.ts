@@ -26,12 +26,44 @@ const taskMutationListeners = new Set<(eventPayload: any) => void>();
 
 // Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
 const recurrenceLocks = new Set<string>();
+const recurrenceHorizonChecked = new Map<string, string>();
 
-/**
- * Cria a próxima ocorrência de uma tarefa recorrente de forma estritamente atômica e segura.
- * Realiza verificação de unicidade no Supabase para garantir que nenhuma tarefa com o mesmo
- * título já exista na mesma data agendada / data de início antes de efetivar qualquer inserção.
- */
+type SubmissionChanges = Record<string, UserTaskSubmission | null>;
+
+async function persistTaskUpdate(
+  task: Task,
+  submissionChanges: SubmissionChanges = {},
+  replaceAggregateValues = false,
+  replaceCompletionMetadata = false
+): Promise<{ data: Task | null; error: any | null }> {
+  const payload = mapTaskToDbPayload(task);
+  if (payload.campos_customizados) {
+    delete payload.campos_customizados.userSubmissions;
+    if (!replaceCompletionMetadata) {
+      delete payload.campos_customizados.completed_by_admin;
+      delete payload.campos_customizados.completedByAdmin;
+      delete payload.campos_customizados.finalizada_por_admin;
+    }
+    if (!replaceAggregateValues || Object.keys(submissionChanges).length > 0) {
+      delete payload.campos_customizados.values;
+    }
+  }
+
+  const { data, error } = await supabase.rpc('update_task_with_submissions', {
+    p_task_id: task.id,
+    p_payload: payload,
+    p_submission_changes: submissionChanges,
+  });
+  if (error) return { data: null, error };
+  if (!data) return { data: null, error: new Error('O Supabase não retornou a tarefa atualizada.') };
+
+  const updatedTask = mapDbRowToTask(data);
+  broadcastTaskMutation('updated', updatedTask);
+  return { data: updatedTask, error: null };
+}
+
+
+/** Insere uma ocorrência e lets the database unique index arbitrate concurrent attempts. */
 export async function createNextRecurrentTaskSafely(
   task: Task,
   nextDate: string
@@ -55,36 +87,7 @@ export async function createNextRecurrentTaskSafely(
   recurrenceLocks.add(lockKey);
 
   try {
-    // 2. Consulta de Unicidade no Supabase:
-    // Verifica se já existe uma tarefa com o mesmo título cadastrada para aquela exata mesma data
-    const { data: existingMatches, error: queryError } = await supabase
-      .from('tarefas')
-      .select('id, titulo, data_agendada, data_inicio, campos_customizados')
-      .contains('campos_customizados', { recurrenceSeriesId: seriesId })
-      .limit(1000);
-
-    if (queryError) {
-      // Não criar sem conseguir verificar duplicidade; é mais seguro falhar claramente.
-      console.error('[Recorrência] Não foi possível verificar duplicidade da série:', queryError);
-      return null;
-    }
-
-    // A deduplicação fica limitada à mesma série; outra tarefa com o mesmo título
-    // não pode bloquear a recorrência desta tarefa.
-    const alreadyExists = existingMatches?.some((row: any) => {
-      const rowScheduled = normalizeDateOnly(row.data_agendada);
-      const rowStart = normalizeDateOnly(row.data_inicio);
-      return rowScheduled === nextDate || rowStart === nextDate;
-    });
-
-    if (alreadyExists) {
-      console.info(
-        `[Recorrência] A tarefa "${normalizedTitle}" já existe na data ${nextDate}. Nenhuma duplicata foi criada.`
-      );
-      return null;
-    }
-
-    // 3. Extrair a lista completa de múltiplos responsáveis para herança total
+    // 2. Extrair a lista completa de múltiplos responsáveis para herança total
     const allAssigneeIds =
       task.assignedToIds && task.assignedToIds.length > 0
         ? [...task.assignedToIds]
@@ -92,7 +95,7 @@ export async function createNextRecurrentTaskSafely(
         ? [task.assignedTo]
         : [];
 
-    // 4. Preparar payload da nova ocorrência limpa
+    // 3. Preparar payload da nova ocorrência limpa
     const recurrentPayload = mapTaskToDbPayload({
       title: normalizedTitle,
       description: task.description ?? '',
@@ -114,12 +117,13 @@ export async function createNextRecurrentTaskSafely(
       comments: [], // Iniciar sem comentários históricos
     });
 
-    // 5. Inserir a nova ocorrência única no Supabase
+    // 4. Inserir; a constraint única transforma uma corrida em no-op.
     const { data: recurrentData, error: recurrentError } = await supabase
       .from('tarefas')
       .insert([recurrentPayload])
       .select();
 
+    if (recurrentError?.code === '23505') return null;
     if (recurrentError) {
       console.error(
         'Erro ao criar próxima instância recorrente no Supabase:',
@@ -144,6 +148,56 @@ export async function createNextRecurrentTaskSafely(
       recurrenceLocks.delete(lockKey);
     }, 2500);
   }
+}
+
+function getNextOccurrenceAfterToday(task: Task, baseDate: string): string | null {
+  const today = formatISO(new Date());
+  let nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
+  // Advance stale series dates until their next occurrence is in the future.
+  for (let i = 0; nextDate && nextDate <= today && i < 10000; i += 1) {
+    nextDate = getNextRecurrenceDate(nextDate, task.recurrence, task.recurrenceDays);
+  }
+  return nextDate && nextDate > today ? nextDate : null;
+}
+
+async function ensureFutureRecurringOccurrences(tasks: Task[], perSeries = 2): Promise<Task[]> {
+  const today = formatISO(new Date());
+  const groups = new Map<string, Task[]>();
+  tasks.forEach((task) => {
+    if (!task.recurrence || task.recurrence === 'Nenhuma') return;
+    const seriesId = task.recurrenceSeriesId || task.id;
+    groups.set(seriesId, [...(groups.get(seriesId) ?? []), task]);
+  });
+
+  const created: Task[] = [];
+  for (const [seriesId, occurrences] of groups) {
+    const current = occurrences.find((task) => task.status !== 'concluida');
+    if (!current || recurrenceHorizonChecked.get(seriesId) === today) continue;
+    recurrenceHorizonChecked.set(seriesId, today);
+
+    const root = occurrences.find((task) => task.id === seriesId) ?? occurrences[0];
+    if (!root) continue;
+    const futureDates = new Set(occurrences
+      .filter((task) => task.status !== 'concluida')
+      .map((task) => task.scheduledDate)
+      .filter((date): date is string => Boolean(date && date > today)));
+    let baseDate = occurrences
+      .map((task) => task.scheduledDate || task.startDate)
+      .filter((date): date is string => Boolean(date))
+      .sort()
+      .at(-1) ?? today;
+
+    for (let step = 0; futureDates.size < perSeries && step < 10000; step += 1) {
+      const nextDate = getNextRecurrenceDate(baseDate, root.recurrence, root.recurrenceDays);
+      if (!nextDate) break;
+      baseDate = nextDate;
+      if (nextDate <= today || futureDates.has(nextDate)) continue;
+      const nextTask = await createNextRecurrentTaskSafely(root, nextDate);
+      if (nextTask) created.push(nextTask);
+      futureDates.add(nextDate);
+    }
+  }
+  return created;
 }
 
 export function getTaskSyncChannel() {
@@ -528,21 +582,6 @@ export function mapTaskToDbPayload(
       ...(task.recurrenceSeriesId ? { recurrenceSeriesId: task.recurrenceSeriesId } : {}),
     };
 
-    // Rastreabilidade e Log (Check-up de Payload antes do Supabase)
-    console.log('[SUPABASE PAYLOAD AUDIT - CHECK-UP]', {
-      taskId: (task as any).id ?? 'NOVO_REGISTRO',
-      taskTitle: task.title,
-      timestamp: new Date().toISOString(),
-      rawInput: {
-        customFieldValues: task.customFieldValues,
-        userSubmissions: task.userSubmissions,
-      },
-      sanitizedPayload: {
-        values: sanitizedValues,
-        userSubmissions: sanitizedSubmissions,
-      },
-      camposCustomizados: payload.campos_customizados,
-    });
   }
 
   // Rastreabilidade de Conclusão por Administrador (completed_by_admin / finalizada_por_admin)
@@ -575,23 +614,27 @@ export function mapTaskToDbPayload(
 }
 
 export const taskService = {
+  async ensureFutureRecurringOccurrences(tasks: Task[]): Promise<Task[]> {
+    return ensureFutureRecurringOccurrences(tasks);
+  },
+
   /**
    * Busca estritamente todas as tarefas reais da tabela 'tarefas' no Supabase
    */
   async fetchTasks(): Promise<{ data: Task[]; error: any | null }> {
     try {
-      const { data, error } = await supabase
-        .from('tarefas')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(1000);
-
-      if (error) {
-        return { data: [], error };
-      }
-
-      if (!data || data.length === 0) {
-        return { data: [], error: null };
+      const data: any[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data: page, error } = await supabase
+          .from('tarefas')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (error) return { data: [], error };
+        data.push(...(page ?? []));
+        if (!page || page.length < pageSize) break;
       }
 
       const parsedTasks = data.map(mapDbRowToTask);
@@ -609,13 +652,6 @@ export const taskService = {
   ): Promise<{ data: Task | null; error: any | null }> {
     try {
       const payload = mapTaskToDbPayload(newTaskData);
-
-      console.log('[SUPABASE AUDIT - INSERT TAREFA]', {
-        operation: 'tarefas.insert',
-        title: newTaskData.title,
-        payload,
-        timestamp: new Date().toISOString(),
-      });
 
       const { data, error } = await supabase
         .from('tarefas')
@@ -674,7 +710,8 @@ export const taskService = {
     task: Task,
     newStatus: TaskStatus,
     filledValues?: CustomFieldValue[],
-    completedByAdmin?: boolean
+    completedByAdmin?: boolean,
+    submissionChanges: SubmissionChanges = {}
   ): Promise<{
     updatedTask: Task;
     nextRecurrentTask: Task | null;
@@ -706,32 +743,13 @@ export const taskService = {
 
     try {
       // 1. Atualizar registro atual no Supabase para o novo status usando mapTaskToDbPayload para sanitização rigorosa
-      const payload = mapTaskToDbPayload(updatedTask);
+      const { data: savedTask, error } = await persistTaskUpdate(updatedTask, submissionChanges, Boolean(filledValues), true);
 
-      console.log('[SUPABASE AUDIT - UPDATE TASK STATUS]', {
-        operation: 'tarefas.updateStatus',
-        taskId: task.id,
-        newStatus,
-        filledValues,
-        payload,
-        timestamp: new Date().toISOString(),
-      });
-
-      const { data: updatedRows, error } = await supabase
-        .from('tarefas')
-        .update(payload)
-        .eq('id', task.id)
-        .select('id');
-
-      if (error) {
+      if (error || !savedTask) {
         console.error('[SUPABASE AUDIT - UPDATE STATUS ERROR]', error);
-        updateError = error;
-      } else if (!updatedRows || updatedRows.length === 0) {
-        updateError = new Error(
-          'O Supabase não confirmou a atualização da tarefa. Verifique as políticas de acesso (RLS) e se a tarefa ainda existe.'
-        );
-        console.error('[SUPABASE AUDIT - UPDATE STATUS NO ROW]', { taskId: task.id });
+        updateError = error ?? new Error('O Supabase não retornou a tarefa atualizada.');
       } else {
+        Object.assign(updatedTask, savedTask);
         broadcastTaskMutation('updated', updatedTask);
       }
 
@@ -746,7 +764,7 @@ export const taskService = {
       if (newStatus === 'concluida' && hasRecurrence) {
         // Base de cálculo: data_agendada atual (ou data_inicio / hoje)
         const baseDate = normalizeDateOnly(task.scheduledDate) ?? normalizeDateOnly(task.startDate) ?? formatISO(new Date());
-        const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
+        const nextDate = getNextOccurrenceAfterToday(task, baseDate);
 
         if (nextDate) {
           // Criação da próxima ocorrência após a conclusão ser persistida.
@@ -928,34 +946,13 @@ export const taskService = {
     let updateError: any = null;
 
     try {
-      const payload = mapTaskToDbPayload(updatedTask);
+      const { data: savedTask, error } = await persistTaskUpdate(updatedTask, { [memberId]: updatedSubmissions[memberId] });
 
-      console.log('[SUPABASE AUDIT - UPDATE ASSIGNEE COMPLETION]', {
-        operation: 'tarefas.updateAssigneeCompletion',
-        taskId: task.id,
-        memberId,
-        completed,
-        inputValues: values,
-        consolidatedValues,
-        payload,
-        timestamp: new Date().toISOString(),
-      });
-
-      const { data: updatedRows, error } = await supabase
-        .from('tarefas')
-        .update(payload)
-        .eq('id', task.id)
-        .select('id');
-
-      if (error) {
+      if (error || !savedTask) {
         console.error('[SUPABASE AUDIT - UPDATE ASSIGNEE COMPLETION ERROR]', error);
-        updateError = error;
-      } else if (!updatedRows || updatedRows.length === 0) {
-        updateError = new Error(
-          'O Supabase não confirmou a atualização da tarefa. Verifique as políticas de acesso (RLS) e se a tarefa ainda existe.'
-        );
-        console.error('[SUPABASE AUDIT - UPDATE ASSIGNEE COMPLETION NO ROW]', { taskId: task.id });
+        updateError = error ?? new Error('O Supabase não retornou a tarefa atualizada.');
       } else {
+        Object.assign(updatedTask, savedTask);
         broadcastTaskMutation('updated', updatedTask);
       }
 
@@ -965,9 +962,9 @@ export const taskService = {
         String(task.recurrence).trim().toLowerCase() !== 'nenhuma' &&
         String(task.recurrence).trim() !== '';
 
-      if (!updateError && allCompleted && hasRecurrence) {
+      if (!updateError && updatedTask.status === 'concluida' && hasRecurrence) {
         const baseDate = normalizeDateOnly(task.scheduledDate) ?? normalizeDateOnly(task.startDate) ?? formatISO(new Date());
-        const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
+        const nextDate = getNextOccurrenceAfterToday(task, baseDate);
 
         if (nextDate) {
           // Criação atômica e segura com consulta prévia no Supabase para evitar duplicatas
@@ -1009,30 +1006,20 @@ export const taskService = {
    * Atualização completa de uma tarefa (título, descrição, prioridade, comentários, etc.)
    */
   async updateTask(
-    task: Task
+    task: Task,
+    submissionChanges: SubmissionChanges = {},
+    replaceAggregateValues = false,
+    replaceCompletionMetadata = false
   ): Promise<{ data: Task; error: any | null }> {
     try {
-      const payload = mapTaskToDbPayload(task);
-
-      console.log('[SUPABASE AUDIT - UPDATE TASK]', {
-        operation: 'tarefas.update',
-        taskId: task.id,
-        payload,
-        timestamp: new Date().toISOString(),
-      });
-
-      const { error } = await supabase
-        .from('tarefas')
-        .update(payload)
-        .eq('id', task.id);
+      const { data, error } = await persistTaskUpdate(task, submissionChanges, replaceAggregateValues, replaceCompletionMetadata);
 
       if (error) {
         console.error('[SUPABASE AUDIT - UPDATE TASK ERROR]', error);
         return { data: task, error };
       }
 
-      broadcastTaskMutation('updated', task);
-      return { data: task, error: null };
+      return { data: data ?? task, error: null };
     } catch (err) {
       console.error('[SUPABASE AUDIT - UPDATE TASK EXCEPTION]', err);
       return { data: task, error: err };

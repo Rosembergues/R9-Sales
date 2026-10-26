@@ -179,7 +179,7 @@ export const WEEKDAYS_PT = [
 export const WEEKDAYS_SHORT_PT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 /**
- * Retorna os 7 dias da semana (de Domingo a Sábado) para uma data de referência no fuso local
+ * Retorna os 7 dias da semana (de Segunda a Domingo) para uma data de referência no fuso local
  */
 export function getWeekDates(referenceDate: Date): Date[] {
   const y = referenceDate.getFullYear();
@@ -188,12 +188,12 @@ export function getWeekDates(referenceDate: Date): Date[] {
   const date = new Date(y, m, d, 12, 0, 0);
   const day = date.getDay(); // 0 = Domingo, 1 = Segunda, etc.
   
-  // Retroceder até o Domingo da semana atual
-  const sunday = new Date(y, m, d - day, 12, 0, 0);
+  // Retroceder até a Segunda-feira da semana atual
+  const monday = new Date(y, m, d - ((day + 6) % 7), 12, 0, 0);
 
   const week: Date[] = [];
   for (let i = 0; i < 7; i++) {
-    const current = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + i, 12, 0, 0);
+    const current = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i, 12, 0, 0);
     week.push(current);
   }
   return week;

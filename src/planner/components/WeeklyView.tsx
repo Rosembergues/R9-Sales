@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar } from 'lucide-react';
+import { Plus, Calendar, AlertCircle } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
 import { formatISO, WEEKDAYS_PT, MONTH_NAMES_PT } from '../utils/dateUtils.ts';
 import TaskCard from './TaskCard.tsx';
@@ -15,6 +15,7 @@ interface WeeklyViewProps {
   onDragStart: (e: React.DragEvent, task: Task) => void;
   onDropOnDate: (dateString: string, e: React.DragEvent) => void;
   onQuickAddTask: (dateString: string) => void;
+  onRescheduleOverdue?: () => void;
 }
 
 export default function WeeklyView({
@@ -28,21 +29,28 @@ export default function WeeklyView({
   onDragStart,
   onDropOnDate,
   onQuickAddTask,
+  onRescheduleOverdue,
 }: WeeklyViewProps) {
   const isAdmin = userRole === 'admin';
   const todayISO = formatISO(todayDate);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
   // Nomes dos dias em formato limpo
-  const getDayLabel = (dateObj: Date) => {
-    const raw = WEEKDAYS_PT[dateObj.getDay()];
-    return raw.replace('-feira', '');
-  };
+  const getDayLabel = (dateObj: Date) => WEEKDAYS_PT[dateObj.getDay()].replace('-feira', '').slice(0, 3);
+  const overdueTasks = tasks.filter((task) => task.scheduledDate && task.scheduledDate < todayISO && task.status !== 'concluida');
+  const visibleDates = weekDates.slice(0, 5).concat(weekDates.slice(5).filter((date) => tasks.some((task) => task.scheduledDate === formatISO(date))));
 
   return (
     <div className="h-full w-full p-3 sm:p-4 overflow-x-auto select-none bg-[#f7f9fb]">
-      <div className="grid grid-cols-7 gap-3 sm:gap-3.5 h-full min-w-[1100px] xl:min-w-0">
-        {weekDates.map((dateObj) => {
+      <div className="h-full min-w-[780px] flex flex-col gap-2">
+        {overdueTasks.length > 0 && <section className="shrink-0 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-2 flex items-center gap-2 text-xs">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span className="font-semibold text-rose-900">Atrasadas · {overdueTasks.length}</span>
+          <div className="flex-1 flex gap-1 overflow-hidden">{overdueTasks.slice(0, 3).map((task) => <button key={task.id} onClick={() => onTaskClick(task)} className="max-w-40 truncate text-rose-800 hover:underline">{task.title}</button>)}{overdueTasks.length > 3 && <span className="text-rose-700">+{overdueTasks.length - 3}</span>}</div>
+          {isAdmin && <button onClick={onRescheduleOverdue} className="shrink-0 rounded-md bg-white px-2 py-1 font-semibold text-rose-800 border border-rose-200 hover:bg-rose-100">Reagendar para hoje</button>}
+        </section>}
+      <div className="grid gap-3 sm:gap-3.5 flex-1 min-h-0" style={{ gridTemplateColumns: `repeat(${visibleDates.length}, minmax(0, 1fr))` }}>
+        {visibleDates.map((dateObj) => {
           const dateISO = formatISO(dateObj);
           const isToday = dateISO === todayISO;
           const isDragOver = dragOverDate === dateISO;
@@ -93,8 +101,8 @@ export default function WeeklyView({
                 <div className="flex items-center gap-2.5 min-w-0">
                   {/* Número do dia grande e nítido */}
                   <span
-                    className={`text-base font-bold shrink-0 ${
-                      isToday ? 'text-[#004691]' : 'text-slate-800'
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                      isToday ? 'bg-[#004691] text-white' : 'text-slate-800'
                     }`}
                   >
                     {dayNumber}
@@ -126,7 +134,7 @@ export default function WeeklyView({
                         : 'bg-slate-100 text-slate-600'
                     }`}
                   >
-                    {dayTasks.length}
+                    {dayTasks.filter((task) => task.status === 'concluida').length}/{dayTasks.length}
                   </span>
 
                   {isAdmin && (
@@ -157,7 +165,7 @@ export default function WeeklyView({
                 {dayTasks.length === 0 && !isDragOver ? (
                   <div className="h-40 flex flex-col items-center justify-center text-center p-3 text-slate-400">
                     <Calendar className="w-5 h-5 opacity-25 mb-1.5 text-slate-500" />
-                    <p className="text-xs font-normal text-slate-400">No tasks</p>
+                    <p className="text-xs font-normal text-slate-400">Sem tarefas</p>
                     {isAdmin && (
                       <button
                         type="button"
@@ -186,6 +194,7 @@ export default function WeeklyView({
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

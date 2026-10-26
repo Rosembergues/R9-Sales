@@ -7,6 +7,7 @@ import {
   CheckSquare,
   AlertCircle,
   ShieldCheck,
+  Repeat,
 } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
 import { getTodayISO } from '../utils/dateUtils.ts';
@@ -54,16 +55,11 @@ export default function TaskCard({
 
   const assigneeIds = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
   const assignedMembers = teamMembers.filter((m) => assigneeIds.includes(m.id));
-  const primaryMember = assignedMembers[0] || teamMembers.find((m) => m.id === task.assignedTo);
 
   // Borda lateral para prioridade ou destaque visual suave
   const getCardBorderClass = () => {
     if (isOverdue) {
       return 'border-l-[3px] border-l-rose-500 border-rose-200/90 bg-rose-50/15 ring-1 ring-rose-400/20';
-    }
-
-    if (task.recurrence && task.recurrence !== 'Nenhuma') {
-      return 'border-l-[3px] border-l-emerald-500';
     }
 
     switch (task.priority) {
@@ -197,7 +193,7 @@ export default function TaskCard({
             {/* Badge Indicador de Atraso */}
             {isOverdue && (
               <span
-                className="inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.2 rounded-md bg-rose-100/90 text-rose-800 border border-rose-300/80 animate-pulse shrink-0"
+                className="inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.2 rounded-md bg-rose-100/90 text-rose-800 border border-rose-300/80 shrink-0"
                 title="Ação pendente com data agendada anterior a hoje"
               >
                 <AlertCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
@@ -215,6 +211,9 @@ export default function TaskCard({
                 <span>Admin</span>
               </span>
             )}
+            {task.recurrence && task.recurrence !== 'Nenhuma' && <Repeat className="w-3 h-3 text-slate-400" aria-label="Tarefa recorrente" />}
+            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${isConcluida ? 'bg-emerald-50 text-emerald-700' : isEmAndamento ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{isConcluida ? 'Concluída' : isEmAndamento ? 'Em andamento' : 'Pendente'}</span>
+            {!isConcluida && <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${task.priority === 'Urgente' ? 'bg-rose-50 text-rose-700' : task.priority === 'Alta' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{task.priority}</span>}
           </div>
         </div>
       </div>
@@ -236,30 +235,8 @@ export default function TaskCard({
             className="flex items-center gap-1.5 min-w-0"
             title={`Responsáveis: ${assignedMembers.map((m) => `${m.name} (${m.role === 'admin' ? 'Admin' : 'Membro'})`).join(', ')}`}
           >
-            {/* Stack de Avatares Sobrepostos */}
-            <div className="flex items-center -space-x-1.5 shrink-0">
-              {assignedMembers.slice(0, 3).map((m) => (
-                <div
-                  key={m.id}
-                  className="w-4.5 h-4.5 rounded-full flex items-center justify-center text-[8.5px] font-bold ring-1.5 ring-white text-white shadow-2xs shrink-0"
-                  style={{ backgroundColor: m.color || '#004691' }}
-                  title={m.name}
-                >
-                  {m.avatar || m.name.charAt(0)}
-                </div>
-              ))}
-              {assignedMembers.length > 3 && (
-                <div className="w-4.5 h-4.5 rounded-full flex items-center justify-center text-[7.5px] font-bold ring-1.5 ring-white bg-slate-700 text-white shadow-2xs shrink-0">
-                  +{assignedMembers.length - 3}
-                </div>
-              )}
-            </div>
-
-            <span className="text-[10.5px] text-slate-600 truncate max-w-[100px] font-normal">
-              {assignedMembers.length === 1
-                ? (primaryMember?.name || primaryMember?.email?.split('@')[0])
-                : `${primaryMember?.name?.split(' ')[0]} +${assignedMembers.length - 1}`}
-            </span>
+            <span className="text-[10px] text-slate-600 truncate max-w-[110px] font-medium">Equipe {completedAssigneesCount}/{effectiveAssignees.length}</span>
+            <div className="w-12 h-1 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${effectiveAssignees.length ? (completedAssigneesCount / effectiveAssignees.length) * 100 : 0}%` }} /></div>
           </div>
         ) : (
           <span className="text-[10px] text-slate-400 italic">Sem responsável</span>

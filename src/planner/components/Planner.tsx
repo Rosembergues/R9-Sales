@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import '../planner.css';
 import { CalendarDays, LayoutGrid, ChevronLeft, ChevronRight, CheckCircle2, Inbox, Tag, TrendingUp, RefreshCw } from 'lucide-react';
-import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket } from '../types.ts';
+import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket, UserTaskSubmission } from '../types.ts';
 import { getWeekDates, formatWeekInterval, getMonthGrid, MONTH_NAMES_PT, formatISO } from '../utils/dateUtils.ts';
 import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
 import { taskService, mapDbRowToTask, subscribeTaskMutations } from '../services/taskService.ts';
@@ -224,7 +224,11 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
       const { data, error } = await taskService.fetchTasks();
 
       if (!error) {
-        const taskList = data || [];
+        let taskList = data || [];
+        if (userRole === 'admin') {
+          const generated = await taskService.ensureFutureRecurringOccurrences(taskList);
+          if (generated.length) taskList = [...generated, ...taskList];
+        }
         setTasks(taskList);
 
         // Atualizar selectedTask se o modal estiver aberto para manter valores e status ao vivo
@@ -239,7 +243,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     } finally {
       setIsLoadingTasks(false);
     }
-  }, []);
+  }, [userRole]);
 
   useEffect(() => {
     loadTasksFromSupabase(true);
@@ -421,6 +425,9 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   // Filtros de Produtividade
   const [navFilter, setNavFilter] = useState<NavFilter>('all');
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
+  const [taskSearch, setTaskSearch] = useState('');
+  const [selectedAssignee, setSelectedAssignee] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
 
   // No modo integrado, a navegação é controlada pela sidebar principal do R9 Sales.
   useEffect(() => {
@@ -488,7 +495,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     // "Meu dia" estritamente filtra tarefas agendadas para hoje nas quais o usuário logado é responsável
     const myDayCount = tasks.filter((t) => {
       const isToday = t.scheduledDate === todayISO;
-      return isToday && isUserTask(t);
+      return (isToday || Boolean(t.scheduledDate && t.scheduledDate < todayISO && t.status !== 'concluida')) && isUserTask(t);
     }).length;
 
     const myTasksCount = tasks.filter(isUserTask).length;
@@ -537,14 +544,26 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
         if (!isAssigned) return false;
       } else if (navFilter === 'my_day') {
         // "Meu dia" exibe estritamente apenas as tarefas agendadas para hoje E atribuídas ao usuário logado
-        if (task.scheduledDate !== todayISO || !isAssigned) return false;
+        if ((!task.scheduledDate || task.scheduledDate > todayISO || task.status === 'concluida') || !isAssigned) return false;
       } else if (navFilter === 'urgent') {
         if (task.priority !== 'Urgente' && task.priority !== 'Alta') return false;
       }
 
+      if (taskSearch && !`${task.title} ${task.description ?? ''} ${task.bucket}`.toLocaleLowerCase('pt-BR').includes(taskSearch.trim().toLocaleLowerCase('pt-BR'))) return false;
+      if (selectedAssignee && !(task.assignedToIds ?? (task.assignedTo ? [task.assignedTo] : [])).includes(selectedAssignee)) return false;
+      if (selectedStatus && task.status !== selectedStatus) return false;
+
       return true;
     });
-  }, [tasks, selectedBucket, navFilter, currentUser, user, teamMembers, todayISO]);
+  }, [tasks, selectedBucket, navFilter, currentUser, user, teamMembers, todayISO, taskSearch, selectedAssignee, selectedStatus]);
+
+  const periodTaskCount = useMemo(() => {
+    if (section === 'queue') return displayedTasks.filter((task) => !task.scheduledDate).length;
+    const dates = viewMode === 'week'
+      ? new Set(weekDates.map(formatISO))
+      : new Set(monthCells.map((cell) => cell.dateString));
+    return displayedTasks.filter((task) => task.scheduledDate && dates.has(task.scheduledDate)).length;
+  }, [section, tasks, viewMode, weekDates, monthCells, displayedTasks]);
 
   // Navegação de datas (Anterior / Próximo / Hoje)
   const handlePrev = () => {
@@ -628,11 +647,27 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     }
   };
 
+  const handleRescheduleOverdue = async () => {
+    if (userRole !== 'admin') return;
+    const overdueTasks = displayedTasks.filter((task) => task.scheduledDate && task.scheduledDate < todayISO && task.status !== 'concluida');
+    setTasks((prev) => prev.map((task) => overdueTasks.some((overdue) => overdue.id === task.id) ? { ...task, scheduledDate: todayISO } : task));
+    let failed = 0;
+    for (let offset = 0; offset < overdueTasks.length; offset += 20) {
+      const batch = overdueTasks.slice(offset, offset + 20);
+      const results = await Promise.all(batch.map((task) => taskService.updateScheduledDate(task.id, todayISO)));
+      failed += results.filter((result) => result.error).length;
+    }
+    if (failed) loadTasksFromSupabase(false);
+    setToastMessage(failed ? `${failed} tarefa(s) não puderam ser reagendadas.` : `${overdueTasks.length} tarefa(s) reagendadas para hoje.`);
+    setTimeout(() => setToastMessage(null), 4000);
+  };
+
   // Execução unificada da conclusão de tarefas com suporte a Geração Automática por Recorrência no Supabase
   const executeCompleteTask = async (
     taskOrId: string | Task,
     filledValues?: CustomFieldValue[],
-    completedByAdmin?: boolean
+    completedByAdmin?: boolean,
+    submissionChanges: Record<string, UserTaskSubmission | null> = {}
   ) => {
     const targetTask =
       typeof taskOrId === 'string'
@@ -653,7 +688,8 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
         targetTask,
         'concluida',
         filledValues,
-        isActionByAdmin
+        isActionByAdmin,
+        submissionChanges
       );
 
     if (error) {
@@ -777,6 +813,14 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   // Atualizar ação existente (com persistência no Supabase)
   const handleUpdateTask = async (updated: Task) => {
     const previousTask = tasks.find((t) => t.id === updated.id);
+    const submissionChanges = Object.fromEntries(
+      Array.from(new Set([
+        ...Object.keys(previousTask?.userSubmissions ?? {}),
+        ...Object.keys(updated.userSubmissions ?? {}),
+      ]))
+        .filter((id) => JSON.stringify(previousTask?.userSubmissions?.[id] ?? null) !== JSON.stringify(updated.userSubmissions?.[id] ?? null))
+        .map((id) => [id, updated.userSubmissions?.[id] ?? null])
+    ) as Record<string, UserTaskSubmission | null>;
     const isBecomingCompleted =
       previousTask &&
       previousTask.status !== 'concluida' &&
@@ -789,8 +833,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
           ? updated.completedByAdmin
           : userRole === 'admin' || currentUser?.role === 'admin';
 
-      await executeCompleteTask(updated, updated.customFieldValues, isByAdmin);
-      setSelectedTask(updated);
+      await executeCompleteTask(updated, updated.customFieldValues, isByAdmin, submissionChanges);
       return;
     }
 
@@ -810,7 +853,9 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     setSelectedTask(sanitizedUpdated);
 
     // Persistir no Supabase
-    const { data: savedTask, error } = await taskService.updateTask(sanitizedUpdated);
+    const aggregateValuesChanged = JSON.stringify(previousTask?.customFieldValues ?? []) !== JSON.stringify(sanitizedUpdated.customFieldValues ?? []);
+    const statusChanged = previousTask?.status !== sanitizedUpdated.status;
+    const { data: savedTask, error } = await taskService.updateTask(sanitizedUpdated, submissionChanges, aggregateValuesChanged, statusChanged);
     if (error) {
       console.error('Erro ao salvar alterações no Supabase:', error);
       // Reverter estado otimista
@@ -942,11 +987,14 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
           <div className="flex flex-wrap items-center justify-end gap-2">
             {section === 'calendar' && (
               <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-100 border border-slate-200">
-                {([['all', 'Todas'], ['my_day', 'Meu dia'], ['urgent', 'Importantes']] as const).map(([filter, label]) => (
+                {([['all', 'Equipe'], ['my_tasks', 'Eu']] as const).map(([filter, label]) => (
                   <button key={filter} type="button" onClick={() => setNavFilter(filter)} className={`px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${navFilter === filter ? 'bg-white text-[#003067] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{label}</button>
                 ))}
               </div>
             )}
+            {section === 'calendar' && <label className="relative"><span className="sr-only">Buscar tarefas</span><input value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} placeholder="Buscar ações" className="h-8 w-32 sm:w-40 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] outline-none focus:border-[#0052cc]" /></label>}
+            {section === 'calendar' && <label><span className="sr-only">Filtrar por responsável</span><select value={selectedAssignee} onChange={(event) => setSelectedAssignee(event.target.value)} className="h-8 max-w-32 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600"><option value="">Todas as pessoas</option>{teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
+            {section === 'calendar' && <label><span className="sr-only">Filtrar por status</span><select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600"><option value="">Todos os status</option><option value="pendente">Pendente</option><option value="em_andamento">Em andamento</option><option value="concluida">Concluída</option></select></label>}
             <label className="relative">
               <span className="sr-only">Filtrar por categoria</span>
               <select value={selectedBucket ?? ''} onChange={(event) => setSelectedBucket(event.target.value || null)} className="h-8 min-w-[150px] rounded-lg border border-slate-200 bg-white pl-2.5 pr-7 text-[11px] font-semibold text-slate-600 outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100">
@@ -954,7 +1002,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
                 {allBuckets.map((bucket) => <option key={bucket} value={bucket}>{bucket}</option>)}
               </select>
             </label>
-            <span className="text-xs text-slate-500 whitespace-nowrap">{section === 'queue' ? tasks.filter((task) => !task.scheduledDate).length : displayedTasks.length} ações</span>
+            <span className="text-xs text-slate-500 whitespace-nowrap">{periodTaskCount} {section === 'queue' ? 'ações na fila' : 'ações no período'}</span>
             {section === 'my_tasks' && <button onClick={() => { setNavFilter('all'); onSectionChange?.('calendar'); }} className="text-xs font-semibold text-[#0052cc] hover:underline cursor-pointer">Ver equipe toda</button>}
           </div>
         </div>
@@ -1071,6 +1119,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
                     onDragStart={handleDragStart}
                     onDropOnDate={handleDropOnDate}
                     onQuickAddTask={handleQuickAddTask}
+                    onRescheduleOverdue={handleRescheduleOverdue}
                   />
                 ) : (
                   <MonthlyView
@@ -1083,6 +1132,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
                     onDragStart={handleDragStart}
                     onDropOnDate={handleDropOnDate}
                     onQuickAddTask={handleQuickAddTask}
+                    onRescheduleOverdue={handleRescheduleOverdue}
                   />
                 )}
               </div>
@@ -1112,6 +1162,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
               onDragStart={handleDragStart}
               onDropOnDate={handleDropOnDate}
               onQuickAddTask={handleQuickAddTask}
+              onRescheduleOverdue={handleRescheduleOverdue}
             />
           ) : (
             <MonthlyView
@@ -1124,6 +1175,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
               onDragStart={handleDragStart}
               onDropOnDate={handleDropOnDate}
               onQuickAddTask={handleQuickAddTask}
+              onRescheduleOverdue={handleRescheduleOverdue}
             />
           )}
         </main>
