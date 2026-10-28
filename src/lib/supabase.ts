@@ -384,6 +384,114 @@ create policy "Admins podem criar, editar ou excluir campanhas"
     exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
+-- Repositório de mensagens (independente das campanhas de vendas)
+create table if not exists public.message_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (length(trim(title)) > 0),
+  description text not null default '',
+  kind text not null default 'folder',
+  audience text,
+  product text,
+  starts_on date,
+  valid_until date,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+alter table public.message_campaigns add column if not exists kind text not null default 'folder';
+alter table public.message_campaigns add column if not exists audience text;
+alter table public.message_campaigns add column if not exists product text;
+alter table public.message_campaigns add column if not exists starts_on date;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'message_campaigns_kind_check' and conrelid = 'public.message_campaigns'::regclass) then
+    alter table public.message_campaigns add constraint message_campaigns_kind_check check (kind in ('folder', 'action'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'message_campaigns_action_details' and conrelid = 'public.message_campaigns'::regclass) then
+    alter table public.message_campaigns add constraint message_campaigns_action_details
+      check (kind <> 'action' or (nullif(trim(audience), '') is not null and nullif(trim(product), '') is not null and starts_on is not null and valid_until is not null and valid_until >= starts_on));
+  end if;
+end $$;
+
+create table if not exists public.repository_messages (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (length(trim(title)) > 0),
+  content text not null check (length(trim(content)) > 0),
+  stage text not null default 'Geral',
+  created_by text,
+  created_by_name text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.repository_messages add column if not exists stage text not null default 'Geral';
+
+create table if not exists public.repository_message_campaigns (
+  campaign_id uuid not null references public.message_campaigns(id) on delete cascade,
+  message_id uuid not null references public.repository_messages(id) on delete cascade,
+  created_by text,
+  created_at timestamptz not null default now(),
+  primary key (campaign_id, message_id)
+);
+
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'repository_messages' and column_name = 'campaign_id') then
+    execute 'insert into public.repository_message_campaigns (campaign_id, message_id, created_by) select campaign_id, id, created_by from public.repository_messages on conflict do nothing';
+    execute 'alter table public.repository_messages drop column campaign_id';
+  end if;
+end $$;
+
+alter table public.message_campaigns enable row level security;
+alter table public.repository_messages enable row level security;
+alter table public.repository_message_campaigns enable row level security;
+
+drop policy if exists "Campanhas de mensagens visíveis a autenticados" on public.message_campaigns;
+create policy "Campanhas de mensagens visíveis a autenticados" on public.message_campaigns
+  for select to authenticated using (true);
+drop policy if exists "Autenticados criam campanhas de mensagens" on public.message_campaigns;
+create policy "Autenticados criam campanhas de mensagens" on public.message_campaigns
+  for insert to authenticated with check (created_by = auth.uid()::text);
+drop policy if exists "Admins excluem campanhas de mensagens" on public.message_campaigns;
+create policy "Admins excluem campanhas de mensagens" on public.message_campaigns
+  for delete to authenticated using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+drop policy if exists "Criador ou admin edita campanha de mensagens" on public.message_campaigns;
+create policy "Criador ou admin edita campanha de mensagens" on public.message_campaigns
+  for update to authenticated
+  using (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'))
+  with check (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+
+drop policy if exists "Mensagens visíveis a autenticados" on public.repository_messages;
+create policy "Mensagens visíveis a autenticados" on public.repository_messages
+  for select to authenticated using (true);
+drop policy if exists "Autenticados criam mensagens" on public.repository_messages;
+create policy "Autenticados criam mensagens" on public.repository_messages
+  for insert to authenticated with check (created_by = auth.uid()::text);
+drop policy if exists "Autores ou admins editam mensagens" on public.repository_messages;
+create policy "Autores ou admins editam mensagens" on public.repository_messages
+  for update to authenticated
+  using (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'))
+  with check (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+drop policy if exists "Admins excluem mensagens" on public.repository_messages;
+create policy "Admins excluem mensagens" on public.repository_messages
+  for delete to authenticated using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+
+drop policy if exists "Vínculos de mensagens visíveis a autenticados" on public.repository_message_campaigns;
+create policy "Vínculos de mensagens visíveis a autenticados" on public.repository_message_campaigns
+  for select to authenticated using (true);
+drop policy if exists "Criadores ou admins vinculam mensagens" on public.repository_message_campaigns;
+create policy "Criadores ou admins vinculam mensagens" on public.repository_message_campaigns
+  for insert to authenticated with check (
+    exists (select 1 from public.message_campaigns c where c.id = campaign_id and (c.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+    or exists (select 1 from public.repository_messages m where m.id = message_id and (m.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+  );
+drop policy if exists "Criadores ou admins removem vínculos" on public.repository_message_campaigns;
+create policy "Criadores ou admins removem vínculos" on public.repository_message_campaigns
+  for delete to authenticated using (
+    exists (select 1 from public.message_campaigns c where c.id = campaign_id and (c.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+    or exists (select 1 from public.repository_messages m where m.id = message_id and (m.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+  );
+
+grant select, insert, update, delete on public.message_campaigns, public.repository_messages, public.repository_message_campaigns to authenticated;
+create index if not exists idx_repository_message_campaigns_message on public.repository_message_campaigns (message_id, campaign_id);
+
 -- ============================================================
 -- 6.1 Índices para consultas operacionais e paginação
 -- Mantém filtros/ordenação rápidos sem alterar o contrato atual da aplicação.
@@ -514,6 +622,24 @@ end $$;
 do $$
 begin
   alter publication supabase_realtime add table public.campaigns;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.message_campaigns;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.repository_messages;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.repository_message_campaigns;
 exception when others then null;
 end $$;
 

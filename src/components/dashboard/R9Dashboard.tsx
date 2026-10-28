@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare } from 'lucide-react';
+import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
 import { PerformanceDashboard } from '../seller/PerformanceDashboard';
 import { GoalManagementPage } from '../admin/GoalManagementPage';
 import { AnalyticsPage } from '../admin/AnalyticsPage';
 import { GoalImportPage } from '../admin/GoalImportPage';
+import { MessageRepository } from '../messages/MessageRepository';
 import { LiveTeamLeaderboard } from '../seller/LiveTeamLeaderboard';
 import { ProductSummaryView } from './ProductSummaryView';
 import { SalesSpreadsheetTable } from './SalesSpreadsheetTable';
@@ -341,6 +342,16 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
+            <button
+              id="nav-mensagens"
+              onClick={() => setActiveTab('mensagens')}
+              title={isSidebarCollapsed ? 'Mensagens' : undefined}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'mensagens' ? 'bg-blue-500/15 text-blue-200 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+            >
+              <MessageSquareText className="w-3.5 h-3.5 text-blue-300" />
+              {!isSidebarCollapsed && <span>Repositório de Mensagens</span>}
+            </button>
+
             {/* Section: Desempenho */}
             {!isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
@@ -488,7 +499,6 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* A aba de administração deve ser visivel apenas para administradores */}
             {isActualAdmin && viewRole === 'admin' && !isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
                 <button
@@ -817,6 +827,8 @@ export const R9Dashboard: React.FC = () => {
                 )}
               </div>
             )}
+
+            {activeTab === 'mensagens' && <MessageRepository />}
 
             {activeTab === 'equipe' && (
               <div className="animate-in fade-in duration-200">
