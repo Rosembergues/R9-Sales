@@ -32,6 +32,10 @@ export const R9Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isPlannerMenuOpen, setIsPlannerMenuOpen] = useState(false);
+  const [isSalesMenuOpen, setIsSalesMenuOpen] = useState(false);
+  const [isPerformanceMenuOpen, setIsPerformanceMenuOpen] = useState(false);
+  const [isProductsMenuOpen, setIsProductsMenuOpen] = useState(false);
+  const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
   const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tags'>('calendar');
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
   const [initialProductForModal, setInitialProductForModal] = useState<MainProductType>('Graduação');
@@ -216,10 +220,24 @@ export const R9Dashboard: React.FC = () => {
             {/* Section: VENDAS & OPERAÇÃO */}
             {!isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2 mb-1">
-                  VENDAS & OPERAÇÃO
-                </p>
+                <button
+                  id="nav-vendas-operacao"
+                  onClick={() => setIsSalesMenuOpen((open) => !open)}
+                  aria-expanded={isSalesMenuOpen}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    ['canvas', 'planilha', 'boletos_do_dia', 'fechamento_diario'].includes(activeTab)
+                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-blue-300" />
+                    <span>Vendas & Operação</span>
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isSalesMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
 
+                {isSalesMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
                 <button
                   id="nav-planilha-vendas"
                   onClick={() => setActiveTab('canvas')}
@@ -268,6 +286,7 @@ export const R9Dashboard: React.FC = () => {
                   <span className="text-[11px] font-bold text-indigo-600">{boletosDoDiaCount}</span>
                 </button>
 
+                </div>}
               </div>
             )}
 
@@ -324,10 +343,24 @@ export const R9Dashboard: React.FC = () => {
 
             {/* Section: Desempenho */}
             {!isSidebarCollapsed && (
-              <div className="space-y-1 pt-3 border-t border-[#24334b]">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">
-                  DESEMPENHO
-                </p>
+              <div className="space-y-1 pt-2">
+                <button
+                  id="nav-desempenho-section"
+                  onClick={() => setIsPerformanceMenuOpen((open) => !open)}
+                  aria-expanded={isPerformanceMenuOpen}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    ['resumo', 'resumo_semanal', 'analytics', 'rank_semanal', 'rank_mensal', 'planner_summary'].includes(activeTab)
+                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-blue-300" />
+                    <span>Desempenho</span>
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPerformanceMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isPerformanceMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
                 <button
                   id="nav-desempenho"
                   onClick={() => setActiveTab('resumo')}
@@ -380,21 +413,30 @@ export const R9Dashboard: React.FC = () => {
                     <span>Resumo semanal</span>
                   </button>
                 )}
+                </div>}
               </div>
             )}
 
             {/* Section: Produtos */}
             {!isSidebarCollapsed && (
-              <div className="space-y-1 pt-3 border-t border-[#24334b]">
-                <div className="flex items-center justify-between px-2 mb-1">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    PRODUTOS
-                  </p>
-                  <span className="text-[10px] font-bold text-gray-400 bg-white/5 text-slate-300 px-1.5 py-0.5 rounded">
-                    {graduacaoCount + posCount + tecnicoCount}
+              <div className="space-y-1 pt-2">
+                <button
+                  id="nav-produtos-section"
+                  onClick={() => setIsProductsMenuOpen((open) => !open)}
+                  aria-expanded={isProductsMenuOpen}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    ['produto_graduacao', 'produto_pos', 'produto_tecnico'].includes(activeTab)
+                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Tag className="w-3.5 h-3.5 text-blue-300" />
+                    <span>Produtos</span>
                   </span>
-                </div>
-
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isProductsMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isProductsMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
                 <button
                   id="filter-graduacao"
                   onClick={() => setActiveTab('produto_graduacao')}
@@ -442,16 +484,30 @@ export const R9Dashboard: React.FC = () => {
                   </div>
                   <span className="text-[11px] font-bold text-slate-400">{tecnicoCount}</span>
                 </button>
+                </div>}
               </div>
             )}
 
             {/* A aba de administração deve ser visivel apenas para administradores */}
             {isActualAdmin && viewRole === 'admin' && !isSidebarCollapsed && (
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2">
-                  ADMINISTRAÇÃO
-                </p>
-
+              <div className="space-y-1 pt-2">
+                <button
+                  id="nav-administracao-section"
+                  onClick={() => setIsAdminMenuOpen((open) => !open)}
+                  aria-expanded={isAdminMenuOpen}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    ['equipe', 'metas', 'metas_importacao', 'campanhas'].includes(activeTab)
+                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Shield className="w-3.5 h-3.5 text-blue-300" />
+                    <span>Administração</span>
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isAdminMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isAdminMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
                 <button
                   id="nav-gerenciar-equipe"
                   onClick={() => setActiveTab('equipe')}
@@ -521,6 +577,7 @@ export const R9Dashboard: React.FC = () => {
                   </div>
                 </button>
 
+                </div>}
               </div>
             )}
 
