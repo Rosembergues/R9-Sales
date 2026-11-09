@@ -946,7 +946,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
           </div>
           <div className="min-w-0">
             <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight tracking-tight">
-              {section === 'summary' ? 'Resumo semanal' : section === 'tags' ? 'Tags e categorias' : section === 'queue' ? 'Fila de tarefas' : section === 'my_tasks' ? 'Minhas tarefas' : 'Planejamento'}
+              {section === 'summary' ? 'Balanço da semana' : section === 'tags' ? 'Tags e categorias' : section === 'queue' ? 'Fila de tarefas' : section === 'my_tasks' ? 'Minhas tarefas' : 'Planejamento'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5 truncate">
               {section === 'summary' ? 'Acompanhamento gerencial das ações da equipe' : section === 'tags' ? 'Organize as categorias usadas nas ações da equipe' : section === 'queue' ? 'Ações que aguardam uma data no calendário' : section === 'my_tasks' ? 'Acompanhe as ações atribuídas a você' : 'Organize ações, responsáveis e prazos da equipe'}

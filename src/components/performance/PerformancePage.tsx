@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, ChevronLeft, ChevronRight, Database, Download, ShoppingCart } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Database, Download, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { useOfficialGoals } from '../../hooks/useOfficialGoals';
 import { supabase } from '../../lib/supabase';
-import { getRealSaleDate } from '../../lib/salesMapper';
+import { getRealSaleDate, getSaleFdiDisplay } from '../../lib/salesMapper';
 import { getModelMetadata } from '../../lib/goalImport';
 import { resolveDataDate } from '../../lib/goalProgress';
 import { getRankingOperationTarget } from '../seller/rankingUtils';
@@ -13,6 +13,8 @@ import {
   IndividualGoal,
   addDays,
   consultantRows,
+  salesProfile,
+  SalesProfile,
   currentCycleRange,
   dailyCsv,
   dailyRows,
@@ -25,7 +27,7 @@ import {
 import { CumulativeChart, STATUS_STYLE, StatusChip, VsAA, statusOf } from '../dashboard/OfficialGoalsPanel';
 
 type PeriodMode = 'ciclo' | 'mes' | 'semana' | 'livre';
-type Tab = 'geral' | 'semanas' | 'dias' | 'consultores';
+type Tab = 'geral' | 'semanas' | 'dias' | 'consultores' | 'perfil';
 
 const fmt = (v: number, digits = 0) => v.toLocaleString('pt-BR', { maximumFractionDigits: digits });
 const fmtSmart = (v: number) => fmt(v, Math.abs(v) > 0 && Math.abs(v) < 10 ? 1 : 0);
@@ -34,8 +36,10 @@ const pct = (a: number, b: number) => (b > 0 ? (a / b) * 100 : null);
 const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const brFull = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 const localIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const monthLabel = (iso: string) => // ex.: "novembro de 2026"
-  new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+const monthLabel = (iso: string) => { // ex.: "Novembro de 2026"
+  const s = new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
 const groupLabel = (g: string) => getModelMetadata(g).title.replace('Graduação · ', '').replace('Pós-Graduação · ', 'Pós ').replace('Curso Técnico · ', 'Técnico ');
 
 interface Props {
@@ -132,6 +136,10 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
       date: localIso(d),
       mainProduct: s.custom_data?.main_product || s.product_name,
       modality: s.custom_data?.modality,
+      shift: s.custom_data?.shift,
+      fdi: getSaleFdiDisplay(s),
+      parcela: s.custom_data?.parcela_leve,
+      bolsa: Boolean(s.custom_data?.has_bolsa_convenio),
     };
   }), [sales]);
 
@@ -144,6 +152,11 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
       : null;
     return consultantRows(perfSales, filter.groups, range.start, range.end, profiles, targetOf);
   }, [goals, range, mode, filter, perfSales, profiles]);
+
+  const profile = useMemo(
+    () => salesProfile(perfSales, filter.groups, range.start, range.end),
+    [perfSales, filter.groups, range],
+  );
 
   const shift = (dir: 1 | -1) => {
     if (mode === 'mes') {
@@ -172,6 +185,7 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
     { key: 'semanas', label: 'Semana a semana' },
     { key: 'dias', label: 'Dia a dia' },
     { key: 'consultores', label: isAdmin ? 'Consultores' : 'Meu desempenho' },
+    { key: 'perfil', label: 'Perfil das vendas' },
   ];
 
   return (
@@ -180,7 +194,7 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
       <section className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 font-['Space_Grotesk'] flex items-center gap-2">
-            <Activity className="w-6 h-6 text-blue-600" /> Desempenho
+            <BarChart3 className="w-6 h-6 text-blue-600" /> Analytics
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Metas oficiais do Power BI em detalhe: por metodologia, semana, dia e consultor.
@@ -234,7 +248,7 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
               <input type="date" value={custom.end} onChange={e => setCustom(c => ({ ...c, end: e.target.value }))} className="h-9 rounded-lg border border-slate-200 px-2 text-xs" name="performance_end" />
             </>
           ) : (
-            <span className={`font-bold ${mode === 'mes' ? 'capitalize' : ''}`}>{rangeLabel}</span>
+            <span className="font-bold">{rangeLabel}</span>
           )}
           {(mode === 'mes' || mode === 'semana') && (
             <button onClick={() => shift(1)} className="p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer" aria-label="Próximo"><ChevronRight className="w-4 h-4" /></button>
@@ -408,6 +422,8 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
         </div>
       )}
 
+      {tab === 'perfil' && <ProfileTab profile={profile} rangeLabel={rangeLabel} filterLabel={filter.label} />}
+
       {tab === 'consultores' && (
         <ConsultantsTab
           rows={consultants}
@@ -500,3 +516,40 @@ const ConsultantsTab: React.FC<{
     </div>
   );
 };
+
+/** Lista de barras horizontais (uma dimensão do perfil). */
+const Breakdown: React.FC<{ title: string; items: [string, number][]; total: number; label?: (k: string) => string }> = ({ title, items, total, label }) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <h3 className="text-xs font-extrabold text-slate-900 mb-3">{title}</h3>
+    {items.length === 0 ? <p className="text-[11px] text-slate-400">Sem vendas.</p> : (
+      <ul className="space-y-2">
+        {items.map(([k, n]) => (
+          <li key={k}>
+            <div className="flex justify-between text-[11px] text-slate-700 mb-0.5">
+              <span className="truncate">{label ? label(k) : k}</span>
+              <span className="font-bold">{n} <span className="font-normal text-slate-400">· {fmt((n / Math.max(1, total)) * 100)}%</span></span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-blue-600" style={{ width: `${(n / Math.max(1, total)) * 100}%` }} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    )}
+  </div>
+);
+
+const ProfileTab: React.FC<{ profile: SalesProfile; rangeLabel: string; filterLabel: string }> = ({ profile, rangeLabel, filterLabel }) => (
+  <div className="space-y-4">
+    <p className="text-xs text-slate-500">
+      Vendas lançadas no R9 Sales · {filterLabel} · {rangeLabel}: <b className="text-slate-800">{profile.total}</b>
+      {profile.total > 0 && <> · com bolsa/convênio: <b className="text-slate-800">{profile.withBolsa}</b> ({fmt((profile.withBolsa / profile.total) * 100)}%)</>}
+    </p>
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <Breakdown title="Modalidade" items={profile.byGroup} total={profile.total} label={groupLabel} />
+      <Breakdown title="Forma de ingresso" items={profile.byFdi} total={profile.total} />
+      <Breakdown title="Turno" items={profile.byShift} total={profile.total} />
+      <Breakdown title="Parcela leve" items={profile.byParcela} total={profile.total} />
+    </div>
+  </div>
+);

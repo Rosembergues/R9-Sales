@@ -293,7 +293,7 @@ export default function LeftSidebar({
                     ? 'bg-blue-600 text-white font-bold'
                     : 'text-zinc-400 hover:text-blue-700 hover:bg-blue-50'
                 }`}
-                title="Resumo Executivo Semanal (Painel Gerencial)"
+                title="Balanço da semana (painel gerencial)"
               >
                 <CalendarDays className="w-4 h-4" />
               </button>
@@ -682,11 +682,11 @@ export default function LeftSidebar({
                       ? 'bg-blue-600 text-white shadow-2xs font-semibold'
                       : 'bg-blue-50/70 text-blue-700 hover:bg-blue-100/80 border border-blue-200/80'
                   }`}
-                  title="Acessar o Resumo Executivo Semanal e métricas de formulários"
+                  title="Abrir o Balanço da semana e as métricas de formulários"
                 >
                   <div className="flex items-center gap-2">
                     <TrendingUp className={`w-4 h-4 ${activeView === 'executive_summary' ? 'text-white' : 'text-blue-600'}`} />
-                    <span>Resumo Semanal</span>
+                    <span>Balanço da semana</span>
                   </div>
                   <span
                     className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
@@ -1030,7 +1030,7 @@ export default function LeftSidebar({
                     className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
                   >
                     <TrendingUp className="w-3.5 h-3.5" />
-                    <span>Abrir Resumo Executivo Semanal</span>
+                    <span>Abrir Balanço da semana</span>
                   </button>
                 </div>
               </>

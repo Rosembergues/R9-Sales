@@ -17,15 +17,16 @@ const POS = ['pos_presencial', 'pos_aovivo', 'pos_digital'];
 const TEC = ['tecnico_presencial'];
 
 export const METHOD_FILTERS: MethodFilter[] = [
-  { key: 'graduacao', label: 'Graduação', groups: [...GRAD_PRES, ...GRAD_DIG], operation: 'graduacao_total' },
+  { key: 'graduacao', label: 'Graduação Total', groups: [...GRAD_PRES, ...GRAD_DIG], operation: 'graduacao_total' },
   { key: 'bu_presencial', label: 'BU Presencial', groups: GRAD_PRES, operation: 'bu_presencial' },
-  { key: 'presencial', label: 'Presencial', groups: ['graduacao_presencial'], operation: null },
-  { key: 'semi', label: 'Semipresencial', groups: ['graduacao_semipresencial'], operation: null },
-  { key: 'aovivo', label: 'Ao Vivo', groups: ['graduacao_aovivo'], operation: null },
-  { key: 'digital', label: 'Digital (EAD + Flex)', groups: GRAD_DIG, operation: 'bu_digital' },
-  { key: 'pos', label: 'Pós-Graduação', groups: POS, operation: 'pos' },
+  { key: 'digital', label: 'BU Digital', groups: GRAD_DIG, operation: 'bu_digital' },
+  { key: 'presencial', label: 'Met. Presencial', groups: ['graduacao_presencial'], operation: null },
+  { key: 'semi', label: 'Met. Semipresencial', groups: ['graduacao_semipresencial'], operation: null },
+  { key: 'aovivo', label: 'Met. Ao Vivo', groups: ['graduacao_aovivo'], operation: null },
+  { key: 'ead', label: 'Met. EAD', groups: ['graduacao_ead'], operation: null },
+  { key: 'flex', label: 'Met. Flex', groups: ['graduacao_dlex'], operation: null },
+  { key: 'pos', label: 'Pós Graduação', groups: POS, operation: 'pos' },
   { key: 'tecnico', label: 'Técnico', groups: TEC, operation: 'tecnico' },
-  { key: 'todos', label: 'Todos os produtos', groups: [...GRAD_PRES, ...GRAD_DIG, ...POS, ...TEC], operation: 'todos_produtos' },
 ];
 
 const DAY = 86400000;
@@ -252,4 +253,46 @@ export function dailyCsv(rows: DayRow[]): string {
   const lines = ['Data;Meta;Realizado;Ano anterior;Meta acumulada;Realizado acumulado;Ano anterior acumulado'];
   rows.forEach(r => lines.push([br(r.date), n(r.meta), n(r.actual), n(r.aa), n(r.cumMeta), n(r.cumActual), n(r.cumAa)].join(';')));
   return lines.join('\r\n');
+}
+
+/** Dados extras da venda usados no "Perfil das vendas" (antiga tela Produtos). */
+export interface ProfileSale extends PerfSale {
+  shift?: string;
+  fdi?: string;
+  parcela?: string;
+  bolsa?: boolean;
+}
+
+export interface SalesProfile {
+  total: number;
+  byGroup: [string, number][];
+  byShift: [string, number][];
+  byFdi: [string, number][];
+  byParcela: [string, number][];
+  withBolsa: number;
+}
+
+const ranked = (map: Map<string, number>) => [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR'));
+
+/** Distribuição das vendas lançadas no período por modalidade, turno, ingresso, parcela e convênio. */
+export function salesProfile(sales: ProfileSale[], groups: string[], start: string, end: string): SalesProfile {
+  const byGroup = new Map<string, number>();
+  const byShift = new Map<string, number>();
+  const byFdi = new Map<string, number>();
+  const byParcela = new Map<string, number>();
+  let total = 0;
+  let withBolsa = 0;
+  const inc = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+  sales.forEach(s => {
+    if (!s.date || s.date < start || s.date > end) return;
+    const group = saleGoalGroup(s.mainProduct, s.modality);
+    if (!group || !groups.includes(group)) return;
+    total += 1;
+    inc(byGroup, group);
+    inc(byShift, s.shift || 'Não informado');
+    inc(byFdi, s.fdi || 'Não informado');
+    inc(byParcela, s.parcela || 'Sem parcelas');
+    if (s.bolsa) withBolsa += 1;
+  });
+  return { total, byGroup: ranked(byGroup), byShift: ranked(byShift), byFdi: ranked(byFdi), byParcela: ranked(byParcela), withBolsa };
 }

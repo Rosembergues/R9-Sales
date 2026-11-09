@@ -9,7 +9,6 @@ import { GoalManagementPage } from '../admin/GoalManagementPage';
 import { GoalImportPage } from '../admin/GoalImportPage';
 import { MessageRepository } from '../messages/MessageRepository';
 import { LiveTeamLeaderboard } from '../seller/LiveTeamLeaderboard';
-import { ProductSummaryView } from './ProductSummaryView';
 import { SalesSpreadsheetTable } from './SalesSpreadsheetTable';
 import { DailyClosingView } from './DailyClosingView';
 import { HomeDashboard } from './HomeDashboard';
@@ -34,7 +33,6 @@ export const R9Dashboard: React.FC = () => {
   const [isPlannerMenuOpen, setIsPlannerMenuOpen] = useState(false);
   const [isSalesMenuOpen, setIsSalesMenuOpen] = useState(false);
   const [isPerformanceMenuOpen, setIsPerformanceMenuOpen] = useState(false);
-  const [isProductsMenuOpen, setIsProductsMenuOpen] = useState(false);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
   const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tags'>('calendar');
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
@@ -56,6 +54,8 @@ export const R9Dashboard: React.FC = () => {
     }
   }, [isActualAdmin, viewRole, activeTab]);
 
+  const isPlannerArea = activeTab === 'planner' || activeTab === 'planner_summary';
+
   const openPlannerSection = (section: 'calendar' | 'queue' | 'my_tasks' | 'tags') => {
     setPlannerSection(section);
     setActiveTab('planner');
@@ -64,42 +64,19 @@ export const R9Dashboard: React.FC = () => {
 
   const openPlannerSummary = () => {
     setActiveTab('planner_summary');
-    setIsPlannerMenuOpen(false);
+    setIsPlannerMenuOpen(true);
   };
 
   const handlePlannerSectionChange = useCallback((section: 'calendar' | 'queue' | 'my_tasks' | 'tags' | 'summary') => {
     if (section === 'summary') {
       setActiveTab('planner_summary');
-      setIsPlannerMenuOpen(false);
+      setIsPlannerMenuOpen(true);
       return;
     }
     setPlannerSection(section);
     setActiveTab('planner');
     setIsPlannerMenuOpen(true);
   }, []);
-
-  // Helper to determine product type of a sale
-  const getSaleProductType = (sale: Sale): MainProductType => {
-    if (sale.custom_data?.main_product) {
-      return sale.custom_data.main_product;
-    }
-    const name = (sale.product_name || '').toLowerCase();
-    const mod = (sale.custom_data?.modality || '').toLowerCase();
-    const fdi = getSaleFdiDisplay(sale).toLowerCase();
-
-    if (name.includes('pós') || mod.includes('pós') || fdi.includes('pós')) {
-      return 'Pós Graduação';
-    }
-    if (name.includes('técnico') || mod.includes('técnico') || fdi.includes('técnico')) {
-      return 'Curso Técnico';
-    }
-    return 'Graduação';
-  };
-
-  // Computed product counts
-  const graduacaoCount = sales.filter(s => getSaleProductType(s) === 'Graduação').length;
-  const posCount = sales.filter(s => getSaleProductType(s) === 'Pós Graduação').length;
-  const tecnicoCount = sales.filter(s => getSaleProductType(s) === 'Curso Técnico').length;
 
   // Computed today's sales count (Boletos do Dia) - Estritamente pela Data da Venda de HOJE
   const todayFormatted = getTodayBrDate();
@@ -296,7 +273,7 @@ export const R9Dashboard: React.FC = () => {
                 <button
                   id="nav-planejamento"
                   onClick={() => {
-                    if (activeTab !== 'planner') {
+                    if (activeTab !== 'planner' && activeTab !== 'planner_summary') {
                       setActiveTab('planner');
                       setPlannerSection('calendar');
                       setIsPlannerMenuOpen(true);
@@ -304,9 +281,9 @@ export const R9Dashboard: React.FC = () => {
                       setIsPlannerMenuOpen((open) => !open);
                     }
                   }}
-                  aria-expanded={isPlannerMenuOpen && activeTab === 'planner'}
+                  aria-expanded={isPlannerMenuOpen && isPlannerArea}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'planner'
+                    isPlannerArea
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -315,25 +292,30 @@ export const R9Dashboard: React.FC = () => {
                     <ClipboardList className="w-3.5 h-3.5 text-blue-300" />
                     <span>Planejamento</span>
                   </span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPlannerMenuOpen && activeTab === 'planner' ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPlannerMenuOpen && isPlannerArea ? 'rotate-180' : ''}`} />
                 </button>
 
-                {isPlannerMenuOpen && activeTab === 'planner' && (
+                {isPlannerMenuOpen && isPlannerArea && (
                   <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
-                    <button id="nav-planner-calendar" onClick={() => openPlannerSection('calendar')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'calendar' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                    <button id="nav-planner-calendar" onClick={() => openPlannerSection('calendar')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'calendar' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                       <CalendarDays className="w-3.5 h-3.5" /><span>Calendário</span>
                     </button>
                     {isActualAdmin && viewRole === 'admin' && (
-                      <button id="nav-planner-queue" onClick={() => openPlannerSection('queue')} className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'queue' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                      <button id="nav-planner-queue" onClick={() => openPlannerSection('queue')} className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'queue' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                         <span className="flex items-center gap-2.5"><Inbox className="w-3.5 h-3.5" /><span>Fila de tarefas</span></span>
                       </button>
                     )}
-                    <button id="nav-planner-my-tasks" onClick={() => openPlannerSection('my_tasks')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'my_tasks' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                    <button id="nav-planner-my-tasks" onClick={() => openPlannerSection('my_tasks')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'my_tasks' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                       <CheckSquare className="w-3.5 h-3.5" /><span>Minhas tarefas</span>
                     </button>
                     {isActualAdmin && viewRole === 'admin' && (
-                      <button id="nav-planner-tags" onClick={() => openPlannerSection('tags')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${plannerSection === 'tags' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                      <button id="nav-planner-tags" onClick={() => openPlannerSection('tags')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'tags' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                         <Tag className="w-3.5 h-3.5" /><span>Tags e categorias</span>
+                      </button>
+                    )}
+                    {isActualAdmin && viewRole === 'admin' && (
+                      <button id="nav-planner-summary" onClick={openPlannerSummary} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner_summary' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                        <CalendarCheck className="w-3.5 h-3.5" /><span>Balanço da semana</span>
                       </button>
                     )}
                   </div>
@@ -359,7 +341,7 @@ export const R9Dashboard: React.FC = () => {
                   onClick={() => setIsPerformanceMenuOpen((open) => !open)}
                   aria-expanded={isPerformanceMenuOpen}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    ['resumo', 'resumo_semanal', 'analytics', 'rank_semanal', 'rank_mensal', 'planner_summary'].includes(activeTab)
+                    ['resumo', 'resumo_semanal', 'analytics', 'rank_semanal', 'rank_mensal'].includes(activeTab)
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -380,8 +362,8 @@ export const R9Dashboard: React.FC = () => {
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
                 >
-                  <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Desempenho</span>
+                  <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Analytics</span>
                 </button>
                 <button
                   id="nav-ranking"
@@ -394,91 +376,6 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <Trophy className="w-3.5 h-3.5 text-amber-400" />
                   <span>Ranking</span>
-                </button>
-                {isActualAdmin && viewRole === 'admin' && (
-                  <button
-                    id="nav-planner-summary"
-                    onClick={openPlannerSummary}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                      activeTab === 'planner_summary'
-                        ? 'bg-blue-500/15 text-blue-300 font-semibold'
-                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <CalendarCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Resumo semanal</span>
-                  </button>
-                )}
-                </div>}
-              </div>
-            )}
-
-            {/* Section: Produtos */}
-            {!isSidebarCollapsed && (
-              <div className="space-y-1 pt-2">
-                <button
-                  id="nav-produtos-section"
-                  onClick={() => setIsProductsMenuOpen((open) => !open)}
-                  aria-expanded={isProductsMenuOpen}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    ['produto_graduacao', 'produto_pos', 'produto_tecnico'].includes(activeTab)
-                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <Tag className="w-3.5 h-3.5 text-blue-300" />
-                    <span>Produtos</span>
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isProductsMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isProductsMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
-                <button
-                  id="filter-graduacao"
-                  onClick={() => setActiveTab('produto_graduacao')}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'produto_graduacao'
-                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#0052cc]" />
-                    <span className="font-medium">Graduação</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-400">{graduacaoCount}</span>
-                </button>
-
-                <button
-                  id="filter-pos-graduacao"
-                  onClick={() => setActiveTab('produto_pos')}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'produto_pos'
-                      ? 'bg-purple-50 text-purple-700 font-semibold shadow-2xs'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-purple-600" />
-                    <span className="font-medium">Pós Graduação</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-400">{posCount}</span>
-                </button>
-
-                <button
-                  id="filter-curso-tecnico"
-                  onClick={() => setActiveTab('produto_tecnico')}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'produto_tecnico'
-                      ? 'bg-amber-50 text-amber-700 font-semibold shadow-2xs'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    <span className="font-medium">Curso Técnico</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-400">{tecnicoCount}</span>
                 </button>
                 </div>}
               </div>
@@ -693,7 +590,7 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {(activeTab === 'resumo' || activeTab === 'resumo_semanal' || activeTab === 'analytics') && (
+            {(activeTab === 'resumo' || activeTab === 'resumo_semanal' || activeTab === 'analytics' || activeTab.startsWith('produto_')) && (
               <PerformancePage onOpenNewSaleModal={() => setShowNewSaleModal(true)} />
             )}
 
@@ -736,21 +633,6 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {(activeTab === 'produto_graduacao' || activeTab === 'produto_pos' || activeTab === 'produto_tecnico') && (
-              <ProductSummaryView
-                productType={
-                  activeTab === 'produto_pos'
-                    ? 'Pós Graduação'
-                    : activeTab === 'produto_tecnico'
-                    ? 'Curso Técnico'
-                    : 'Graduação'
-                }
-                onOpenNewSaleModal={(prod) => {
-                  setInitialProductForModal(prod || 'Graduação');
-                  setShowNewSaleModal(true);
-                }}
-              />
-            )}
 
 
             {activeTab === 'metas_importacao' && (
