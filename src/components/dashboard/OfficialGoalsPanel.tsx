@@ -36,17 +36,17 @@ const METHOD_TILES: { key: string; label: string; detail?: string; groups: strin
 ];
 
 type Status = 'good' | 'warning' | 'critical' | 'none';
-const statusOf = (attainment: number | null): Status =>
+export const statusOf = (attainment: number | null): Status =>
   attainment === null ? 'none' : attainment >= 100 ? 'good' : attainment >= 90 ? 'warning' : 'critical';
 
-const STATUS_STYLE: Record<Status, { text: string; bg: string; label: string }> = {
+export const STATUS_STYLE: Record<Status, { text: string; bg: string; label: string }> = {
   good: { text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', label: 'No ritmo' },
   warning: { text: 'text-amber-700', bg: 'bg-amber-50 border-amber-200', label: 'Atenção' },
   critical: { text: 'text-rose-700', bg: 'bg-rose-50 border-rose-200', label: 'Abaixo do ritmo' },
   none: { text: 'text-slate-500', bg: 'bg-slate-50 border-slate-200', label: 'Sem meta até agora' },
 };
 
-const StatusChip: React.FC<{ attainment: number | null }> = ({ attainment }) => {
+export const StatusChip: React.FC<{ attainment: number | null }> = ({ attainment }) => {
   const s = statusOf(attainment);
   const style = STATUS_STYLE[s];
   const Icon = s === 'good' ? CheckCircle2 : s === 'none' ? Flag : AlertTriangle;
@@ -57,7 +57,7 @@ const StatusChip: React.FC<{ attainment: number | null }> = ({ attainment }) => 
   );
 };
 
-const VsAA: React.FC<{ actual: number; aa: number }> = ({ actual, aa }) => {
+export const VsAA: React.FC<{ actual: number; aa: number }> = ({ actual, aa }) => {
   if (aa <= 0) return <span className="text-slate-400">—</span>;
   const d = (actual / aa - 1) * 100;
   const up = d >= 0;
@@ -333,7 +333,7 @@ const SERIES = [
   { key: 'aa' as const, label: 'Ano anterior', color: '#94a3b8', dash: '2 3' },
 ];
 
-const CumulativeChart: React.FC<{ data: CumulativePoint[] }> = ({ data }) => {
+export const CumulativeChart: React.FC<{ data: CumulativePoint[] }> = ({ data }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(480);
   const [hover, setHover] = useState<number | null>(null);

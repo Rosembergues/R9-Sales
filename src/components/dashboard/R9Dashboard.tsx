@@ -4,9 +4,8 @@ import { useSales } from '../../context/SalesContext';
 import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
-import { PerformanceDashboard } from '../seller/PerformanceDashboard';
+import { PerformancePage } from '../performance/PerformancePage';
 import { GoalManagementPage } from '../admin/GoalManagementPage';
-import { AnalyticsPage } from '../admin/AnalyticsPage';
 import { GoalImportPage } from '../admin/GoalImportPage';
 import { MessageRepository } from '../messages/MessageRepository';
 import { LiveTeamLeaderboard } from '../seller/LiveTeamLeaderboard';
@@ -52,7 +51,7 @@ export const R9Dashboard: React.FC = () => {
 
   // Security guard: Non-admin or member view mode cannot view admin team management
   useEffect(() => {
-    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || activeTab === 'analytics' || activeTab === 'planner_summary')) {
+    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || activeTab === 'planner_summary')) {
       setActiveTab('home');
     }
   }, [isActualAdmin, viewRole, activeTab]);
@@ -376,7 +375,7 @@ export const R9Dashboard: React.FC = () => {
                   id="nav-desempenho"
                   onClick={() => setActiveTab('resumo')}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'resumo' || activeTab === 'resumo_semanal'
+                    activeTab === 'resumo' || activeTab === 'resumo_semanal' || activeTab === 'analytics'
                       ? 'bg-blue-500/15 text-blue-300 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -384,20 +383,6 @@ export const R9Dashboard: React.FC = () => {
                   <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
                   <span>Desempenho</span>
                 </button>
-                {isActualAdmin && viewRole === 'admin' && (
-                  <button
-                    id="nav-analytics"
-                    onClick={() => setActiveTab('analytics')}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                      activeTab === 'analytics'
-                        ? 'bg-blue-500/15 text-blue-300 font-semibold'
-                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Analytics</span>
-                  </button>
-                )}
                 <button
                   id="nav-ranking"
                   onClick={() => setActiveTab('rank_semanal')}
@@ -708,19 +693,8 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {(activeTab === 'resumo' || activeTab === 'resumo_semanal') && (
-              <PerformanceDashboard
-                onOpenNewSaleModal={() => setShowNewSaleModal(true)}
-                onOpenProductDetails={(product) => {
-                  setActiveTab(
-                    product === 'Pós Graduação'
-                      ? 'produto_pos'
-                      : product === 'Curso Técnico'
-                      ? 'produto_tecnico'
-                      : 'produto_graduacao'
-                  );
-                }}
-              />
+            {(activeTab === 'resumo' || activeTab === 'resumo_semanal' || activeTab === 'analytics') && (
+              <PerformancePage onOpenNewSaleModal={() => setShowNewSaleModal(true)} />
             )}
 
             {activeTab === 'boletos_do_dia' && (
@@ -778,22 +752,6 @@ export const R9Dashboard: React.FC = () => {
               />
             )}
 
-            {activeTab === 'analytics' && (
-              <div className="animate-in fade-in duration-200">
-                {isActualAdmin && viewRole === 'admin' ? (
-                  <AnalyticsPage />
-                ) : (
-                  <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center max-w-md mx-auto my-12 space-y-4">
-                    <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
-                      <Shield className="w-7 h-7" />
-                    </div>
-                    <h3 className="text-base font-bold text-slate-900">Acesso Restrito a Administradores</h3>
-                    <p className="text-xs text-slate-500">O Analytics oficial de metas é restrito exclusivamente a administradores nesta fase.</p>
-                    <button onClick={() => setActiveTab('home')} className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer">Voltar ao Início</button>
-                  </div>
-                )}
-              </div>
-            )}
 
             {activeTab === 'metas_importacao' && (
               <div className="animate-in fade-in duration-200">
