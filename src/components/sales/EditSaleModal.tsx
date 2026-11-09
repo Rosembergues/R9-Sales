@@ -27,6 +27,8 @@ import {
   ParcelaLeveOption
 } from '../../types';
 import { getSaleFdiDisplay } from '../../lib/salesMapper';
+import { useOfficialGoals } from '../../hooks/useOfficialGoals';
+import { buildCycleWindows, saleGoalGroup, suggestSaleCycle } from '../../lib/saleCycle';
 
 interface EditSaleModalProps {
   sale: Sale | null;
@@ -146,6 +148,18 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     }
   }, [sale, profiles]);
 
+  // Ciclo acadêmico recalculado pela modalidade e data (nunca há dois ciclos da mesma modalidade no mesmo dia).
+  const official = useOfficialGoals();
+  const cycleWindows = useMemo(() => buildCycleWindows(official.points), [official.points]);
+  const saleDateIso = useMemo(() => {
+    const m = saleDate.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
+  }, [saleDate]);
+  const effectiveCycle = useMemo(
+    () => suggestSaleCycle(saleGoalGroup(mainProduct, modality), saleDateIso, cycleWindows),
+    [mainProduct, modality, saleDateIso, cycleWindows]
+  );
+
   if (!isOpen || !sale) return null;
 
   // Permissões: o proprietário pode editar a própria venda; somente administradores podem excluir vendas.
@@ -251,6 +265,8 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           has_bolsa_convenio: hasBolsaConvenio,
           empresa_convenio: hasBolsaConvenio ? empresaConvenio.trim() : '',
           business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
+          // Se as metas ainda não carregaram ou não cobrem a data, mantém o ciclo já gravado.
+          academic_period: effectiveCycle || sale.custom_data?.academic_period || undefined,
         }
       };
 

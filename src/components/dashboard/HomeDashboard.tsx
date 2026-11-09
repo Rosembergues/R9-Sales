@@ -16,15 +16,24 @@ import { useSales } from '../../context/SalesContext';
 import { Sale, Goal } from '../../types';
 import { getSaleDateBr, getTodayBrDate, getRealSaleDate } from '../../lib/salesMapper';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
+import { useOfficialGoals } from '../../hooks/useOfficialGoals';
+import { computeCycleProgress, resolveDataDate, sumTarget } from '../../lib/goalProgress';
+import { OfficialGoalsPanel } from './OfficialGoalsPanel';
 
 interface HomeDashboardProps {
   onOpenNewSaleModal: () => void;
   onOpenSales: () => void;
   onOpenRanking: () => void;
+  /** Só passado para admins: leva à Importação de Metas. */
+  onOpenGoalImport?: () => void;
 }
 
 const brNumber = (value: number) =>
   value.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+
+/** Metas do Power BI são fracionadas por dia; uma casa decimal evita mostrar "0" para 0,4. */
+const brGoal = (value: number) =>
+  value.toLocaleString('pt-BR', { maximumFractionDigits: value > 0 && value < 10 ? 1 : 0 });
 
 
 const startOfDay = (date: Date) => {
@@ -51,6 +60,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenNewSaleModal,
   onOpenSales,
   onOpenRanking,
+  onOpenGoalImport,
 }) => {
   const { currentUser, profiles } = useAuth();
   const { sales } = useSales();
@@ -60,18 +70,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const todayKey = dateKey(now);
   const yesterdayKey = dateKey(new Date(now.getTime() - 86400000));
 
-  const [operationalTargets, setOperationalTargets] = useState<{
-    daily: number;
+  // Metas oficiais importadas do Power BI (todas as BUs, todos os ciclos ativos).
+  const official = useOfficialGoals();
+  const dataDate = useMemo(() => resolveDataDate(official.points, todayKey), [official.points, todayKey]);
+  const cycles = useMemo(() => computeCycleProgress(official.points, dataDate), [official.points, dataDate]);
+
+  // Metas manuais (Configuração de Metas). Só usadas quando não há metas importadas.
+  const [manualTargets, setManualTargets] = useState<{
     weekly: number;
     monthly: number;
-  }>({ daily: 0, weekly: 0, monthly: 0 });
+  }>({ weekly: 0, monthly: 0 });
 
   useEffect(() => {
     let isMounted = true;
     const fetchTargets = async () => {
       try {
         const todayIso = todayKey;
-        const [{ data: weekPeriod }, { data: monthPeriod }, { data: weeklyGoals }, { data: activeImports, error: importsError }] = await Promise.all([
+        const [{ data: weekPeriod }, { data: monthPeriod }, { data: weeklyGoals }] = await Promise.all([
           supabase
             .from('goal_periods')
             .select('target_total')
@@ -92,45 +107,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             .in('type', ['week', 'semanal'])
             .lte('reference_start', todayIso)
             .gte('reference_end', todayIso),
-          supabase
-            .from('goal_imports')
-            .select('id, academic_period, goal_group, imported_at')
-            .eq('status', 'active')
-            .order('imported_at', { ascending: false }),
         ]);
-
-        // A meta diária da Home soma as modalidades de Graduação das duas BUs
-        // em todos os ciclos acadêmicos ativos. Não inclui Pós nem Técnico.
-        let resolvedDaily = 0;
-        if (importsError) throw importsError;
-        const imports = activeImports || [];
-        const buGroupIds = new Set([
-          'graduacao_presencial',
-          'graduacao_semipresencial',
-          'graduacao_aovivo',
-          'graduacao_ao_vivo',
-          'graduacao_ead',
-          'graduacao_dlex',
-          'graduacao_flex',
-          'graduacao_bu_presencial',
-          'graduacao_bu_digital',
-        ]);
-        const relevantImportIds = imports
-          .filter(item => buGroupIds.has(String(item.goal_group || '').toLowerCase()))
-          .map(item => item.id);
-
-        if (relevantImportIds.length > 0) {
-          const { data: dailyRows, error: dailyError } = await supabase
-            .from('goal_daily_data')
-            .select('target')
-            .eq('reference_date', todayIso)
-            .in('import_id', relevantImportIds);
-          if (dailyError) throw dailyError;
-          resolvedDaily = (dailyRows || []).reduce(
-            (sum, row) => sum + (row.target === null || row.target === undefined ? 0 : Number(row.target) || 0),
-            0
-          );
-        }
 
         let resolvedWeekly = Number(weekPeriod?.target_total) || 0;
         if (!resolvedWeekly && weeklyGoals && weeklyGoals.length > 0) {
@@ -150,24 +127,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           }
         }
 
-        const activeSellers = profiles.filter(p => p.role === 'seller');
-        const fallbackMonthly =
-          activeSellers.reduce((s, p) => s + (Number(p.target_monthly) || 30), 0) || 30;
-
-        const resolvedMonthly = Number(monthPeriod?.target_total) || fallbackMonthly;
-        if (!resolvedWeekly) {
-          resolvedWeekly = Math.max(1, Math.round(resolvedMonthly / 4));
-        }
+        const resolvedMonthly = Number(monthPeriod?.target_total) || 0;
 
         if (isMounted) {
-          setOperationalTargets({
-            daily: resolvedDaily,
-            weekly: resolvedWeekly,
-            monthly: resolvedMonthly,
-          });
+          setManualTargets({ weekly: resolvedWeekly, monthly: resolvedMonthly });
         }
       } catch (err) {
-        console.warn('Erro ao carregar metas sincronizadas na Home:', err);
+        console.warn('Erro ao carregar metas manuais na Home:', err);
       }
     };
 
@@ -175,11 +141,24 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [todayKey, profiles]);
+  }, [todayKey]);
 
-  const teamGoalToday = operationalTargets.daily;
-  const teamGoalWeek = operationalTargets.weekly || (teamGoalToday * 6);
-  const teamGoalMonth = operationalTargets.monthly || (teamGoalWeek * 4);
+  // Mesma base das vendas: hoje, últimos 7 dias corridos e mês calendário, somando todas as BUs.
+  const officialTargets = useMemo(() => {
+    if (!official.hasImports) return null;
+    const weekStart = dateKey(new Date(now.getTime() - 6 * 86400000));
+    const monthStart = dateKey(new Date(now.getFullYear(), now.getMonth(), 1));
+    const monthEnd = dateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    return {
+      daily: sumTarget(official.points, todayKey, todayKey),
+      weekly: sumTarget(official.points, weekStart, todayKey),
+      monthly: sumTarget(official.points, monthStart, monthEnd),
+    };
+  }, [official.hasImports, official.points, now, todayKey]);
+
+  const teamGoalToday = officialTargets?.daily ?? 0;
+  const teamGoalWeek = officialTargets?.weekly ?? manualTargets.weekly;
+  const teamGoalMonth = officialTargets?.monthly ?? manualTargets.monthly;
 
   const todaySales = useMemo(
     () => sales.filter((sale) => getSaleDateBr(sale) === getTodayBrDate()),
@@ -320,10 +299,31 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </section>
 
+      <OfficialGoalsPanel
+        points={official.points}
+        cycles={cycles}
+        dataDate={dataDate}
+        lastImportAt={official.lastImportAt}
+        loading={official.loading}
+        error={official.error}
+        isAdmin={currentUser?.role === 'admin'}
+        onOpenImport={onOpenGoalImport}
+      />
+
+      <div className="pt-2">
+        <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+          <ShoppingCart className="w-4 h-4 text-blue-600" />
+          Lançamentos no sistema
+        </h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Vendas registradas pelos consultores no R9 Sales, comparadas com a meta oficial do mesmo dia (todas as BUs).
+        </p>
+      </div>
+
       <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard icon={<ShoppingCart className="w-5 h-5" />} label="Vendas Hoje" value={brNumber(todayCount)} tone="blue" delta={dayDelta} subtitle={`vs. ontem (${brNumber(yesterdaySales.length)})`} />
-        <KpiCard icon={<Target className="w-5 h-5" />} label="Meta Hoje" value={brNumber(teamGoalToday)} tone="green" subtitle={`Meta semanal: ${brNumber(teamGoalWeek)}`} />
-        <KpiCard icon={<BarChart3 className="w-5 h-5" />} label="Atingimento Hoje" value={`${attainment}%`} tone="purple" delta={percentDelta(attainment, teamGoalToday > 0 ? Math.round((yesterdaySales.length / teamGoalToday) * 100) : 0)} subtitle={`${brNumber(todayCount)} / ${brNumber(teamGoalToday)}`} />
+        <KpiCard icon={<Target className="w-5 h-5" />} label="Meta Hoje" value={brGoal(teamGoalToday)} tone="green" subtitle={`Últimos 7 dias: ${brGoal(teamGoalWeek)}`} />
+        <KpiCard icon={<BarChart3 className="w-5 h-5" />} label="Atingimento Hoje" value={teamGoalToday > 0 ? `${attainment}%` : '—'} tone="purple" delta={teamGoalToday > 0 ? percentDelta(attainment, Math.round((yesterdaySales.length / teamGoalToday) * 100)) : undefined} subtitle={teamGoalToday > 0 ? `${brNumber(todayCount)} / ${brGoal(teamGoalToday)}` : 'Sem meta oficial para hoje'} />
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.85fr_0.85fr] gap-4">
@@ -336,7 +336,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               </h2>
               <p className="text-xs text-slate-400 mt-1">Vendas dos últimos 7 dias</p>
             </div>
-            <span className="text-[11px] text-slate-400">Meta: {brNumber(teamGoalToday)}/dia · Semanal: {brNumber(teamGoalWeek)}</span>
+            <span className="text-[11px] text-slate-400">Meta: {brGoal(teamGoalToday)}/dia · 7 dias: {brGoal(teamGoalWeek)}</span>
           </div>
 
           <div className="h-52 flex items-end gap-2 sm:gap-3">
@@ -374,7 +374,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </h2>
           </div>
           <div className="text-4xl font-black text-slate-950 font-['Space_Grotesk']">{attainment}%</div>
-          <p className="text-xs text-slate-400 mt-1">{brNumber(todayCount)} / {brNumber(teamGoalToday)} vendas</p>
+          <p className="text-xs text-slate-400 mt-1">{brNumber(todayCount)} / {brGoal(teamGoalToday)} vendas</p>
           <div className="mt-5 h-4 rounded-full bg-slate-100 overflow-hidden">
             <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all" style={{ width: `${Math.min(attainment, 100)}%` }} />
           </div>
@@ -390,13 +390,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   onClick={() => setPeriod(item)}
                   className={`px-2.5 py-1.5 rounded-md transition-colors cursor-pointer ${period === item ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-900'}`}
                 >
-                  {item === 'today' ? 'Hoje' : item === 'week' ? 'Semana' : 'Mês'}
+                  {item === 'today' ? 'Hoje' : item === 'week' ? '7 dias' : 'Mês'}
                 </button>
               ))}
             </div>
           </div>
           <SummaryRow label="Vendas" value={brNumber(periodData.count)} />
-          <SummaryRow label="Meta" value={periodData.target > 0 ? brNumber(periodData.target) : '—'} />
+          <SummaryRow label="Meta" value={periodData.target > 0 ? brGoal(periodData.target) : '—'} />
           <SummaryRow label="Atingimento" value={periodData.target > 0 ? `${periodAttainment}%` : '—'} />
         </div>
       </section>

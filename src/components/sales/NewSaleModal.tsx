@@ -14,6 +14,8 @@ import {
   ParcelaLeveOption,
   Profile
 } from '../../types';
+import { useOfficialGoals } from '../../hooks/useOfficialGoals';
+import { buildCycleWindows, saleGoalGroup, suggestSaleCycle } from '../../lib/saleCycle';
 
 interface NewSaleModalProps {
   isOpen: boolean;
@@ -137,6 +139,15 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   const selectedConsultant = useMemo(
     () => availableConsultants.find(p => p.id === selectedSellerId) || currentUser,
     [availableConsultants, selectedSellerId, currentUser]
+  );
+
+  // Ciclo acadêmico: definido automaticamente pela modalidade e data. Para uma mesma
+  // modalidade nunca há dois ciclos vendendo no mesmo dia, então não há o que escolher.
+  const official = useOfficialGoals();
+  const cycleWindows = useMemo(() => buildCycleWindows(official.points), [official.points]);
+  const effectiveCycle = useMemo(
+    () => suggestSaleCycle(saleGoalGroup(mainProduct, modality), saleDateIso, cycleWindows),
+    [mainProduct, modality, saleDateIso, cycleWindows]
   );
 
   const fdiOptions = useMemo(() => fdiOptionsFor(mainProduct), [mainProduct]);
@@ -269,6 +280,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
           fdi_channel: fdiChannel,
           modality,
           shift,
+          ...(effectiveCycle ? { academic_period: effectiveCycle } : {}),
           parcela_leve: parcelaLeve,
           has_bolsa_convenio: hasBolsaConvenio,
           empresa_convenio: hasBolsaConvenio ? empresaConvenio.trim() : ''
@@ -427,6 +439,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
                   ))}
                 </div>
               </div>
+
             </section>
           ) : (
             <section className="space-y-6">
@@ -470,6 +483,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
                   <Summary label="Forma de ingresso" value={FDI_LABEL[fdiChannel]} />
                   <Summary label="Modalidade" value={modality} />
                   <Summary label="Turno" value={shift} />
+                  {effectiveCycle && <Summary label="Ciclo" value={effectiveCycle} />}
                   <Summary label="Condição" value={parcelaLeve} />
                   <Summary label="Bolsa / Convênio" value={hasBolsaConvenio ? empresaConvenio : 'Não'} />
                 </div>

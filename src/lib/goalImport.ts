@@ -7,6 +7,7 @@ export type GoalTeachingModel =
   | 'graduacao_ead'
   | 'graduacao_dlex'
   | 'pos_presencial'
+  | 'pos_aovivo'
   | 'pos_digital'
   | 'tecnico_presencial';
 
@@ -61,8 +62,9 @@ export const TEACHING_MODELS: ModelMetadata[] = [
     buKey: 'bu_digital',
   },
   {
+    // O id histórico é "graduacao_dlex"; mantido para não quebrar importações já gravadas.
     id: 'graduacao_dlex',
-    title: 'Graduação · DLEX (Flex)',
+    title: 'Graduação · Flex',
     subtitle: 'Modelo digital com laboratórios/práticas flexíveis',
     product: 'Graduação',
     bu: 'BU Digital',
@@ -70,8 +72,16 @@ export const TEACHING_MODELS: ModelMetadata[] = [
   },
   {
     id: 'pos_presencial',
-    title: 'Pós-Graduação · Presencial / Ao Vivo',
-    subtitle: 'Especializações presenciais e síncronas',
+    title: 'Pós-Graduação · Presencial',
+    subtitle: 'Especializações presenciais no campus',
+    product: 'Pós-Graduação',
+    bu: 'Pós-Graduação',
+    buKey: 'pos',
+  },
+  {
+    id: 'pos_aovivo',
+    title: 'Pós-Graduação · Ao Vivo',
+    subtitle: 'Especializações com aulas síncronas ao vivo',
     product: 'Pós-Graduação',
     bu: 'Pós-Graduação',
     buKey: 'pos',
@@ -144,6 +154,18 @@ export interface GoalFilePreview {
   rows: ParsedGoalRow[];
   filters: string[];
   warnings: string[];
+  campus?: string | null;
+}
+
+/**
+ * Resultado da leitura de um arquivo antes de ser gravado.
+ * O grupo é detectado pelo texto "Filtros aplicados" que o Power BI coloca na célula A1.
+ */
+export interface ParsedGoalFile extends Omit<GoalFilePreview, 'group'> {
+  group: GoalImportGroup | null;
+  campus: string | null;
+  /** Problemas que impedem a gravação (ex.: cabeçalho não encontrado, modalidade desconhecida). */
+  errors: string[];
 }
 
 export const GOAL_IMPORT_STORAGE_KEY = 'r9-goal-imports-preview-v2';
@@ -249,27 +271,101 @@ const toIsoDate = (value: unknown): string | null => {
   return null;
 };
 
+const isHeaderDate = (v: string) => v === 'data' || v === 'date';
+const isHeaderAA = (v: string) => v === 'aa' || v.includes('aa dinamico') || v.includes('anterior');
+const isHeaderTarget = (v: string) => v === 'meta' || v.includes('meta');
+const isHeaderActual = (v: string) => v === 'realizado' || v.includes('realizado');
+
 const findHeader = (rows: unknown[][]) => {
   for (let i = 0; i < rows.length; i += 1) {
     const normalized = rows[i].map(normalize);
-    const hasDate = normalized.some(v => v === 'data' || v === 'date');
-    const hasTarget = normalized.some(v => v === 'meta' || v.includes('meta'));
-    const hasActual = normalized.some(v => v === 'realizado' || v.includes('realizado'));
-    const hasAA = normalized.some(v => v === 'aa' || v.includes('aa dinamico') || v.includes('anterior'));
-    if (hasDate && hasTarget && hasActual && hasAA) return i;
+    if (
+      normalized.some(isHeaderDate)
+      && normalized.some(isHeaderTarget)
+      && normalized.some(isHeaderActual)
+      && normalized.some(isHeaderAA)
+    ) return i;
   }
   return -1;
 };
 
-const extractFilters = (rows: unknown[][]) => rows
-  .flatMap(r => r.map(v => String(v ?? '')).join(' ').split(/\n+/))
-  .filter(line => /filtros aplicados|P_ACAD|PERIODO ACADEMICO|BU é|NOM_CAMPUS|Incluídos/i.test(line))
+/** Texto de filtros do Power BI (fica nas linhas acima do cabeçalho). */
+const filtersText = (rows: unknown[][], headerIndex: number) => rows
+  .slice(0, headerIndex >= 0 ? headerIndex : Math.min(rows.length, 5))
+  .flat()
+  .filter(v => v !== null && v !== undefined)
+  .map(v => String(v))
+  .join('\n');
+
+const extractFilters = (text: string) => text
+  .split(/\n+/)
+  .map(line => line.trim())
+  .filter(line => line && !/^filtros aplicados/i.test(line))
   .slice(0, 12);
 
-const detectPeriod = (rows: unknown[][]) => {
-  const text = rows.flat().map(v => String(v ?? '')).join('\n');
-  return text.match(/(?:P_ACAD|PERIODO[_ ]ACADEMICO)\s*(?:é|=)\s*([0-9]{4}\.[0-9]+)/i)?.[1] ?? null;
+const detectPeriod = (text: string) =>
+  normalize(text).match(/(?:p_acad|periodo[_ ]academico)\s*(?:e|=)\s*([0-9]{4}\.[0-9]+)/)?.[1] ?? null;
+
+const detectCampus = (text: string): string | null => {
+  const line = text.split(/\n+/).find(l => /NOM_CAMPUS/i.test(l));
+  if (!line) return null;
+  return line.replace(/^.*?NOM_CAMPUS\w*\s*(?:é|e|=)\s*/i, '').trim() || null;
 };
+
+const GRAD_MODALITY: Record<string, GoalImportGroup> = {
+  presencial: 'graduacao_presencial',
+  semipresencial: 'graduacao_semipresencial',
+  'ao vivo': 'graduacao_aovivo',
+  ead: 'graduacao_ead',
+  flex: 'graduacao_dlex',
+  dlex: 'graduacao_dlex',
+};
+
+const POS_MODALITY: Record<string, GoalImportGroup> = {
+  presencial: 'pos_presencial',
+  'ao vivo': 'pos_aovivo',
+  ead: 'pos_digital',
+  digital: 'pos_digital',
+};
+
+/**
+ * Identifica a modalidade a partir dos filtros do relatório do Power BI.
+ * - Graduação: "Incluídos (1) PRESENCIAL (BU) + SEMIPRESENCIAL (MODALIDADE)"
+ * - Pós:       "Incluídos (1) ESTACIO (MARCA) + EAD (NOM_MODALIDADE)"
+ * - Técnico:   campus "ESCOLA ESTÁCIO ..." / NOM_CAMPUS_TRATADO, sem modalidade
+ */
+export const detectGroupFromFilters = (text: string): { group: GoalImportGroup | null; warnings: string[] } => {
+  const t = normalize(text).replace(/\s+/g, ' ');
+  const warnings: string[] = [];
+
+  const grad = t.match(/\(\d+\)\s*(presencial|digital)\s*\(bu\)\s*\+\s*([a-z ]+?)\s*\(modalidade\)/);
+  if (grad) {
+    const bu = grad[1];
+    const group = GRAD_MODALITY[grad[2].trim()] ?? null;
+    if (!group) return { group: null, warnings: [`Modalidade de graduação desconhecida: "${grad[2]}".`] };
+    const expectedBu = getModelMetadata(group).buKey === 'bu_digital' ? 'digital' : 'presencial';
+    if (expectedBu !== bu) {
+      warnings.push(`O filtro de BU (${bu.toUpperCase()}) não bate com a modalidade ${grad[2].toUpperCase()}.`);
+    }
+    return { group, warnings };
+  }
+
+  const pos = t.match(/\(marca\)\s*\+\s*([a-z ]+?)\s*\(nom_modalidade\)/);
+  if (pos) {
+    const group = POS_MODALITY[pos[1].trim()] ?? null;
+    if (!group) return { group: null, warnings: [`Modalidade de pós desconhecida: "${pos[1]}".`] };
+    return { group, warnings };
+  }
+
+  if (/escola estacio|nom_campus_tratado|tecnico/.test(t)) {
+    return { group: 'tecnico_presencial', warnings };
+  }
+
+  return { group: null, warnings };
+};
+
+/** Campus esperado nos relatórios. Arquivos de outro campus geram alerta. */
+export const EXPECTED_CAMPUS_KEYWORD = 'taquara';
 
 const parseCsv = (text: string): unknown[][] => {
   const wb = XLSX.read(text, { type: 'string', raw: true, cellDates: true });
@@ -286,54 +382,114 @@ const parseWorkbook = async (file: File): Promise<unknown[][]> => {
   return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][];
 };
 
-export async function parseGoalFile(file: File, group: GoalImportGroup): Promise<GoalFilePreview> {
-  const rows = await parseWorkbook(file);
+/** Interpreta as linhas brutas de uma planilha (separado de File para poder ser testado). */
+export function parseGoalRows(rows: unknown[][], fileName: string): ParsedGoalFile {
   const headerIndex = findHeader(rows);
-  const warnings: string[] = [];
+  const text = filtersText(rows, headerIndex);
+  const filters = extractFilters(text);
+  const academicPeriod = detectPeriod(text);
+  const campus = detectCampus(text);
+  const detection = detectGroupFromFilters(text);
+  const warnings: string[] = [...detection.warnings];
+  const errors: string[] = [];
+
+  if (!detection.group) {
+    errors.push('Não consegui identificar a modalidade pelos filtros do arquivo. Use o botão da modalidade correspondente.');
+  }
+  if (!academicPeriod) {
+    warnings.push('O arquivo não informa o período acadêmico; será usado o período selecionado na tela.');
+  }
+  if (campus && !normalize(campus).includes(EXPECTED_CAMPUS_KEYWORD)) {
+    warnings.push(`Campus do arquivo é "${campus}", diferente do esperado (${EXPECTED_CAMPUS_KEYWORD.toUpperCase()}).`);
+  }
+
+  const base = { fileName, group: detection.group, academicPeriod, campus, filters };
 
   if (headerIndex < 0) {
     return {
-      fileName: file.name,
-      group,
-      academicPeriod: detectPeriod(rows),
+      ...base,
       rowCount: 0,
       startDate: null,
       endDate: null,
       rows: [],
-      filters: extractFilters(rows),
-      warnings: ['Não encontrei a linha de cabeçalho Data / AA (ou Anterior) / Meta / Realizado. Verifique se o arquivo é o relatório esperado.'],
+      warnings,
+      errors: [...errors, 'Não encontrei a linha de cabeçalho Data / AA (ou Anterior) / Meta / Realizado. Verifique se o arquivo é o relatório esperado.'],
     };
   }
 
   const header = rows[headerIndex].map(normalize);
-  const dateIdx = header.findIndex(v => v === 'data' || v === 'date');
-  const aaIdx = header.findIndex(v => v === 'aa' || v.includes('aa dinamico') || v.includes('aa dinâmico') || v.includes('anterior'));
-  const targetIdx = header.findIndex(v => v === 'meta' || v.includes('meta'));
-  const actualIdx = header.findIndex(v => v === 'realizado' || v.includes('realizado'));
+  const dateIdx = header.findIndex(isHeaderDate);
+  const aaIdx = header.findIndex(isHeaderAA);
+  const targetIdx = header.findIndex(isHeaderTarget);
+  const actualIdx = header.findIndex(isHeaderActual);
 
-  const parsedRows = rows.slice(headerIndex + 1)
-    .map(r => ({
-      date: toIsoDate(r[dateIdx]),
+  // Se o relatório vier com a mesma data repetida, os valores são somados.
+  const byDate = new Map<string, ParsedGoalRow>();
+  let duplicated = 0;
+  const add = (a: number | null, b: number | null) => (a === null && b === null ? null : (a ?? 0) + (b ?? 0));
+
+  rows.slice(headerIndex + 1).forEach(r => {
+    const date = toIsoDate(r[dateIdx]);
+    if (!date) return; // linhas de total ou em branco
+    const row: ParsedGoalRow = {
+      date,
       aa: toNumber(r[aaIdx]),
       target: toNumber(r[targetIdx]),
       actual: toNumber(r[actualIdx]),
-    }))
-    .filter(r => r.date !== null) as ParsedGoalRow[];
+    };
+    const prev = byDate.get(date);
+    if (prev) {
+      duplicated += 1;
+      byDate.set(date, {
+        date,
+        aa: add(prev.aa, row.aa),
+        target: add(prev.target, row.target),
+        actual: add(prev.actual, row.actual),
+      });
+    } else {
+      byDate.set(date, row);
+    }
+  });
 
-  const dates = parsedRows.map(r => r.date).sort();
-  if (parsedRows.some(r => r.target === null && r.actual === null && r.aa === null)) {
-    warnings.push('Há dias sem AA, Meta e Realizado preenchidos; eles serão preservados como vazios.');
+  const parsedRows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+  if (duplicated) warnings.push(`${duplicated} data(s) repetida(s) no arquivo foram somadas.`);
+  if (!parsedRows.length) {
+    warnings.push('Arquivo sem dias com dados. Será registrado como "sem meta" para este período.');
+  } else if (!parsedRows.some(r => (r.target ?? 0) > 0)) {
+    warnings.push('O arquivo não tem nenhuma meta preenchida (só Ano Anterior/Realizado).');
   }
 
   return {
-    fileName: file.name,
-    group,
-    academicPeriod: detectPeriod(rows),
+    ...base,
     rowCount: parsedRows.length,
-    startDate: dates[0] ?? null,
-    endDate: dates[dates.length - 1] ?? null,
+    startDate: parsedRows[0]?.date ?? null,
+    endDate: parsedRows[parsedRows.length - 1]?.date ?? null,
     rows: parsedRows,
-    filters: extractFilters(rows),
     warnings,
+    errors,
   };
 }
+
+export async function parseGoalFile(file: File): Promise<ParsedGoalFile> {
+  if (!/\.(xlsx|csv)$/i.test(file.name)) {
+    return {
+      fileName: file.name, group: null, academicPeriod: null, campus: null, rowCount: 0,
+      startDate: null, endDate: null, rows: [], filters: [], warnings: [],
+      errors: ['Selecione um arquivo .xlsx ou .csv.'],
+    };
+  }
+  return parseGoalRows(await parseWorkbook(file), file.name);
+}
+
+export interface GoalImportTotals { aa: number; target: number; actual: number; days: number }
+
+export const totalsOf = (rows: ParsedGoalRow[]): GoalImportTotals => rows.reduce(
+  (acc, r) => ({
+    aa: acc.aa + (r.aa ?? 0),
+    target: acc.target + (r.target ?? 0),
+    actual: acc.actual + (r.actual ?? 0),
+    days: acc.days + 1,
+  }),
+  { aa: 0, target: 0, actual: 0, days: 0 },
+);

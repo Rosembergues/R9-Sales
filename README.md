@@ -4,17 +4,15 @@
 Esta versão parte da baseline aprovada e inclui o primeiro rascunho da **Importação de Metas**.
 
 ### Importação de Metas
-A tela administrativa possui cinco destinos explícitos:
-- Graduação — BU Presencial (Presencial + Semipresencial + Ao Vivo)
-- Graduação — BU Digital (EAD + Flex)
-- Pós-Graduação — Pós Presencial (Presencial + Ao Vivo)
-- Pós-Graduação — Pós Digital
-- Curso Técnico — Técnico Presencial
+A tela administrativa tem um destino por modalidade (9 no total):
+- BU Presencial: Presencial, Semipresencial, Ao Vivo
+- BU Digital: EAD, Flex
+- Pós-Graduação: Presencial, Ao Vivo, Digital
+- Curso Técnico: Presencial
 
-O usuário escolhe manualmente qual arquivo pertence a cada grupo. O sistema não tenta adivinhar o grupo.
+Os relatórios do Power BI (.xlsx/.csv) podem ser arrastados todos de uma vez. A modalidade, o período acadêmico e o campus são lidos do texto "Filtros aplicados" da célula A1; o cabeçalho aceito é Data / ANTERIOR (ou AA Dinamico) / META / REALIZADO. Antes de gravar há uma conferência com o "antes x depois" de cada modalidade e alertas (campus diferente, arquivo sem meta, período divergente). Arquivos sem dados são aceitos e registrados como "sem meta".
 
-A primeira versão aceita `.xlsx` e `.csv`, identifica Data, AA/AA Dinâmico/Anterior, Meta e Realizado, mostra uma prévia e salva a prévia localmente no navegador para teste. A persistência definitiva no Supabase será definida depois que o fluxo for validado.
-
+A gravação no Supabase (`goal_imports` + `goal_daily_data`) cria a importação nova como `cancelled` (rascunho invisível; o banco só aceita active/replaced/cancelled), insere os dias, ativa e só então arquiva a anterior, então uma falha no meio nunca apaga a importação vigente. As telas usam sempre a importação ativa mais recente de cada (período, modalidade).
 
 ## Fase — Conexão da Importação com Configuração de Metas
 
@@ -22,4 +20,3 @@ A página de Configuração de Metas agora lê os arquivos importados na página
 
 Para o período selecionado, são calculados a partir das linhas importadas: AA acumulado, Meta oficial, Realizado, Atingimento e Gap, além do detalhamento por grupo de importação.
 
-Nesta fase os dados continuam no armazenamento local do navegador. A persistência definitiva dos arquivos e dados importados no Supabase será feita depois que o fluxo e os cálculos forem validados.

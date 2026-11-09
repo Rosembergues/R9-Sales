@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase, LocalSyncEngine } from '../../lib/supabase';
 import { Goal, DatabaseGoalRecord, ConsultantGoalValues } from '../../types';
 import { GoalFilePreview, GoalImportGroup, summarizeImportedGoals } from '../../lib/goalImport';
+import { latestPerPeriodAndGroup } from '../../lib/goalImportService';
 import { AlertCircle, ArrowLeft, CalendarDays, CalendarRange, CheckCircle2, RotateCw, Save, Search, Target, Users, Sparkles } from 'lucide-react';
 
 interface GoalManagementPageProps {
@@ -216,19 +217,17 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
 
       if (rowsError) throw rowsError;
 
-      // Para cada produto/grupo, usa a importação ativa mais recente que tenha dados
-      // dentro do período selecionado. Importações de outros períodos não interferem.
-      const latest: Record<string, any> = {};
-      (imports || []).forEach((item: any) => {
-        const hasRowsInRange = (rows || []).some((row: any) => row.import_id === item.id);
-        if (hasRowsInRange && !latest[item.goal_group]) latest[item.goal_group] = item;
-      });
+      // Para cada (ciclo acadêmico, modalidade), usa a importação ativa mais recente que tenha
+      // dados dentro do intervalo. Ciclos que se sobrepõem (ex.: 2026.4 e 2027.1) somam juntos.
+      const latest = latestPerPeriodAndGroup(imports || []).filter((item: any) =>
+        (rows || []).some((row: any) => row.import_id === item.id)
+      );
 
       const next: Record<string, GoalFilePreview> = {};
-      Object.values(latest).forEach((item: any) => {
+      latest.forEach((item: any) => {
         const daily = (rows || []).filter((row: any) => row.import_id === item.id);
         const dates = daily.map((row: any) => row.reference_date).sort();
-        next[item.goal_group] = {
+        next[`${item.academic_period}|${item.goal_group}`] = {
           fileName: item.file_name,
           group: item.goal_group as GoalImportGroup,
           academicPeriod: item.academic_period,
