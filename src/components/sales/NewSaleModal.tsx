@@ -15,7 +15,14 @@ import {
   Profile
 } from '../../types';
 import { useOfficialGoals } from '../../hooks/useOfficialGoals';
-import { buildCycleWindows, saleGoalGroup, suggestSaleCycle } from '../../lib/saleCycle';
+import { buildCycleWindows, getSaleBusinessUnit, saleGoalGroup, suggestSaleCycle } from '../../lib/saleCycle';
+import {
+  describeSale,
+  findDuplicateByOpportunity,
+  findSameStudentSales,
+  normalizeOpportunity,
+  validateSaleDate,
+} from '../../lib/saleValidation';
 
 interface NewSaleModalProps {
   isOpen: boolean;
@@ -94,7 +101,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   initialProduct = 'Graduação'
 }) => {
   const { currentUser, profiles } = useAuth();
-  const { sales, activeCampaigns, addSale } = useSales();
+  const { sales, activeCampaigns, addSale, findSaleByOpportunity } = useSales();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedSellerId, setSelectedSellerId] = useState(currentUser?.id || '');
@@ -111,6 +118,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   const [empresaConvenio, setEmpresaConvenio] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  // Trava contra clique duplo: o estado só atualiza no próximo render, a ref é imediata.
+  const submittingRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const wasOpenRef = useRef(false);
@@ -133,7 +143,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
         });
       }
     });
-    return list.filter(p => p.status !== 'inactive');
+    // Consultor (não admin) só pode lançar para quem tem cadastro: o banco exige isso.
+    const registeredIds = new Set(profiles.map(p => p.id));
+    return list.filter(p => p.status !== 'inactive' && (currentUser?.role === 'admin' || registeredIds.has(p.id) || p.id === currentUser?.id));
   }, [profiles, currentUser, sales]);
 
   const selectedConsultant = useMemo(
@@ -148,6 +160,12 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   const effectiveCycle = useMemo(
     () => suggestSaleCycle(saleGoalGroup(mainProduct, modality), saleDateIso, cycleWindows),
     [mainProduct, modality, saleDateIso, cycleWindows]
+  );
+
+  // Alerta (não bloqueia): mesmo aluno, mesmo produto, outra oportunidade.
+  const sameStudentSales = useMemo(
+    () => findSameStudentSales(sales, candidateName, mainProduct),
+    [sales, candidateName, mainProduct]
   );
 
   const fdiOptions = useMemo(() => fdiOptionsFor(mainProduct), [mainProduct]);
@@ -219,6 +237,8 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
       if (!opportunityNumber.trim()) return setErrorMessage('Informe o Número da Oportunidade.'), false;
       if (!candidateName.trim()) return setErrorMessage('Informe o nome do aluno.'), false;
       if (!saleDateIso) return setErrorMessage('Informe a data da venda.'), false;
+      const dateError = validateSaleDate(saleDateIso);
+      if (dateError) return setErrorMessage(dateError), false;
     }
     if (targetStep >= 3 && hasBolsaConvenio && !empresaConvenio.trim()) {
       setErrorMessage('Informe a empresa do convênio ou selecione “Não”.');
@@ -227,8 +247,25 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
     return true;
   };
 
-  const goNext = () => {
-    if (step === 1 && validateStep(2)) setStep(2);
+  /** Verifica se a oportunidade já foi lançada (vendas carregadas + servidor). */
+  const checkDuplicate = async (): Promise<boolean> => {
+    const opportunity = normalizeOpportunity(opportunityNumber);
+    setIsChecking(true);
+    try {
+      const duplicate = findDuplicateByOpportunity(sales, opportunity) || await findSaleByOpportunity(opportunity);
+      if (duplicate) {
+        setErrorMessage(`A oportunidade ${opportunity} já foi registrada (${describeSale(duplicate)}). Não é possível lançar de novo.`);
+        return false;
+      }
+      return true;
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const goNext = async () => {
+    if (isChecking) return;
+    if (step === 1 && validateStep(2) && await checkDuplicate()) setStep(2);
     else if (step === 2 && validateStep(3)) setStep(3);
   };
 
@@ -246,7 +283,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (submittingRef.current) return;
     if (!validateStep(3)) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
     setErrorMessage(null);
 
@@ -260,13 +299,13 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
       const response = await addSale({
         campaign_id: activeCampaigns[0]?.id || 'camp-1',
         client_name: candidateName.trim(),
-        product_name: `${mainProduct} - ${modality} (${shift})`,
+        product_name: mainProduct,
         seller_id: chosenSellerId,
         seller_name: chosenSellerName,
         seller_email: chosenSellerEmail,
         collaborator_name: chosenSellerName,
         custom_data: {
-          opportunity_number: opportunityNumber.trim(),
+          opportunity_number: normalizeOpportunity(opportunityNumber),
           candidate_name: candidateName.trim(),
           collaborator_name: chosenSellerName,
           collaborator_id: chosenSellerId,
@@ -275,7 +314,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
           seller_email: chosenSellerEmail,
           sale_date: formattedDateBr,
           main_product: mainProduct,
-          business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
+          business_unit: getSaleBusinessUnit(mainProduct, modality),
           fdi: fdiChannel,
           fdi_channel: fdiChannel,
           modality,
@@ -289,15 +328,25 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
       });
 
       if (!response.success) {
-        setErrorMessage(response.error || 'Não foi possível registrar a venda.');
+        if (response.sale) {
+          // Sem conexão: a venda ficou na fila do aparelho. Não pode ser lançada de novo.
+          setSuccessMessage('Venda guardada neste aparelho. Ela será enviada assim que a conexão voltar.');
+          onSuccess?.();
+        } else {
+          setErrorMessage(response.error || 'Não foi possível registrar a venda.');
+          if (response.duplicate) setStep(1);
+        }
+        submittingRef.current = false;
         setIsSubmitting(false);
         return;
       }
 
       setSuccessMessage('Venda registrada com sucesso!');
       onSuccess?.();
+      submittingRef.current = false;
       setIsSubmitting(false);
     } catch (err: any) {
+      submittingRef.current = false;
       setIsSubmitting(false);
       setErrorMessage(err?.message || 'Erro inesperado ao registrar venda.');
     }
@@ -350,7 +399,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
         {renderStepIndicator()}
 
-        <form ref={formScrollRef} onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
+        <form ref={formScrollRef} onSubmit={e => { e.preventDefault(); if (step === 3) handleSubmit(); else goNext(); }} className="p-6 overflow-y-auto flex-1">
           {errorMessage && (
             <div className="mb-5 p-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -382,6 +431,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
                 <select value={selectedSellerId} onChange={e => setSelectedSellerId(e.target.value)} className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_select_1">
                   {availableConsultants.map(p => <option key={p.id} value={p.id}>{p.name}{p.id === currentUser?.id ? ' (você)' : ''}</option>)}
                 </select>
+                {selectedSellerId && selectedSellerId !== currentUser?.id && currentUser?.role !== 'admin' && (
+                  <p className="text-[11px] text-amber-700">Você está lançando para outro consultor. Depois de registrada, só ele ou um administrador poderá editar esta venda.</p>
+                )}
 
                 <FieldLabel icon={<Hash className="w-4 h-4" />} label="Oportunidade" />
                 <input value={opportunityNumber} onChange={e => setOpportunityNumber(e.target.value)} placeholder="Número da oportunidade" inputMode="numeric" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_2" />
@@ -391,7 +443,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
                 <FieldLabel icon={<CalendarDays className="w-4 h-4" />} label="Data" />
                 <div className="flex gap-2">
-                  <input type="date" value={saleDateIso} onChange={e => setSaleDateIso(e.target.value)} className="flex-1 h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_4" />
+                  <input type="date" value={saleDateIso} max={getTodayDateStr()} onChange={e => setSaleDateIso(e.target.value)} className="flex-1 h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_4" />
                   <button type="button" onClick={() => setSaleDateIso(getTodayDateStr())} className="px-4 rounded-xl bg-gray-100 border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-[#0052cc]">Hoje</button>
                 </div>
               </div>
@@ -472,6 +524,18 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Alguma informação relevante sobre esta venda?" className="mt-2 w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm outline-none resize-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_textarea_6" />
               </div>
 
+              {sameStudentSales.length > 0 && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
+                  <div className="flex items-center gap-2 font-bold"><AlertCircle className="w-4 h-4" /> Este aluno já tem venda de {mainProduct}</div>
+                  <ul className="mt-2 space-y-1">
+                    {sameStudentSales.slice(0, 3).map(s => (
+                      <li key={s.id}>Oportunidade {s.custom_data?.opportunity_number} · {describeSale(s)}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2">Confira se não é a mesma matrícula antes de confirmar.</p>
+                </div>
+              )}
+
               <div className="rounded-2xl bg-gray-50 border border-gray-200 p-4">
                 <div className="flex items-center gap-2 mb-3"><CheckCircle2 className="w-4 h-4 text-emerald-600" /><span className="text-xs font-bold text-gray-900">Resumo da venda</span></div>
                 <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-xs">
@@ -498,8 +562,8 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
               {step === 1 ? <><X className="w-4 h-4" /> Cancelar</> : <><ChevronLeft className="w-4 h-4" /> Voltar</>}
             </button>
             {step < 3 ? (
-              <button type="button" onClick={goNext} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0052cc] text-white text-xs font-bold hover:bg-[#0045ad]">
-                Continuar <ChevronRight className="w-4 h-4" />
+              <button type="button" onClick={goNext} disabled={isChecking} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0052cc] text-white text-xs font-bold hover:bg-[#0045ad] disabled:opacity-60 disabled:cursor-not-allowed">
+                {isChecking ? 'Verificando...' : <>Continuar <ChevronRight className="w-4 h-4" /></>}
               </button>
             ) : (
               <button type="button" onClick={() => handleSubmit()} disabled={isSubmitting} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0052cc] text-white text-xs font-bold hover:bg-[#0045ad] disabled:opacity-60 disabled:cursor-not-allowed">

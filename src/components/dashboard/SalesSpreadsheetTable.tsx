@@ -129,9 +129,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
       onlyToday,
     }).then(result => {
       if (cancelled) return;
-      const deletedIds = LocalSyncEngine.getDeletedSaleIds();
-      const validSales = result.data.filter(s => !deletedIds.has(String(s.id)));
-      setPageSales(validSales);
+      setPageSales(result.data);
       setTotalRemoteSales(result.count);
       setPageError(result.error || null);
       setIsPageLoading(false);
@@ -1178,18 +1176,9 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
         sale={editingSale}
         onClose={() => setEditingSale(null)}
         onSuccess={() => {
-          if (editingSale) {
-            const saleId = editingSale.id;
-            if (LocalSyncEngine.isSaleDeleted(saleId)) {
-              setPageSales(prev => prev.filter(s => s.id !== saleId));
-              setTotalRemoteSales(prev => Math.max(0, prev - 1));
-              setSelectedSale(null);
-            } else {
-              loadCurrentPage();
-            }
-          } else {
-            loadCurrentPage();
-          }
+          // Recarrega a página: reflete tanto edição quanto exclusão feitas no modal.
+          setSelectedSale(null);
+          loadCurrentPage();
         }}
       />
 

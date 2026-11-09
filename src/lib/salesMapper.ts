@@ -7,6 +7,7 @@ import {
   ModalityType,
   ShiftType
 } from '../types';
+import { getSaleBusinessUnit } from './saleCycle';
 
 /**
  * Valida se uma string é um UUID v4 válido
@@ -354,83 +355,48 @@ export function normalizeRemoteSale(row: RemoteSaleRow): Sale {
       parcela_leve: custom.parcela_leve || (lightInstallmentBool ? '3 parcelas' : 'Sem parcelas'),
       has_bolsa_convenio: partnerScholarshipBool,
       empresa_convenio: (typeof row.empresa_convenio === 'string' ? row.empresa_convenio : undefined) || custom.empresa_convenio || '',
-      business_unit: custom.business_unit || (modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial')
+      // Sempre recalculada: vendas antigas gravaram "BU Presencial" para Pós e Técnico.
+      business_unit: getSaleBusinessUnit(product, modality)
     }
   };
 }
 
 /**
- * Payload específico para a estrutura R9 Sales (tabela sales padrão com collaborator_name, candidate_name, etc.)
+ * Payload único gravado na tabela `sales`.
+ * Usa só colunas que existem no schema oficial (ver supabase/vendas-ajustes.sql).
+ * Se o banco não tiver alguma delas, a gravação falha com erro claro em vez de
+ * apagar a coluna e gravar a venda pela metade.
  */
-export function buildR9SalePayload(sale: Sale): Record<string, unknown> {
+export function buildSalePayload(sale: Sale): Record<string, unknown> {
   const custom = sale.custom_data || {};
   const channelVal = getSaleFdiDisplay(sale);
-
-  const lightInstallmentBool = Boolean(
-    custom.parcela_leve && custom.parcela_leve !== 'Sem parcelas'
-  );
-
-  const partnerScholarshipBool = Boolean(custom.has_bolsa_convenio);
   const responsibleName = sale.seller_name || sale.collaborator_name || custom.collaborator_name || custom.seller_name || 'Consultor';
   const responsibleId = sale.seller_id || sale.collaborator_id || custom.seller_id || custom.collaborator_id || null;
   const responsibleEmail = sale.seller_email !== undefined && sale.seller_email !== null ? sale.seller_email : (custom.seller_email || null);
+  const candidate = custom.candidate_name || sale.client_name || 'Candidato';
+  const product = custom.main_product || sale.product_name || 'Graduação';
 
   return {
     id: sale.id,
-    collaborator_name: responsibleName,
-    seller_name: responsibleName,
     seller_id: responsibleId,
+    seller_name: responsibleName,
     seller_email: responsibleEmail,
-    candidate_name: custom.candidate_name || sale.client_name || 'Candidato',
-    opportunity: custom.opportunity_number || sale.id.replace('sale-', 'OP-'),
-    product: custom.main_product || sale.product_name || 'Graduação',
+    collaborator_name: responsibleName,
+    candidate_name: candidate,
+    client_name: candidate,
+    client_document: sale.client_document || null,
+    opportunity: custom.opportunity_number || null,
+    product,
+    product_name: product,
     turn: custom.shift || 'Noite',
     modality: custom.modality || 'Presencial',
-    fdi: channelVal, // Salva diretamente o nome do canal selecionado como TEXT (ex: 'Simplificada', 'Vestibular', etc.)
-    light_installment: lightInstallmentBool,
-    partner_scholarship: partnerScholarshipBool,
+    fdi: channelVal, // TEXT com o nome do canal ('Simplificada', 'Vestibular', ...)
+    light_installment: Boolean(custom.parcela_leve && custom.parcela_leve !== 'Sem parcelas'),
+    partner_scholarship: Boolean(custom.has_bolsa_convenio),
     notes: sale.notes || '',
-    sale_date: toValidIsoTimestamp(custom.sale_date || sale.created_at),
-    campaign_id: sale.campaign_id || null,
-    created_at: toValidIsoTimestamp(sale.created_at),
-    custom_data: {
-      ...custom,
-      fdi: channelVal,
-      fdi_channel: channelVal,
-      collaborator_name: responsibleName,
-      collaborator_id: responsibleId,
-      seller_name: responsibleName,
-      seller_id: responsibleId,
-      seller_email: responsibleEmail,
-    },
-  };
-}
-
-/**
- * Payload alternativo compatível com o schema completo/clássico
- */
-export function buildStandardSalePayload(sale: Sale): Record<string, unknown> {
-  const custom = sale.custom_data || {};
-  const responsibleName = sale.seller_name || sale.collaborator_name || custom.collaborator_name || custom.seller_name || 'Consultor';
-  const responsibleId = sale.seller_id || sale.collaborator_id || custom.seller_id || custom.collaborator_id || null;
-  const responsibleEmail = sale.seller_email !== undefined && sale.seller_email !== null ? sale.seller_email : (custom.seller_email || '');
-  const channelVal = getSaleFdiDisplay(sale);
-
-  const payload: Record<string, unknown> = {
-    id: sale.id,
-    campaign_id: sale.campaign_id || null,
-    campaign_name: sale.campaign_name || 'Captação R9',
-    seller_name: responsibleName,
-    collaborator_name: responsibleName,
-    seller_id: responsibleId,
-    seller_email: responsibleEmail,
-    client_name: sale.custom_data?.candidate_name || sale.client_name || 'Candidato',
-    client_document: sale.client_document || null,
-    // client_phone não existe no schema remoto atual; o valor segue preservado em custom_data.
-    // client_email omitido: a tabela sales em produção não possui essa coluna.
-    product_name: sale.custom_data?.main_product || sale.product_name || 'Graduação',
-    fdi: channelVal, // TEXT
     sale_date: toValidIsoTimestamp(custom.sale_date || sale.sale_date || sale.created_at),
+    campaign_id: sale.campaign_id || null,
+    created_at: toValidIsoTimestamp(sale.created_at),
     custom_data: {
       ...custom,
       fdi: channelVal,
@@ -441,11 +407,7 @@ export function buildStandardSalePayload(sale: Sale): Record<string, unknown> {
       seller_id: responsibleId,
       seller_email: responsibleEmail,
     },
-    notes: sale.notes || '',
-    created_at: toValidIsoTimestamp(sale.created_at),
   };
-
-  return payload;
 }
 
 /**

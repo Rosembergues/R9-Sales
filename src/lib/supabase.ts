@@ -285,12 +285,11 @@ create policy "Leitura de vendas permitida"
 
 drop policy if exists "Usuários autenticados podem inserir vendas" on public.sales;
 drop policy if exists "Usuários podem inserir vendas próprias ou admins" on public.sales;
-create policy "Usuários podem inserir vendas próprias ou admins" 
-  on public.sales for insert 
-  with check (
-    seller_id = auth.uid()::text
-    or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
-  );
+-- Consultor pode lançar venda para outro consultor; editar/excluir continua só para o dono ou admin.
+drop policy if exists "Autenticados podem inserir vendas" on public.sales;
+create policy "Autenticados podem inserir vendas"
+  on public.sales for insert
+  with check (auth.role() = 'authenticated');
 
 drop policy if exists "Admins ou autor podem atualizar vendas" on public.sales;
 create policy "Admins ou autor podem atualizar vendas" 
@@ -304,8 +303,8 @@ create policy "Admins ou autor podem atualizar vendas"
     exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
   );
 
--- Proteção adicional: consultores não podem transferir uma venda para outro vendedor
--- nem alterar os campos de responsável. Admins podem fazer essa transferência.
+-- Proteção adicional: consultores podem lançar para outro consultor cadastrado, mas não
+-- podem transferir uma venda já gravada. Admins podem fazer essa transferência.
 create or replace function public.protect_sale_owner_fields()
 returns trigger
 language plpgsql
@@ -321,15 +320,18 @@ begin
   if auth.uid() is not null
      and not exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin') then
     if tg_op = 'INSERT' then
-      if new.seller_id is distinct from auth.uid()::text then
-        raise exception 'Consultores só podem cadastrar vendas em seu próprio nome';
-      end if;
-
+      -- O dono da venda precisa ser um consultor cadastrado; nome e e-mail vêm do cadastro dele.
       select name, email into v_profile_name, v_profile_email
-      from public.profiles where id::text = auth.uid()::text;
-      new.seller_name := coalesce(v_profile_name, new.seller_name);
-      new.collaborator_name := coalesce(v_profile_name, new.collaborator_name, new.seller_name);
-      new.seller_email := coalesce(v_profile_email, new.seller_email);
+      from public.profiles where id::text = new.seller_id;
+      if v_profile_name is null then
+        raise exception 'Consultor da venda não encontrado no cadastro';
+      end if;
+      new.seller_name := v_profile_name;
+      new.collaborator_name := v_profile_name;
+      new.seller_email := v_profile_email;
+      -- Registra quem lançou (pode ser diferente do dono).
+      new.custom_data := coalesce(new.custom_data, '{}'::jsonb)
+        || jsonb_build_object('registered_by', auth.uid()::text);
     else
       if new.seller_id is distinct from old.seller_id
          or new.seller_name is distinct from old.seller_name
@@ -337,6 +339,9 @@ begin
          or new.seller_email is distinct from old.seller_email then
         raise exception 'Apenas administradores podem alterar o vendedor da venda';
       end if;
+      -- Quem lançou nunca muda.
+      new.custom_data := coalesce(new.custom_data, '{}'::jsonb)
+        || jsonb_build_object('registered_by', old.custom_data->>'registered_by');
     end if;
 
     -- Os campos espelhados no JSON também são normalizados para não permitir
@@ -502,6 +507,24 @@ create index if not exists idx_sales_seller_id on public.sales (seller_id);
 create index if not exists idx_sales_campaign_id on public.sales (campaign_id);
 create index if not exists idx_sales_product_name on public.sales (product_name);
 create index if not exists idx_sales_fdi on public.sales (fdi);
+
+-- 6.2 Oportunidade única (impede vendas duplicadas). Só é criada se não houver
+-- duplicados; para listar e limpar os existentes use supabase/vendas-duplicadas.sql.
+do $$
+begin
+  if not exists (
+    select 1 from public.sales
+    where coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') is not null
+      and coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') <> ''
+    group by upper(regexp_replace(coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number'), '[[:space:]]', '', 'g'))
+    having count(*) > 1
+  ) then
+    create unique index if not exists sales_opportunity_unique
+      on public.sales (upper(regexp_replace(coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number'), '[[:space:]]', '', 'g')))
+      where coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') is not null
+        and coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') <> '';
+  end if;
+end $$;
 
 -- 7. Função e Triggers de auditoria updated_at
 -- ============================================================
@@ -715,6 +738,8 @@ export class LocalSyncEngine {
       localStorage.removeItem('salesflow_current_user_v1');
       localStorage.removeItem('salesflow_current_user_v2');
       localStorage.removeItem('salesflow_current_user_v3');
+      // Lista local de vendas excluídas (descontinuada: o servidor é a fonte oficial).
+      localStorage.removeItem('salesflow_deleted_sales_v1');
       this.purged = true;
     } catch {
       this.purged = true;
@@ -811,46 +836,6 @@ export class LocalSyncEngine {
   static clearPendingSale(saleId: string) {
     const pending = this.getPendingSales().filter(s => s.id !== saleId);
     this.savePendingSales(pending);
-  }
-
-  static getDeletedSaleIds(): Set<string> {
-    try {
-      const stored = localStorage.getItem('salesflow_deleted_sales_v1');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          return new Set(parsed.map(String));
-        }
-      }
-      return new Set();
-    } catch {
-      return new Set();
-    }
-  }
-
-  static addDeletedSaleId(saleId: string) {
-    try {
-      const deletedSet = this.getDeletedSaleIds();
-      deletedSet.add(String(saleId));
-      const list = Array.from(deletedSet).slice(-500);
-      localStorage.setItem('salesflow_deleted_sales_v1', JSON.stringify(list));
-    } catch (e) {
-      console.error('Failed to mark sale as deleted locally', e);
-    }
-  }
-
-  static removeDeletedSaleId(saleId: string) {
-    try {
-      const deletedSet = this.getDeletedSaleIds();
-      deletedSet.delete(String(saleId));
-      localStorage.setItem('salesflow_deleted_sales_v1', JSON.stringify(Array.from(deletedSet)));
-    } catch (e) {
-      console.error('Failed to restore locally marked sale', e);
-    }
-  }
-
-  static isSaleDeleted(saleId: string): boolean {
-    return this.getDeletedSaleIds().has(String(saleId));
   }
 
   static getCurrentUser(): Profile | null {

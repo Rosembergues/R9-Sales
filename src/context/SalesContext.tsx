@@ -1,7 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Campaign, Sale, LeaderboardEntry } from '../types';
 import { supabase, getSupabaseClient, LocalSyncEngine } from '../lib/supabase';
-import { normalizeRemoteSale, buildR9SalePayload, buildStandardSalePayload, logSupabaseError } from '../lib/salesMapper';
+import { normalizeRemoteSale, buildSalePayload, logSupabaseError } from '../lib/salesMapper';
+import {
+  describeSale,
+  findDuplicateByOpportunity,
+  isNetworkError,
+  isUniqueViolation,
+  normalizeOpportunity,
+} from '../lib/saleValidation';
 import { useAuth } from './AuthContext';
 import confetti from 'canvas-confetti';
 
@@ -23,7 +30,9 @@ interface SalesContextType {
     seller_name?: string;
     seller_email?: string;
     collaborator_name?: string;
-  }) => Promise<{ success: boolean; sale?: Sale; error?: string }>;
+  }) => Promise<{ success: boolean; sale?: Sale; error?: string; duplicate?: Sale }>;
+  /** Procura no servidor uma venda com a mesma oportunidade (ignora `excludeId`). */
+  findSaleByOpportunity: (opportunity: string, excludeId?: string) => Promise<Sale | null>;
   updateSale: (saleId: string, updatedData: Partial<Sale>, baseSale?: Sale) => Promise<{ success: boolean; error?: string; sale?: Sale }>;
   deleteSale: (saleId: string) => Promise<{ success: boolean; error?: string }>;
   createCampaign: (campaignData: Omit<Campaign, 'id' | 'created_at'>) => Promise<{ success: boolean; campaign?: Campaign; error?: string }>;
@@ -52,6 +61,37 @@ function createEntityId(prefix: string): string {
   return `${prefix}-${randomId}`;
 }
 
+const SALES_PAGE = 1000;
+
+/** Mensagem de erro de gravação; coluna inexistente vira instrução para o admin. */
+function describeSaveError(error: { code?: string; message?: string } | null | undefined): string {
+  const message = error?.message || 'erro no servidor';
+  const column =
+    message.match(/Could not find the '([^']+)' column/i)?.[1] ||
+    message.match(/column ["']?([a-zA-Z_][a-zA-Z0-9_]*)["']? of relation/i)?.[1];
+  if (column || error?.code === 'PGRST204' || error?.code === '42703') {
+    return `o banco não tem a coluna "${column || '?'}". Um administrador precisa rodar supabase/vendas-ajustes.sql no Supabase.`;
+  }
+  return message;
+}
+
+/** Busca todas as vendas em páginas: uma consulta única do Supabase para em 1000 linhas. */
+async function fetchAllSalesRows(client: NonNullable<ReturnType<typeof getSupabaseClient>>) {
+  const rows: any[] = [];
+  for (let from = 0; ; from += SALES_PAGE) {
+    const { data, error } = await client
+      .from('sales')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, from + SALES_PAGE - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if (!data || data.length < SALES_PAGE) break;
+  }
+  return { data: rows, error: null };
+}
+
 export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, profiles } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -63,12 +103,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const client = getSupabaseClient();
     const localCampaigns = LocalSyncEngine.getCampaigns();
     const localSales = LocalSyncEngine.getSales();
-    const deletedIds = LocalSyncEngine.getDeletedSaleIds();
-
     // O cache local é apenas fallback inicial/offline. Quando o servidor responde,
     // seus dados passam a ser a fonte oficial e substituem o snapshot local.
     setCampaigns(localCampaigns);
-    setSales(localSales.filter(s => !deletedIds.has(String(s.id))));
+    setSales(localSales);
 
     if (client) {
       try {
@@ -82,10 +120,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           LocalSyncEngine.saveCampaigns(remoteCampaigns as Campaign[]);
         }
 
-        const { data: remoteSales, error: salesError } = await client
-          .from('sales')
-          .select('*')
-          .order('created_at', { ascending: false });
+        const { data: remoteSales, error: salesError } = await fetchAllSalesRows(client);
 
         if (salesError) {
           logSupabaseError('loadData - Consulta tabela sales', salesError);
@@ -95,7 +130,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         try {
-          const currentDeleted = LocalSyncEngine.getDeletedSaleIds();
           const normalized = (remoteSales || [])
             .map(row => {
               const sale = normalizeRemoteSale(row);
@@ -105,23 +139,22 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 else if (row.collaborator_name && row.collaborator_name !== 'Consultor') sale.seller_name = row.collaborator_name;
               }
               return sale;
-            })
-            .filter(sale => !currentDeleted.has(String(sale.id)));
+            });
 
           // Tenta primeiro sincronizar vendas que ficaram offline.
           const pendingSales = LocalSyncEngine.getPendingSales();
           const stillPending: Sale[] = [];
           for (const pendingSale of pendingSales) {
-            // Se a venda foi excluída, NUNCA ressuscita no Supabase
-            if (currentDeleted.has(String(pendingSale.id))) {
-              continue;
-            }
-
-            const { error: pendingError } = await client.from('sales').insert(buildR9SalePayload(pendingSale));
+            const { error: pendingError } = await client.from('sales').insert(buildSalePayload(pendingSale));
             if (pendingError) {
               // Se o erro for chave primária duplicada (23505), a venda já existe no banco.
               // Não a mantemos na fila para evitar que seja ressuscitada caso seja excluída depois.
-              if (pendingError.code === '23505' || pendingError.message?.includes('duplicate key')) {
+              if (isUniqueViolation(pendingError)) {
+                continue;
+              }
+              if (!isNetworkError(pendingError)) {
+                // Erro definitivo (permissão, validação): não adianta repetir a cada carga.
+                logSupabaseError('Venda pendente descartada', pendingError, pendingSale);
                 continue;
               }
               stillPending.push(pendingSale);
@@ -132,11 +165,9 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           // Reconsulta somente quando havia itens pendentes sincronizados com sucesso
           let authoritative = normalized;
           if (pendingSales.length > 0 && stillPending.length < pendingSales.length) {
-            const { data: refreshed } = await client.from('sales').select('*').order('created_at', { ascending: false });
+            const { data: refreshed } = await fetchAllSalesRows(client);
             if (refreshed) {
-              authoritative = refreshed
-                .map(row => normalizeRemoteSale(row))
-                .filter(sale => !currentDeleted.has(String(sale.id)));
+              authoritative = refreshed.map(row => normalizeRemoteSale(row));
             }
           }
 
@@ -190,7 +221,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             try {
               const deletedId = String(payload.old?.id || '');
               if (deletedId) {
-                LocalSyncEngine.addDeletedSaleId(deletedId);
                 LocalSyncEngine.clearPendingSale(deletedId);
                 setSales((prev) => prev.filter((sale) => sale.id !== deletedId));
               }
@@ -288,11 +318,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return { data: [], count: 0, error: error.message };
     }
 
-    const deletedIds = LocalSyncEngine.getDeletedSaleIds();
-    const normalized = (data || [])
-      .map(row => normalizeRemoteSale(row))
-      .filter(s => !deletedIds.has(String(s.id)));
-    return { data: normalized, count: Math.max(0, (count || 0) - ((data?.length || 0) - normalized.length)) };
+    return { data: (data || []).map(row => normalizeRemoteSale(row)), count: count || 0 };
   }, []);
 
   const activeCampaigns = useMemo(() => {
@@ -392,6 +418,19 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return { success: false, error: 'Usuário não autenticado.' };
     }
 
+    // Bloqueia oportunidade repetida: primeiro nas vendas carregadas, depois no servidor.
+    const opportunity = normalizeOpportunity(saleData.custom_data?.opportunity_number);
+    if (opportunity) {
+      const duplicate = findDuplicateByOpportunity(sales, opportunity) || await findSaleByOpportunity(opportunity);
+      if (duplicate) {
+        return {
+          success: false,
+          duplicate,
+          error: `A oportunidade ${opportunity} já foi registrada (${describeSale(duplicate)}).`,
+        };
+      }
+    }
+
     const campaign = campaigns.find(c => c.id === saleData.campaign_id);
 
     // 2. Recupera os dados exatos do consultor selecionado no campo de responsável na lista de perfis/equipe
@@ -449,6 +488,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       custom_data: {
         ...saleData.custom_data,
         sale_date: rawSaleDate,
+        ...(opportunity ? { opportunity_number: opportunity } : {}),
+        registered_by: currentUser.id, // quem lançou (pode ser diferente do dono da venda)
         fdi: resolvedFdi,
         fdi_channel: resolvedFdi,
         collaborator_name: selectedSellerName,
@@ -463,84 +504,103 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const client = getSupabaseClient();
     let supabaseErrorDetails: string | undefined;
+    /** true quando a venda ficou na fila offline (sem resposta do servidor). */
+    let queuedOffline = false;
+
+    const keepLocally = () => {
+      LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
+      const updatedSales = [newSale, ...sales];
+      setSales(updatedSales);
+      LocalSyncEngine.saveSales(updatedSales);
+    };
 
     if (client) {
       try {
-        // Tenta os dois formatos conhecidos e, somente quando o Supabase informa
-        // explicitamente uma coluna inexistente, remove essa coluna e repete.
-        // Erros de validação/permissão não são contornados por esta lógica.
-        const payloadCandidates: Array<{ label: string; payload: Record<string, unknown> }> = [
-          { label: 'Formato R9', payload: buildR9SalePayload(newSale) },
-          { label: 'Formato Padrão', payload: buildStandardSalePayload(newSale) },
-        ];
-        let inserted = false;
-        const removedColumns = new Set<string>();
-
-        for (const candidate of payloadCandidates) {
-          let payload = { ...candidate.payload };
-          for (let attempt = 0; attempt < 12; attempt++) {
-            const { error: insertErr } = await client.from('sales').insert(payload).select();
-            if (!insertErr) {
-              inserted = true;
-              supabaseErrorDetails = undefined;
-              break;
-            }
-
-            logSupabaseError(`addSale - ${candidate.label} (tentativa ${attempt + 1})`, insertErr, payload);
-            supabaseErrorDetails = insertErr.message || 'Erro ao registrar a venda no Supabase.';
-
-            const missingColumn =
-              insertErr.message?.match(/Could not find the '([^']+)' column of 'sales' in the schema cache/i)?.[1] ||
-              insertErr.message?.match(/column ["']?([a-zA-Z_][a-zA-Z0-9_]*)["']? of relation ["']?sales["']? does not exist/i)?.[1];
-            const isSchemaError = insertErr.code === 'PGRST204' || insertErr.code === '42703' || Boolean(missingColumn);
-
-            if (isSchemaError && missingColumn && Object.prototype.hasOwnProperty.call(payload, missingColumn)) {
-              delete payload[missingColumn];
-              removedColumns.add(missingColumn);
-              continue; // Erro de coluna inexistente garante que esta tentativa não inseriu a venda.
-            }
-
-            // Um erro não relacionado a coluna inexistente não deve ser contornado.
-            break;
-          }
-          if (inserted) break;
-        }
+        // Formato único de gravação. Se o banco não tiver alguma coluna, a venda NÃO é
+        // gravada pela metade: o erro aparece para o admin rodar o SQL de atualização.
+        const payload = buildSalePayload(newSale);
+        const { error: insertErr } = await client.from('sales').insert(payload).select('id');
+        const inserted = !insertErr;
+        const lastError: any = insertErr;
+        if (insertErr) logSupabaseError('addSale', insertErr, payload);
 
         if (inserted) {
           LocalSyncEngine.clearPendingSale(newSale.id);
-          if (removedColumns.size) {
-            console.warn('[Supabase Sales] Colunas ausentes omitidas do payload:', [...removedColumns]);
-          }
+          setSales(prev => {
+            const next = [newSale, ...prev.filter(s => s.id !== newSale.id)];
+            LocalSyncEngine.saveSales(next);
+            return next;
+          });
+        } else if (isUniqueViolation(lastError)) {
+          const existing = opportunity ? await findSaleByOpportunity(opportunity) : null;
+          return {
+            success: false,
+            duplicate: existing || undefined,
+            error: `A oportunidade ${opportunity} já foi registrada${existing ? ` (${describeSale(existing)})` : ''}.`,
+          };
+        } else if (isNetworkError(lastError)) {
+          supabaseErrorDetails = lastError?.message;
+          queuedOffline = true;
+          keepLocally();
         } else {
-          LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
+          // Erro definitivo do servidor (permissão, validação, coluna faltando): NÃO guarda a venda
+          // localmente, para o consultor corrigir e tentar de novo sem criar uma cópia escondida na fila.
+          return { success: false, error: `A venda não foi registrada: ${describeSaveError(lastError)}` };
         }
       } catch (err: any) {
         console.error('💥 [Supabase Sales] Exceção inesperada no insert:', err);
-        supabaseErrorDetails = err.message || 'Erro de conexão com Supabase';
-        LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
+        supabaseErrorDetails = err?.message || 'Erro de conexão com Supabase';
+        queuedOffline = true;
+        keepLocally();
       }
     } else {
-      LocalSyncEngine.savePendingSales([...LocalSyncEngine.getPendingSales(), newSale]);
+      queuedOffline = true;
+      keepLocally();
     }
-
-    const updatedSales = [newSale, ...sales];
-    setSales(updatedSales);
-    LocalSyncEngine.saveSales(updatedSales);
 
     triggerConfetti();
 
     return {
-      success: !supabaseErrorDetails,
+      success: !queuedOffline,
       sale: newSale,
-      error: supabaseErrorDetails
-        ? `A venda foi mantida localmente para sincronização, mas não foi confirmada no servidor: ${supabaseErrorDetails}`
+      error: queuedOffline
+        ? `Sem conexão com o servidor. A venda ficou guardada neste aparelho e será enviada automaticamente${supabaseErrorDetails ? ` (${supabaseErrorDetails})` : ''}.`
         : undefined,
     };
   };
 
+  async function findSaleByOpportunity(opportunity: string, excludeId?: string): Promise<Sale | null> {
+    const client = getSupabaseClient();
+    const key = normalizeOpportunity(opportunity);
+    if (!client || !key) return null;
+    const variants = Array.from(new Set([key, opportunity.trim()].filter(Boolean)));
+    try {
+      const [byColumn, byJson] = await Promise.all([
+        client.from('sales').select('*').in('opportunity', variants).limit(5),
+        client.from('sales').select('*').in('custom_data->>opportunity_number', variants).limit(5),
+      ]);
+      const rows = [...(byColumn.data || []), ...(byJson.data || [])];
+      const match = rows.find(r => String(r.id) !== excludeId);
+      return match ? normalizeRemoteSale(match) : null;
+    } catch {
+      return null; // Sem servidor: vale só a checagem nas vendas carregadas.
+    }
+  }
+
   // Update Sale (Admin editing registered sales)
   const updateSale = async (saleId: string, updatedData: Partial<Sale>, baseSale?: Sale) => {
     let updatedItem: Sale | undefined;
+
+    // Não deixa a edição trocar a oportunidade para uma que já pertence a outra venda.
+    const newOpportunity = normalizeOpportunity(updatedData.custom_data?.opportunity_number);
+    if (newOpportunity) {
+      const duplicate = findDuplicateByOpportunity(sales, newOpportunity, saleId)
+        || await findSaleByOpportunity(newOpportunity, saleId);
+      if (duplicate) {
+        return { success: false, error: `A oportunidade ${newOpportunity} já pertence a outra venda (${describeSale(duplicate)}).` };
+      }
+      updatedData = { ...updatedData, custom_data: { ...updatedData.custom_data, opportunity_number: newOpportunity } };
+    }
 
     const updated = sales.map(s => {
       if (s.id === saleId) {
@@ -680,24 +740,18 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     try {
-      const r9Payload = buildR9SalePayload(updatedItem);
-      let updateQuery = client.from('sales').update(r9Payload).eq('id', saleId);
+      const payload = buildSalePayload(updatedItem);
+      let updateQuery = client.from('sales').update(payload).eq('id', saleId);
       if (currentUser?.role !== 'admin') {
         updateQuery = updateQuery.eq('seller_id', currentUser!.id);
       }
       const { error: updateErr } = await updateQuery;
       if (updateErr) {
-        logSupabaseError('updateSale - Formato R9', updateErr, r9Payload);
-        const standardPayload = buildStandardSalePayload(updatedItem);
-        let altUpdateQuery = client.from('sales').update(standardPayload).eq('id', saleId);
-        if (currentUser?.role !== 'admin') {
-          altUpdateQuery = altUpdateQuery.eq('seller_id', currentUser!.id);
+        logSupabaseError('updateSale', updateErr, payload);
+        if (isUniqueViolation(updateErr)) {
+          return { success: false, error: 'Essa oportunidade já pertence a outra venda.' };
         }
-        const { error: altErr } = await altUpdateQuery;
-        if (altErr) {
-          logSupabaseError('updateSale - Formato Padrão', altErr, standardPayload);
-          return { success: false, error: altErr.message || updateErr.message || 'Erro ao atualizar a venda.' };
-        }
+        return { success: false, error: describeSaveError(updateErr) };
       }
 
       if (wasInLoadedSales) {
@@ -720,11 +774,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     try {
-      // 1. Marca imediatamente a exclusão nas travas locais contra ressuscitação
-      LocalSyncEngine.addDeletedSaleId(saleId);
+      // 1. Tira da fila offline (se a venda ainda não tinha subido, ela some aqui).
       LocalSyncEngine.clearPendingSale(saleId);
-      const remainingLocal = LocalSyncEngine.getSales().filter(s => s.id !== saleId);
-      LocalSyncEngine.saveSales(remainingLocal);
 
       // 2. Executa a exclusão no Supabase com .select('id') para inspecionar os registros afetados
       const { data: deletedRows, error: delErr } = await client
@@ -734,8 +785,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         .select('id');
 
       if (delErr) {
-        LocalSyncEngine.removeDeletedSaleId(saleId);
-        LocalSyncEngine.saveSales(sales);
         logSupabaseError('deleteSale', delErr, { saleId });
         return { success: false, error: delErr.message || 'Erro ao excluir a venda no banco de dados.' };
       }
@@ -750,8 +799,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           .maybeSingle();
 
         if (checkErr || existingRow) {
-          LocalSyncEngine.removeDeletedSaleId(saleId);
-          LocalSyncEngine.saveSales(sales);
           if (existingRow) console.error('❌ [Supabase Sales] Falha de RLS: O registro existe no banco mas o DELETE afetou 0 linhas.', existingRow);
           return {
             success: false,
@@ -768,8 +815,6 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       LocalSyncEngine.saveSales(updated);
       return { success: true };
     } catch (err: any) {
-      LocalSyncEngine.removeDeletedSaleId(saleId);
-      LocalSyncEngine.saveSales(sales);
       console.error('💥 [Supabase Sales] Exceção no delete:', err);
       return { success: false, error: err?.message || 'Erro inesperado ao excluir a venda.' };
     }
@@ -861,6 +906,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         leaderboard,
         activeCampaigns,
         addSale,
+        findSaleByOpportunity,
         updateSale,
         deleteSale,
         createCampaign,

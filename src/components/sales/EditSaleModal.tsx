@@ -28,7 +28,8 @@ import {
 } from '../../types';
 import { getSaleFdiDisplay } from '../../lib/salesMapper';
 import { useOfficialGoals } from '../../hooks/useOfficialGoals';
-import { buildCycleWindows, saleGoalGroup, suggestSaleCycle } from '../../lib/saleCycle';
+import { buildCycleWindows, getSaleBusinessUnit, saleGoalGroup, suggestSaleCycle } from '../../lib/saleCycle';
+import { validateSaleDate } from '../../lib/saleValidation';
 
 interface EditSaleModalProps {
   sale: Sale | null;
@@ -121,7 +122,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                             profiles.find(p => p.name.toLowerCase() === ((sale as any).collaborator_name || '').toLowerCase());
 
       setSellerId(matchedProfile?.id || sale.seller_id || '');
-      setOpportunityNumber(sale.custom_data?.opportunity_number || sale.id.replace('sale-', '955'));
+      setOpportunityNumber(sale.custom_data?.opportunity_number || '');
       setCandidateName(sale.custom_data?.candidate_name || sale.client_name || '');
       
       // Date formatting: either dd/MM/yyyy or yyyy-mm-dd
@@ -199,6 +200,12 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       setErrorMessage('O número da oportunidade é obrigatório.');
       return;
     }
+    const dateError = validateSaleDate(saleDate);
+    if (dateError) {
+      setErrorMessage(dateError);
+      return;
+    }
+    if (isSaving) return;
 
     setIsSaving(true);
     setErrorMessage(null);
@@ -239,7 +246,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       const updatedFields: Partial<Sale> = {
         client_name: candidateName.trim(),
         notes: notes.trim(),
-        product_name: `${mainProduct} - ${modality} (${shift})`,
+        product_name: mainProduct,
         fdi: fdiChannel,
         seller_id: effectiveSellerId,
         collaborator_id: effectiveSellerId,
@@ -264,7 +271,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           parcela_leve: parcelaLeve,
           has_bolsa_convenio: hasBolsaConvenio,
           empresa_convenio: hasBolsaConvenio ? empresaConvenio.trim() : '',
-          business_unit: modality === 'EAD' || modality === 'FLEX' || modality === 'Pós Digital' ? 'BU Digital' : 'BU Presencial',
+          business_unit: getSaleBusinessUnit(mainProduct, modality),
           // Se as metas ainda não carregaram ou não cobrem a data, mantém o ciclo já gravado.
           academic_period: effectiveCycle || sale.custom_data?.academic_period || undefined,
         }

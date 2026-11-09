@@ -1,4 +1,4 @@
-import { GoalImportGroup } from './goalImport';
+import { GoalImportGroup, getModelMetadata } from './goalImport';
 import { GoalDailyPoint } from './goalProgress';
 
 /** Janela de datas de um ciclo para uma modalidade, tirada do arquivo importado. */
@@ -72,3 +72,16 @@ export function candidateCycles(group: string | null, dateIso: string, windows: 
 /** Ciclo sugerido para uma venda, ou null se nenhum arquivo cobre essa modalidade nessa data. */
 export const suggestSaleCycle = (group: string | null, dateIso: string, windows: CycleWindow[]) =>
   candidateCycles(group, dateIso, windows)[0] ?? null;
+
+/**
+ * BU da venda a partir do produto e da modalidade:
+ * Graduação Presencial/Semi/Ao Vivo → BU Presencial; EAD/Flex → BU Digital;
+ * Pós → Pós-Graduação; Técnico → Curso Técnico.
+ */
+export function getSaleBusinessUnit(
+  mainProduct: unknown,
+  modality: unknown,
+): 'BU Presencial' | 'BU Digital' | 'Pós-Graduação' | 'Curso Técnico' {
+  const group = saleGoalGroup(mainProduct, modality);
+  return group ? getModelMetadata(group).bu : 'BU Presencial';
+}

@@ -33,7 +33,7 @@ export interface SaleCustomData {
   candidate_name?: string;
   sale_date?: string; // dd/MM/yyyy
   main_product?: MainProductType;
-  business_unit?: 'BU Presencial' | 'BU Digital';
+  business_unit?: 'BU Presencial' | 'BU Digital' | 'Pós-Graduação' | 'Curso Técnico';
   fdi?: string | ProductChannelFDI; // Texto exclusivo do canal selecionado
   fdi_channel?: ProductChannelFDI;
   modality?: ModalityType;
