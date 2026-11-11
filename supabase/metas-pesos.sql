@@ -13,11 +13,11 @@
 -- =====================================================================
 
 create table if not exists public.metas_pesos (
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id text not null references public.profiles(id) on delete cascade,
   bu text not null check (bu in ('bu_presencial', 'bu_digital', 'pos', 'tecnico')),
   percentual numeric not null default 0 check (percentual >= 0 and percentual <= 100),
   updated_at timestamp with time zone not null default timezone('utc'::text, now()),
-  updated_by uuid,
+  updated_by text,
   primary key (user_id, bu)
 );
 

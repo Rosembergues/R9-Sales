@@ -30,7 +30,7 @@ begin
     raise exception 'Apenas administradores podem mudar a função de um usuário';
   end if;
 
-  if old.id = auth.uid()
+  if old.id::text = auth.uid()::text
      and new.status is distinct from old.status
      and new.status in ('pending', 'rejected') then
     raise exception 'Você não pode bloquear o seu próprio acesso';

@@ -3,7 +3,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText, Scale, ListChecks } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
-import { CampaignsManager } from '../admin/CampaignsManager';
 import { PerformancePage } from '../performance/PerformancePage';
 import { GoalManagementPage } from '../admin/GoalManagementPage';
 import { GoalImportPage } from '../admin/GoalImportPage';
@@ -378,7 +377,7 @@ export const R9Dashboard: React.FC = () => {
                   onClick={() => setIsAdminMenuOpen((open) => !open)}
                   aria-expanded={isAdminMenuOpen}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    ['equipe', 'metas', 'metas_importacao', 'campanhas'].includes(activeTab)
+                    ['equipe', 'metas', 'metas_importacao'].includes(activeTab)
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -453,21 +452,6 @@ export const R9Dashboard: React.FC = () => {
                   <span className="text-[10px] font-medium text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
                     arquivos
                   </span>
-                </button>
-
-                <button
-                  id="nav-campanhas"
-                  onClick={() => setActiveTab('campanhas')}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'campanhas'
-                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Tag className="w-3.5 h-3.5 text-purple-400" />
-                    <span className="whitespace-nowrap">Campanhas</span>
-                  </div>
                 </button>
 
                 </div>}
@@ -613,23 +597,6 @@ export const R9Dashboard: React.FC = () => {
                     </div>
                     <h3 className="text-base font-bold text-slate-900">Acesso Restrito a Administradores</h3>
                     <p className="text-xs text-slate-500">A importação de metas é restrita exclusivamente a administradores.</p>
-                    <button onClick={() => setActiveTab('home')} className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer">Voltar ao Início</button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'campanhas' && (
-              <div className="animate-in fade-in duration-200">
-                {isActualAdmin && viewRole === 'admin' ? (
-                  <CampaignsManager />
-                ) : (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center max-w-md mx-auto my-12 space-y-4 shadow-sm">
-                    <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
-                      <Shield className="w-7 h-7" />
-                    </div>
-                    <h3 className="text-base font-bold text-slate-900">Acesso Restrito a Administradores</h3>
-                    <p className="text-xs text-slate-500">A gestão de campanhas é restrita exclusivamente a administradores.</p>
                     <button onClick={() => setActiveTab('home')} className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer">Voltar ao Início</button>
                   </div>
                 )}

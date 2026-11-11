@@ -75,3 +75,4 @@ Rodar `supabase/vendas-completas.sql` no SQL Editor (pode rodar mais de uma vez)
 - **Vendas:** os filtros (período, consultor, produto, modalidade, FDI, turno, "Só as minhas") e a busca valem para todas as vendas, não só para a página. Exportar Excel leva todas as vendas do filtro. Uma venda nova aparece sozinha, sem recarregar.
 - **Boletos do Dia** saiu do menu: é Vendas com o período "Hoje".
 - **Fechamento Diário:** bloco "Boletos por Consultor" (clique filtra a tabela) e o texto copiado inclui a lista por consultor.
+- **Campanhas** saiu do menu: os campos criados lá nunca apareciam no formulário de venda. As campanhas cadastradas e o `campaign_id` das vendas continuam no banco. (As campanhas do Repositório de Mensagens são outra tabela e continuam funcionando.)
