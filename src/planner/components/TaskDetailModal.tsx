@@ -27,6 +27,9 @@ interface TaskDetailModalProps {
   userRole: UserRole;
   buckets?: string[];
   tagBuckets?: TagBucket[];
+  /** Cadastro ao qual esta execução pertence (regra legível e se o usuário pode editá-lo). */
+  modelInfo?: { rule: string; canEdit: boolean } | null;
+  onOpenModel?: () => void;
 }
 
 function TaskDetailModalContent({
@@ -40,6 +43,8 @@ function TaskDetailModalContent({
   userRole,
   buckets = BUCKET_OPTIONS,
   tagBuckets = [],
+  modelInfo = null,
+  onOpenModel,
 }: TaskDetailModalProps) {
   const isAdmin = userRole === 'admin';
   const [newCommentText, setNewCommentText] = useState('');
@@ -842,6 +847,21 @@ function TaskDetailModalContent({
         }`}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Ligação com o cadastro: esta é uma execução (um dia) da tarefa */}
+        {modelInfo && onOpenModel && (
+          <div className="shrink-0 px-5 py-2 bg-blue-50/70 border-b border-blue-100 flex items-center justify-between gap-3 text-[11px]">
+            <span className="text-slate-600 truncate">
+              Execução de {task.scheduledDate ? new Date(`${task.scheduledDate}T12:00:00`).toLocaleDateString('pt-BR') : 'sem data'} · <b className="text-slate-800">{modelInfo.rule}</b>
+            </span>
+            <button
+              type="button"
+              onClick={onOpenModel}
+              className="shrink-0 font-bold text-[#0052cc] hover:underline cursor-pointer"
+            >
+              {modelInfo.canEdit ? 'Editar tarefa (próximas execuções)' : 'Ver tarefa'}
+            </button>
+          </div>
+        )}
         {/* ============================================================ */}
         {/* CASO 1: VISÃO DO MEMBRO (SIMPLIFICADA & PROGRESSO MULTI-USUÁRIO) */}
         {/* ============================================================ */}

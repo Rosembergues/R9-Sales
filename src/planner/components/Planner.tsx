@@ -1,7 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import '../planner.css';
-import { CalendarDays, LayoutGrid, ChevronLeft, ChevronRight, CheckCircle2, Inbox, Tag, TrendingUp, RefreshCw } from 'lucide-react';
-import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket, UserTaskSubmission } from '../types.ts';
+import { CalendarDays, LayoutGrid, ChevronLeft, ChevronRight, CheckCircle2, Inbox, Tag, TrendingUp, RefreshCw, ListChecks } from 'lucide-react';
+import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket, UserTaskSubmission, TaskModel } from '../types.ts';
+import { taskModelService, TaskModelInput, ruleLabel } from '../services/taskModelService.ts';
+import TaskModelModal from './TaskModelModal.tsx';
+import TaskCatalogView from './TaskCatalogView.tsx';
 import { getWeekDates, formatWeekInterval, getMonthGrid, MONTH_NAMES_PT, formatISO } from '../utils/dateUtils.ts';
 import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
 import { taskService, mapDbRowToTask, subscribeTaskMutations } from '../services/taskService.ts';
@@ -11,7 +14,6 @@ import { supabase } from '../../lib/supabase';
 import WeeklyView from './WeeklyView.tsx';
 import MonthlyView from './MonthlyView.tsx';
 import TaskDetailModal from './TaskDetailModal.tsx';
-import NewTaskModal from './NewTaskModal.tsx';
 import TaskCompletionModal from './TaskCompletionModal.tsx';
 import LeftSidebar, { SidebarTab, NavFilter } from './LeftSidebar.tsx';
 import TeamManagementView from './TeamManagementView.tsx';
@@ -19,7 +21,7 @@ import ExecutiveWeeklySummary from './ExecutiveWeeklySummary.tsx';
 import TagManagementView from './TagManagementView.tsx';
 import UnscheduledRightSidebar from './UnscheduledRightSidebar.tsx';
 
-export type PlannerSection = 'calendar' | 'queue' | 'my_tasks' | 'tags' | 'summary';
+export type PlannerSection = 'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags' | 'summary';
 
 interface PlannerProps {
   user?: {
@@ -58,7 +60,32 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   const userRole: UserRole = isRealAdmin ? simulatedRole : 'member';
 
   // Tela Ativa: 'planner', 'team_management', 'executive_summary' ou 'tag_management'
-  const [activeView, setActiveView] = useState<'planner' | 'team_management' | 'executive_summary' | 'tag_management'>('planner');
+  const [activeView, setActiveView] = useState<'planner' | 'team_management' | 'executive_summary' | 'tag_management' | 'task_catalog'>('planner');
+
+  // Cadastro de tarefas (tarefas_modelo): o que é cada tarefa e quando se repete
+  const [models, setModels] = useState<TaskModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelModal, setModelModal] = useState<{ open: boolean; model: TaskModel | null; defaultDate: string | null }>({ open: false, model: null, defaultDate: null });
+  const modelById = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
+
+  const loadModels = useCallback(async () => {
+    const { data, error, missingTable } = await taskModelService.list();
+    setModels(data);
+    setModelsError(error ? (missingTable ? error.message : `Não foi possível carregar o cadastro: ${error.message}`) : null);
+    setModelsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadModels();
+    const channel = supabase
+      .channel('tarefas-modelo-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tarefas_modelo' }, () => loadModels())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadModels]);
 
   // Proteção de Rota: se não for admin ativo, bloqueia telas administrativas e redireciona para o planner
   useEffect(() => {
@@ -221,6 +248,8 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     if (isInitial) setIsLoadingTasks(true);
 
     try {
+      // Garante o horizonte de 8 semanas das tarefas recorrentes (o banco também faz isso todo dia).
+      if (isInitial) await taskModelService.ensureHorizon();
       const { data, error } = await taskService.fetchTasks();
 
       if (!error) {
@@ -404,8 +433,6 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   // Modais
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
-  const [defaultNewTaskDate, setDefaultNewTaskDate] = useState<string | null>(null);
 
   // Modal de Conclusão Obrigatória (quando a ação tem campos não preenchidos)
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
@@ -445,6 +472,10 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     }
     if (section === 'tags') {
       setActiveView('tag_management');
+      return;
+    }
+    if (section === 'tasks') {
+      setActiveView('task_catalog');
       return;
     }
     setActiveView('planner');
@@ -590,19 +621,54 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     setCurrentReferenceDate(new Date(todayDate));
   };
 
-  // Drag & Drop Handlers (Admin Only com Persistência Imediata no Supabase)
+  /** Mexer na execução (data, exclusão) e no cadastro: admin ou quem criou a tarefa. */
+  const canManageTask = useCallback((task: Task) => {
+    if (isRealAdmin) return true;
+    const model = task.modeloId ? modelById.get(task.modeloId) : undefined;
+    return Boolean(model && model.createdBy && model.createdBy === currentUser.id);
+  }, [isRealAdmin, modelById, currentUser.id]);
+
+  const canEditModel = useCallback(
+    (model: TaskModel | null) => !model || isRealAdmin || (Boolean(model.createdBy) && model.createdBy === currentUser.id),
+    [isRealAdmin, currentUser.id]
+  );
+
+  const openNewTask = (date: string | null = null) => setModelModal({ open: true, model: null, defaultDate: date });
+  const openModel = (model: TaskModel) => setModelModal({ open: true, model, defaultDate: null });
+
+  const handleSaveModel = async (input: TaskModelInput, id?: string) => {
+    if (id) {
+      await taskModelService.update(id, input);
+      setToastMessage('Tarefa atualizada. As próximas execuções já seguem o novo cadastro.');
+    } else {
+      await taskModelService.create(input, currentUser.id);
+      setToastMessage(input.recurrence === 'Nenhuma' ? 'Tarefa criada.' : 'Tarefa criada com as execuções das próximas 8 semanas.');
+    }
+    setTimeout(() => setToastMessage(null), 4000);
+    await Promise.all([loadModels(), loadTasksFromSupabase(false)]);
+  };
+
+  const handleDeleteModel = async (id: string) => {
+    await taskModelService.remove(id);
+    setToastMessage('Tarefa excluída. As execuções concluídas continuam no histórico.');
+    setTimeout(() => setToastMessage(null), 4000);
+    await Promise.all([loadModels(), loadTasksFromSupabase(false)]);
+  };
+
+  // Drag & Drop (admin ou quem criou a tarefa), com persistência imediata
   const handleDragStart = (e: React.DragEvent, task: Task) => {
-    if (userRole !== 'admin') return;
+    if (!canManageTask(task)) return;
     setDraggedTaskId(task.id);
     e.dataTransfer.setData('text/plain', task.id);
     e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDropOnDate = async (targetDateString: string, e: React.DragEvent) => {
-    if (userRole !== 'admin') return;
     e.preventDefault();
     const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
     if (!taskId) return;
+    const draggedTask = tasks.find((t) => t.id === taskId);
+    if (!draggedTask || !canManageTask(draggedTask)) return;
 
     // Atualização otimista imediata na UI
     setTasks((prev) =>
@@ -625,10 +691,11 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   };
 
   const handleDropToUnscheduled = async (e: React.DragEvent) => {
-    if (userRole !== 'admin') return;
     e.preventDefault();
     const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
     if (!taskId) return;
+    const draggedTask = tasks.find((t) => t.id === taskId);
+    if (!draggedTask || !canManageTask(draggedTask)) return;
 
     // Atualização otimista imediata na UI (mover para a Fila)
     setTasks((prev) =>
@@ -875,8 +942,9 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   // Excluir ação existente: autorização baseada no papel REAL da conta, não no modo de visualização Admin/Membro.
   // O seletor global apenas simula a visão; não deve remover permissões administrativas reais.
   const handleDeleteTask = async (taskId: string): Promise<boolean> => {
-    if (!isRealAdmin) {
-      setToastMessage('Somente administradores podem excluir ações.');
+    const target = tasks.find((t) => t.id === taskId);
+    if (!target || !canManageTask(target)) {
+      setToastMessage('Só quem criou a tarefa (ou um admin) pode excluí-la.');
       setTimeout(() => setToastMessage(null), 5000);
       return false;
     }
@@ -902,35 +970,8 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     return true;
   };
 
-  // Criar nova ação (com persistência no Supabase)
-  const handleCreateTask = async (newTaskData: Omit<Task, 'id' | 'comments'>) => {
-    if (userRole !== 'admin') return;
-
-    const { data: createdTask, error } = await taskService.createTask(newTaskData);
-
-    if (error || !createdTask) {
-      const errMsg = error?.message || 'Erro ao criar nova ação no Supabase.';
-      setToastMessage(errMsg);
-      setTimeout(() => setToastMessage(null), 5000);
-      throw new Error(errMsg);
-    }
-
-    if (createdTask) {
-      setTasks((prev) => [createdTask, ...prev]);
-      if (createdTask.scheduledDate) {
-        const [, m, d] = createdTask.scheduledDate.split('-');
-        setToastMessage(`Nova ação criada e agendada para ${d}/${m} no Supabase.`);
-      } else {
-        setToastMessage('Nova ação criada na Fila de Não Agendadas no Supabase.');
-      }
-      setTimeout(() => setToastMessage(null), 4000);
-    }
-  };
-
   const handleQuickAddTask = (dateString: string) => {
-    if (userRole !== 'admin') return;
-    setDefaultNewTaskDate(dateString);
-    setIsNewTaskOpen(true);
+    openNewTask(dateString);
   };
 
   return (
@@ -942,14 +983,14 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
       >
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-11 h-11 rounded-xl bg-blue-50 text-[#0052cc] flex items-center justify-center shrink-0 border border-blue-100">
-            {section === 'summary' ? <TrendingUp className="w-5 h-5" /> : section === 'tags' ? <Tag className="w-5 h-5" /> : section === 'queue' ? <Inbox className="w-5 h-5" /> : <CalendarDays className="w-5 h-5" />}
+            {section === 'summary' ? <TrendingUp className="w-5 h-5" /> : section === 'tags' ? <Tag className="w-5 h-5" /> : section === 'tasks' ? <ListChecks className="w-5 h-5" /> : section === 'queue' ? <Inbox className="w-5 h-5" /> : <CalendarDays className="w-5 h-5" />}
           </div>
           <div className="min-w-0">
             <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight tracking-tight">
-              {section === 'summary' ? 'Balanço da semana' : section === 'tags' ? 'Tags e categorias' : section === 'queue' ? 'Fila de tarefas' : section === 'my_tasks' ? 'Minhas tarefas' : 'Planejamento'}
+              {section === 'summary' ? 'Balanço da semana' : section === 'tags' ? 'Tags e categorias' : section === 'tasks' ? 'Tarefas' : section === 'queue' ? 'Fila de tarefas' : section === 'my_tasks' ? 'Minhas tarefas' : 'Planejamento'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5 truncate">
-              {section === 'summary' ? 'Acompanhamento gerencial das ações da equipe' : section === 'tags' ? 'Organize as categorias usadas nas ações da equipe' : section === 'queue' ? 'Ações que aguardam uma data no calendário' : section === 'my_tasks' ? 'Acompanhe as ações atribuídas a você' : 'Organize ações, responsáveis e prazos da equipe'}
+              {section === 'summary' ? 'Acompanhamento gerencial das ações da equipe' : section === 'tags' ? 'Organize as categorias usadas nas ações da equipe' : section === 'tasks' ? 'O que a equipe faz e em quais dias da semana' : section === 'queue' ? 'Ações que aguardam uma data no calendário' : section === 'my_tasks' ? 'Acompanhe as ações atribuídas a você' : 'Organize ações, responsáveis e prazos da equipe'}
             </p>
           </div>
         </div>
@@ -970,11 +1011,9 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
               <button type="button" onClick={handleNext} className="p-1.5 text-slate-500 hover:text-[#0052cc] hover:bg-blue-50 rounded-md cursor-pointer" title="Próximo período"><ChevronRight className="w-4 h-4" /></button>
               <span className="text-xs font-semibold text-slate-700 px-1.5 whitespace-nowrap hidden lg:inline">{viewMode === 'week' ? formatWeekInterval(weekDates) : `${MONTH_NAMES_PT[currentReferenceDate.getMonth()]} de ${currentReferenceDate.getFullYear()}`}</span>
             </div>
-            {userRole === 'admin' && (
-              <button type="button" onClick={() => { setDefaultNewTaskDate(null); setIsNewTaskOpen(true); }} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold shadow-sm transition-colors cursor-pointer whitespace-nowrap">
-                <span className="text-base leading-none">+</span> Nova tarefa
-              </button>
-            )}
+            <button type="button" onClick={() => openNewTask()} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold shadow-sm transition-colors cursor-pointer whitespace-nowrap">
+              <span className="text-base leading-none">+</span> Nova tarefa
+            </button>
           </div>
         ) : null}
       </header>
@@ -1037,10 +1076,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
           onToggleStatus={handleToggleStatus}
           onDragStart={handleDragStart}
           onDropToUnscheduled={handleDropToUnscheduled}
-          onOpenNewTaskModal={() => {
-            setDefaultNewTaskDate(null);
-            setIsNewTaskOpen(true);
-          }}
+          onOpenNewTaskModal={() => openNewTask()}
           isCollapsed={isLeftSidebarCollapsed}
           onToggleCollapse={() => setIsLeftSidebarCollapsed((prev) => !prev)}
           activeTab={sidebarTab}
@@ -1048,7 +1084,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
             setActiveView('planner');
             setSidebarTab(tab);
           }}
-          activeView={activeView}
+          activeView={activeView === 'task_catalog' ? 'planner' : activeView}
           onOpenTeamManagement={() => {
             if (userRole === 'admin') {
               setActiveView('team_management');
@@ -1070,7 +1106,20 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
 
         {/* Grade Principal do Calendário OU Telas Administrativas (Equipe, Tags, Resumo) */}
         <main className="flex-1 min-h-0 overflow-hidden relative bg-[#f8f9fa]/80 flex flex-col">
-          {activeView === 'tag_management' && userRole === 'admin' ? (
+          {activeView === 'task_catalog' ? (
+            <TaskCatalogView
+              models={models}
+              tasks={tasks}
+              teamMembers={teamMembers}
+              tagBuckets={tagBuckets}
+              currentUserId={currentUser.id}
+              isAdmin={isRealAdmin}
+              loading={modelsLoading}
+              error={modelsError}
+              onOpenModel={openModel}
+              onNewTask={() => openNewTask()}
+            />
+          ) : activeView === 'tag_management' && userRole === 'admin' ? (
             <TagManagementView
               isAdmin={isRealAdmin && userRole === 'admin'}
               tasks={tasks}
@@ -1118,6 +1167,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
                     onToggleStatus={handleToggleStatus}
                     onDragStart={handleDragStart}
                     onDropOnDate={handleDropOnDate}
+                    canManageTask={canManageTask}
                     onQuickAddTask={handleQuickAddTask}
                     onRescheduleOverdue={handleRescheduleOverdue}
                   />
@@ -1131,6 +1181,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
                     onTaskClick={handleTaskClick}
                     onDragStart={handleDragStart}
                     onDropOnDate={handleDropOnDate}
+                    canManageTask={canManageTask}
                     onQuickAddTask={handleQuickAddTask}
                     onRescheduleOverdue={handleRescheduleOverdue}
                   />
@@ -1146,8 +1197,9 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
                 onTaskClick={handleTaskClick}
                 onToggleStatus={handleToggleStatus}
                 onDragStart={handleDragStart}
-                onOpenNewTaskModal={() => { setDefaultNewTaskDate(null); setIsNewTaskOpen(true); }}
+                onOpenNewTaskModal={() => openNewTask()}
                 onDropToUnscheduled={handleDropToUnscheduled}
+                canManageTask={canManageTask}
               />
             </div>
           ) : viewMode === 'week' ? (
@@ -1161,6 +1213,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
               onToggleStatus={handleToggleStatus}
               onDragStart={handleDragStart}
               onDropOnDate={handleDropOnDate}
+              canManageTask={canManageTask}
               onQuickAddTask={handleQuickAddTask}
               onRescheduleOverdue={handleRescheduleOverdue}
             />
@@ -1174,6 +1227,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
               onTaskClick={handleTaskClick}
               onDragStart={handleDragStart}
               onDropOnDate={handleDropOnDate}
+              canManageTask={canManageTask}
               onQuickAddTask={handleQuickAddTask}
               onRescheduleOverdue={handleRescheduleOverdue}
             />
@@ -1196,18 +1250,30 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
         userRole={userRole}
         buckets={allBuckets}
         tagBuckets={tagBuckets}
+        modelInfo={selectedTask?.modeloId && modelById.get(selectedTask.modeloId)
+          ? { rule: ruleLabel(modelById.get(selectedTask.modeloId)!), canEdit: canEditModel(modelById.get(selectedTask.modeloId)!) }
+          : null}
+        onOpenModel={() => {
+          const model = selectedTask?.modeloId ? modelById.get(selectedTask.modeloId) : undefined;
+          if (!model) return;
+          setIsDetailOpen(false);
+          setSelectedTask(null);
+          openModel(model);
+        }}
       />
 
-      {/* 4. Modal de Nova Ação (Admin - com Construtor de Campos Customizados e Tags do Supabase) */}
-      <NewTaskModal
-        key={`${isNewTaskOpen ? 'open' : 'closed'}-${defaultNewTaskDate ?? 'queue'}`}
-        isOpen={isNewTaskOpen}
-        onClose={() => setIsNewTaskOpen(false)}
-        onCreateTask={handleCreateTask}
+      {/* 4. Cadastro de tarefa (nova / editar) — disponível para toda a equipe */}
+      <TaskModelModal
+        isOpen={modelModal.open}
+        model={modelModal.model}
+        defaultDate={modelModal.defaultDate}
+        canEdit={canEditModel(modelModal.model)}
         teamMembers={teamMembers}
-        defaultScheduledDate={defaultNewTaskDate}
         buckets={allBuckets}
-        tagBuckets={tagBuckets}
+        currentUserId={currentUser.id}
+        onClose={() => setModelModal({ open: false, model: null, defaultDate: null })}
+        onSave={handleSaveModel}
+        onDelete={handleDeleteModel}
       />
 
       {/* 5. Modal de Preenchimento de Formulário Obrigatório ao Concluir Tarefa */}

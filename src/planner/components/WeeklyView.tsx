@@ -16,6 +16,8 @@ interface WeeklyViewProps {
   onDropOnDate: (dateString: string, e: React.DragEvent) => void;
   onQuickAddTask: (dateString: string) => void;
   onRescheduleOverdue?: () => void;
+  /** Admin ou quem criou a tarefa pode arrastá-la (o Planner valida de novo ao soltar). */
+  canManageTask?: (task: Task) => boolean;
 }
 
 export default function WeeklyView({
@@ -30,6 +32,7 @@ export default function WeeklyView({
   onDropOnDate,
   onQuickAddTask,
   onRescheduleOverdue,
+  canManageTask,
 }: WeeklyViewProps) {
   const isAdmin = userRole === 'admin';
   const todayISO = formatISO(todayDate);
@@ -66,10 +69,8 @@ export default function WeeklyView({
               key={dateISO}
               id={`coluna-semana-${dateISO}`}
               onDragOver={(e) => {
-                if (isAdmin) {
-                  e.preventDefault();
-                  setDragOverDate(dateISO);
-                }
+                e.preventDefault();
+                setDragOverDate(dateISO);
               }}
               onDragLeave={() => {
                 if (dragOverDate === dateISO) {
@@ -78,9 +79,7 @@ export default function WeeklyView({
               }}
               onDrop={(e) => {
                 setDragOverDate(null);
-                if (isAdmin) {
-                  onDropOnDate(dateISO, e);
-                }
+                onDropOnDate(dateISO, e);
               }}
               className={`flex flex-col h-full rounded-2xl overflow-hidden border transition-all duration-150 shadow-[0_2px_8px_rgba(0,0,0,0.03)] ${
                 isDragOver
@@ -137,7 +136,7 @@ export default function WeeklyView({
                     {dayTasks.filter((task) => task.status === 'concluida').length}/{dayTasks.length}
                   </span>
 
-                  {isAdmin && (
+                  {(
                     <button
                       type="button"
                       onClick={() => onQuickAddTask(dateISO)}
@@ -166,7 +165,7 @@ export default function WeeklyView({
                   <div className="h-40 flex flex-col items-center justify-center text-center p-3 text-slate-400">
                     <Calendar className="w-5 h-5 opacity-25 mb-1.5 text-slate-500" />
                     <p className="text-xs font-normal text-slate-400">Sem tarefas</p>
-                    {isAdmin && (
+                    {(
                       <button
                         type="button"
                         onClick={() => onQuickAddTask(dateISO)}
@@ -187,6 +186,7 @@ export default function WeeklyView({
                       onToggleStatus={onToggleStatus}
                       onDragStart={onDragStart}
                       todayISO={todayISO}
+                      canManageTask={canManageTask}
                     />
                   ))
                 )}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { UserRole } from '../../types';
+import { ProfileStatus, UserRole } from '../../types';
 import { 
   Users, 
   Search, 
@@ -15,7 +15,11 @@ import {
   LogOut,
   Check,
   User,
-  Trash2
+  Trash2,
+  Clock,
+  UserX,
+  Ban,
+  CheckCircle2
 } from 'lucide-react';
 
 interface UsersProfilesTableProps {
@@ -23,7 +27,9 @@ interface UsersProfilesTableProps {
 }
 
 export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackToPlanner }) => {
-  const { profiles, currentUser, updateUserRole, refreshProfiles, deleteUser, signOut } = useAuth();
+  const { allProfiles: profiles, pendingProfiles, currentUser, updateUserRole, updateUserStatus, refreshProfiles, deleteUser, signOut } = useAuth();
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [userToBlock, setUserToBlock] = useState<{ id: string; name: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'seller'>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -60,11 +66,13 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
     );
   }
 
-  const adminCount = profiles.filter(p => p.role === 'admin').length;
-  const memberCount = profiles.filter(p => p.role === 'seller').length;
+  // Pendentes ficam no bloco de autorização; a lista principal mostra os demais.
+  const registeredProfiles = profiles.filter(p => p.status !== 'pending');
+  const adminCount = registeredProfiles.filter(p => p.role === 'admin').length;
+  const memberCount = registeredProfiles.filter(p => p.role === 'seller').length;
 
   // Filter profiles
-  const filteredProfiles = profiles.filter(p => {
+  const filteredProfiles = registeredProfiles.filter(p => {
     const matchesSearch = 
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.email.toLowerCase().includes(searchTerm.toLowerCase());
@@ -95,6 +103,24 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
       setTimeout(() => setToastMessage(null), 4000);
     }
   };
+
+  const handleStatusChange = async (userId: string, status: ProfileStatus, userName: string) => {
+    setStatusUpdatingId(userId);
+    const result = await updateUserStatus(userId, status);
+    setStatusUpdatingId(null);
+    setUserToBlock(null);
+    const messages: Partial<Record<ProfileStatus, string>> = {
+      active: `Acesso de ${userName} autorizado.`,
+      rejected: `Acesso de ${userName} bloqueado.`,
+    };
+    setToastMessage(result.success ? messages[status] || 'Acesso atualizado.' : result.error || 'Erro ao alterar o acesso.');
+    setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  const formatSignupDate = (value?: string) =>
+    value
+      ? new Date(value).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '—';
 
   const handleDeleteUser = async (userId: string, userName: string) => {
     setDeletingId(userId);
@@ -254,7 +280,7 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
           <div>
             <span className="text-xs font-medium text-slate-500">Total de Usuários</span>
             <div className="text-3xl font-black text-slate-900 font-['Space_Grotesk'] my-1">
-              {profiles.length}
+              {registeredProfiles.length}
             </div>
             <span className="text-xs text-slate-400">Contas cadastradas no sistema</span>
           </div>
@@ -292,6 +318,65 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
         </div>
       </div>
 
+      {/* Autorização de acesso: cadastros aguardando liberação */}
+      <div
+        id="pending-approvals"
+        className={`rounded-2xl border shadow-2xs overflow-hidden ${pendingProfiles.length ? 'bg-amber-50/40 border-amber-200' : 'bg-white border-slate-200'}`}
+      >
+        <div className="px-4 sm:px-6 py-3.5 flex items-center gap-2.5 border-b border-amber-100/80">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${pendingProfiles.length ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+            <Clock className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Aguardando autorização ({pendingProfiles.length})</h3>
+            <p className="text-[11px] text-slate-500">Novos cadastros só acessam o R9 Hub depois de autorizados aqui.</p>
+          </div>
+        </div>
+        {pendingProfiles.length === 0 ? (
+          <div className="px-6 py-5 text-xs text-slate-400 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Nenhum cadastro aguardando autorização.
+          </div>
+        ) : (
+          <div className="divide-y divide-amber-100/80">
+            {pendingProfiles.map(profile => (
+              <div key={profile.id} className="py-3.5 px-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-xs uppercase shrink-0 ${getAvatarBg(profile.name)}`}>
+                    {getInitials(profile.name)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-900 text-sm truncate">{profile.name}</div>
+                    <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+                      <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{profile.email}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Cadastro em {formatSignupDate(profile.created_at)}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  <button
+                    onClick={() => handleStatusChange(profile.id, 'rejected', profile.name)}
+                    disabled={statusUpdatingId === profile.id}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 text-red-600 bg-white border border-red-200 hover:bg-red-50 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    Recusar
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange(profile.id, 'active', profile.name)}
+                    disabled={statusUpdatingId === profile.id}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 text-white bg-emerald-600 hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    {statusUpdatingId === profile.id ? 'Salvando...' : 'Autorizar'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Filter and Search Bar */}
       <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* Search */}
@@ -319,7 +404,7 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
                   : 'text-slate-600 hover:text-slate-900 font-medium'
               }`}
             >
-              Todos ({profiles.length})
+              Todos ({registeredProfiles.length})
             </button>
             <button
               onClick={() => setRoleFilter('admin')}
@@ -384,6 +469,11 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
                             Você
                           </span>
                         )}
+                        {profile.status === 'rejected' && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
+                            Acesso bloqueado
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
                         <Mail className="w-3.5 h-3.5 text-slate-400" />
@@ -436,6 +526,28 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
                       </button>
                     </div>
 
+                    {/* Autorizar de novo / bloquear acesso (não vale para a própria conta) */}
+                    {!isCurrent && (profile.status === 'rejected' ? (
+                      <button
+                        onClick={() => handleStatusChange(profile.id, 'active', profile.name)}
+                        disabled={statusUpdatingId === profile.id}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer"
+                        title={`Autorizar novamente ${profile.name}`}
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        Autorizar
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setUserToBlock({ id: profile.id, name: profile.name })}
+                        disabled={statusUpdatingId === profile.id}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-amber-700 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition-colors cursor-pointer"
+                        title={`Bloquear acesso de ${profile.name}`}
+                      >
+                        <Ban className="w-4 h-4" />
+                      </button>
+                    ))}
+
                     {/* Individual Delete Button (only for other users) */}
                     {profile.id !== currentUser?.id && (
                       <button
@@ -454,6 +566,40 @@ export const UsersProfilesTable: React.FC<UsersProfilesTableProps> = ({ onBackTo
           )}
         </div>
       </div>
+
+      {/* Modal: Confirmar bloqueio de acesso */}
+      {userToBlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+              <Ban className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h4 className="text-base font-bold text-slate-900">Bloquear acesso</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                <strong className="text-slate-800">{userToBlock.name}</strong> deixa de acessar o R9 Hub. O histórico (vendas, tarefas) é mantido e você pode autorizar de novo depois.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setUserToBlock(null)}
+                className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStatusChange(userToBlock.id, 'rejected', userToBlock.name)}
+                disabled={statusUpdatingId === userToBlock.id}
+                className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+              >
+                {statusUpdatingId === userToBlock.id ? 'Bloqueando...' : 'Bloquear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Confirmar exclusão de usuário único */}
       {userToDelete && (

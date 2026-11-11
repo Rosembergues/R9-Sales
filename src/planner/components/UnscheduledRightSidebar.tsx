@@ -15,6 +15,8 @@ interface UnscheduledRightSidebarProps {
   onDragStart: (e: React.DragEvent, task: Task) => void;
   onOpenNewTaskModal: () => void;
   onDropToUnscheduled: (e: React.DragEvent) => void;
+  /** Admin ou quem criou a tarefa pode arrastá-la (o Planner valida de novo ao soltar). */
+  canManageTask?: (task: Task) => boolean;
 }
 
 export default function UnscheduledRightSidebar({
@@ -29,6 +31,7 @@ export default function UnscheduledRightSidebar({
   onDragStart,
   onOpenNewTaskModal,
   onDropToUnscheduled,
+  canManageTask,
 }: UnscheduledRightSidebarProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
@@ -54,17 +57,13 @@ export default function UnscheduledRightSidebar({
           isDragOver ? 'border-[#004691] bg-blue-50/50' : ''
         }`}
         onDragOver={(e) => {
-          if (isAdmin) {
-            e.preventDefault();
-            setIsDragOver(true);
-          }
+          e.preventDefault();
+          setIsDragOver(true);
         }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={(e) => {
-          if (isAdmin) {
-            setIsDragOver(false);
-            onDropToUnscheduled(e);
-          }
+          setIsDragOver(false);
+          onDropToUnscheduled(e);
         }}
       >
         <button
@@ -86,7 +85,7 @@ export default function UnscheduledRightSidebar({
           <Inbox className="w-4 h-4 text-slate-500" />
         </div>
 
-        {isAdmin ? (
+        {onOpenNewTaskModal ? (
           <button
             type="button"
             onClick={onOpenNewTaskModal}
@@ -109,17 +108,13 @@ export default function UnscheduledRightSidebar({
         isDragOver ? 'ring-2 ring-[#004691] bg-blue-50/20' : ''
       }`}
       onDragOver={(e) => {
-        if (isAdmin) {
-          e.preventDefault();
-          setIsDragOver(true);
-        }
+        e.preventDefault();
+        setIsDragOver(true);
       }}
       onDragLeave={() => setIsDragOver(false)}
       onDrop={(e) => {
-        if (isAdmin) {
-          setIsDragOver(false);
-          onDropToUnscheduled(e);
-        }
+        setIsDragOver(false);
+        onDropToUnscheduled(e);
       }}
     >
       {/* Cabeçalho */}
@@ -197,13 +192,14 @@ export default function UnscheduledRightSidebar({
               onClick={onTaskClick}
               onToggleStatus={onToggleStatus}
               onDragStart={onDragStart}
+              canManageTask={canManageTask}
             />
           ))
         )}
       </div>
 
-      {/* Rodapé com botão Nova tarefa */}
-      {isAdmin && (
+      {/* Rodapé com botão Nova tarefa (toda a equipe) */}
+      {(
         <div className="p-3 border-t border-slate-100 bg-white shrink-0">
           <button
             type="button"

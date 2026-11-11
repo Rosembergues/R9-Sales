@@ -86,4 +86,30 @@ export interface Task {
   completedByAdmin?: boolean; // Sinaliza se a tarefa foi finalizada por um Administrador
   completed_by_admin?: boolean; // Alias para compatibilidade direta com payloads do Supabase
   finalizada_por_admin?: boolean; // Alias alternativo em português
+  /** Cadastro (tarefas_modelo) ao qual esta execução pertence. */
+  modeloId?: string;
+  /** Data em que a regra de repetição previu esta execução (pode diferir de scheduledDate se foi movida). */
+  plannedDate?: string | null;
 }
+
+/** Cadastro de uma tarefa: o que é, quem faz e quando se repete. Cada dia em que roda é uma execução (Task). */
+export interface TaskModel {
+  id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  bucket: string;
+  tags: string[];
+  assigneeIds: string[];
+  fields: CustomFormField[];
+  recurrence: Recurrence;
+  recurrenceDays: string[];
+  /** Avulsa: a data (null = fila). Recorrente: início e âncora (dia da semana / dia do mês). */
+  startDate: string | null;
+  endDate: string | null;
+  active: boolean;
+  createdBy: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+

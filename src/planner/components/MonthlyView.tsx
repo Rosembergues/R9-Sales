@@ -14,6 +14,8 @@ interface MonthlyViewProps {
   onDropOnDate: (dateString: string, e: React.DragEvent) => void;
   onQuickAddTask: (dateString: string) => void;
   onRescheduleOverdue?: () => void;
+  /** Admin ou quem criou a tarefa pode arrastá-la (o Planner valida de novo ao soltar). */
+  canManageTask?: (task: Task) => boolean;
 }
 
 export default function MonthlyView({
@@ -27,8 +29,10 @@ export default function MonthlyView({
   onDropOnDate,
   onQuickAddTask,
   onRescheduleOverdue,
+  canManageTask,
 }: MonthlyViewProps) {
   const isAdmin = userRole === 'admin';
+  const canDrag = (task: Task) => isAdmin || Boolean(canManageTask?.(task));
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const overdueTasks = tasks.filter((task) => task.scheduledDate && task.scheduledDate < todayISO && task.status !== 'concluida');
@@ -79,10 +83,8 @@ export default function MonthlyView({
               key={dateISO}
               id={`coluna-mes-${dateISO}`}
               onDragOver={(e) => {
-                if (isAdmin) {
-                  e.preventDefault();
-                  setDragOverDate(dateISO);
-                }
+                e.preventDefault();
+                setDragOverDate(dateISO);
               }}
               onDragLeave={() => {
                 if (dragOverDate === dateISO) {
@@ -91,9 +93,7 @@ export default function MonthlyView({
               }}
               onDrop={(e) => {
                 setDragOverDate(null);
-                if (isAdmin) {
-                  onDropOnDate(dateISO, e);
-                }
+                onDropOnDate(dateISO, e);
               }}
               className={`relative min-h-[105px] rounded-xl border p-2 flex flex-col justify-between transition-all group ${
                 isDragOver
@@ -125,7 +125,7 @@ export default function MonthlyView({
                       {dayTasks.length}
                     </span>
                   )}
-                  {isAdmin && (
+                  {(
                     <button
                       type="button"
                       onClick={() => onQuickAddTask(dateISO)}
@@ -154,15 +154,15 @@ export default function MonthlyView({
                     <div
                       key={task.id}
                       id={`month-task-${task.id}`}
-                      draggable={isAdmin}
+                      draggable={canDrag(task)}
                       onDragStart={(e) => {
-                        if (isAdmin) {
+                        if (canDrag(task)) {
                           onDragStart(e, task);
                         }
                       }}
                       onClick={() => onTaskClick(task)}
                       className={`text-[11px] p-1.5 rounded-md border flex items-center justify-between gap-1 transition-all ${
-                        isAdmin ? 'cursor-grab active:cursor-grabbing hover:border-zinc-300' : 'cursor-pointer'
+                        canDrag(task) ? 'cursor-grab active:cursor-grabbing hover:border-zinc-300' : 'cursor-pointer'
                       } ${
                         isConcluida
                           ? 'bg-zinc-50/70 border-zinc-200/50 text-zinc-400 line-through'

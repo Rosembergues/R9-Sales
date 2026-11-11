@@ -1,10 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Profile, UserRole, SupabaseConfig } from '../types';
+import { Profile, UserRole, SupabaseConfig, ProfileStatus, hasApprovedAccess, isAllowedEmailDomain } from '../types';
 import { supabase, setSupabaseCredentials, LocalSyncEngine } from '../lib/supabase';
 
 interface AuthContextType {
   currentUser: Profile | null;
+  /** Só perfis autorizados (rankings, metas, vendas, listas de consultores). */
   profiles: Profile[];
+  /** Todos os perfis, inclusive pendentes e recusados (tela de Gerenciar Equipe). */
+  allProfiles: Profile[];
+  /** Usuários aguardando autorização. */
+  pendingProfiles: Profile[];
   loading: boolean;
   isSupabaseConnected: boolean;
   supabaseConfig: SupabaseConfig;
@@ -12,6 +17,9 @@ interface AuthContextType {
   signIn: (data: { email: string; password?: string }) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   updateUserRole: (userId: string, newRole: UserRole) => Promise<{ success: boolean; error?: string }>;
+  updateUserStatus: (userId: string, status: ProfileStatus) => Promise<{ success: boolean; error?: string }>;
+  /** Relê o perfil do usuário logado (ex.: conferir se já foi autorizado). */
+  reloadCurrentUser: () => Promise<void>;
   deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>;
   updateSupabaseCredentials: (url: string, key: string) => Promise<{ success: boolean; error?: string }>;
   refreshProfiles: () => Promise<void>;
@@ -21,7 +29,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [allProfiles, setProfiles] = useState<Profile[]>([]);
+  const profiles = React.useMemo(() => allProfiles.filter(hasApprovedAccess), [allProfiles]);
+  const pendingProfiles = React.useMemo(() => allProfiles.filter(p => p.status === 'pending'), [allProfiles]);
   const [loading, setLoading] = useState(true);
   const [isSupabaseConnected, setIsSupabaseConnected] = useState(true);
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>({
@@ -36,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * filtrando pelo ID da sessão atual no Supabase.
    */
   const fetchAndSetUserProfile = async (userId: string, authUserMeta?: { name?: string; email?: string }): Promise<Profile | null> => {
-    const buildFallbackProfile = (): Profile | null => {
+    const buildFallbackProfile = (status: ProfileStatus = 'active'): Profile | null => {
       if (!authUserMeta) return null;
       const fallbackProfile: Profile = {
         id: userId,
@@ -46,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: 'seller',
         avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authUserMeta.name || userId)}`,
         created_at: new Date().toISOString(),
-        status: 'active',
+        status,
         phone: '',
         target_monthly: 30,
       };
@@ -88,6 +98,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           LocalSyncEngine.setCurrentUser(retry.data as Profile);
           return retry.data as Profile;
         }
+        // A consulta funcionou e o perfil não existe (ex.: removido pelo admin): sem acesso.
+        return buildFallbackProfile('pending');
       }
 
       return buildFallbackProfile();
@@ -107,7 +119,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (!error && data) {
         setProfiles(data as Profile[]);
-        LocalSyncEngine.saveProfiles(data as Profile[]);
+        LocalSyncEngine.saveProfiles((data as Profile[]).filter(hasApprovedAccess));
         return;
       }
 
@@ -202,6 +214,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * O banco executa o trigger handle_new_user automaticamente.
    */
   const signUp = async ({ name, email, password }: { name: string; email: string; password: string }) => {
+    if (!isAllowedEmailDomain(email)) {
+      return { success: false, error: 'Use seu e-mail corporativo @estacio.br ou @yduqs.com.br.' };
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -215,7 +230,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) {
         console.error('❌ [Supabase Auth] Erro retornado no signUp:', error.message, error);
         setLoading(false);
-        return { success: false, error: error.message };
+        const friendly = /estacio|yduqs|Database error saving new user/i.test(error.message)
+          ? 'Cadastro permitido apenas para e-mails @estacio.br ou @yduqs.com.br.'
+          : error.message;
+        return { success: false, error: friendly };
       }
 
       // Se a sessão foi criada imediatamente (quando confirmação de e-mail é desativada)
@@ -297,6 +315,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     LocalSyncEngine.setCurrentUser(null);
   };
 
+  const reloadCurrentUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    await fetchAndSetUserProfile(session.user.id, {
+      name: session.user.user_metadata?.name,
+      email: session.user.email,
+    });
+    await refreshProfiles();
+  };
+
+  // Autorização de acesso (pending → active, recusar/revogar → rejected). O banco só aceita de admin.
+  const updateUserStatus = async (userId: string, status: ProfileStatus) => {
+    if (currentUser?.id === userId) {
+      return { success: false, error: 'Você não pode alterar o seu próprio acesso.' };
+    }
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', userId)
+        .select('*');
+      if (error) return { success: false, error: error.message };
+      if (!data || data.length === 0) {
+        return { success: false, error: 'Nenhum perfil foi alterado. Verifique suas permissões de administrador.' };
+      }
+      const updated = data[0] as Profile;
+      setProfiles(prev => prev.map(p => (p.id === userId ? { ...p, ...updated } : p)));
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Erro ao alterar o acesso do usuário.' };
+    }
+  };
+
   // Alteração de cargo na tabela profiles por um administrador
   const updateUserRole = async (userId: string, newRole: UserRole) => {
     try {
@@ -366,6 +417,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         currentUser,
         profiles,
+        allProfiles,
+        pendingProfiles,
         loading,
         isSupabaseConnected,
         supabaseConfig,
@@ -373,6 +426,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signIn,
         signOut,
         updateUserRole,
+        updateUserStatus,
+        reloadCurrentUser,
         deleteUser,
         updateSupabaseCredentials,
         refreshProfiles,

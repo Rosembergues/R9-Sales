@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText, Scale } from 'lucide-react';
+import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText, Scale, ListChecks } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
 import { PerformancePage } from '../performance/PerformancePage';
@@ -19,7 +19,7 @@ import Planner from '../../planner/components/Planner';
 import { PriceComparatorPage } from '../prices/PriceComparatorPage';
 
 export const R9Dashboard: React.FC = () => {
-  const { currentUser, signOut } = useAuth();
+  const { currentUser, signOut, pendingProfiles } = useAuth();
   const { sales } = useSales();
 
   // Role check
@@ -35,7 +35,7 @@ export const R9Dashboard: React.FC = () => {
   const [isSalesMenuOpen, setIsSalesMenuOpen] = useState(false);
   const [isPerformanceMenuOpen, setIsPerformanceMenuOpen] = useState(false);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
-  const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tags'>('calendar');
+  const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags'>('calendar');
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
   const [initialProductForModal, setInitialProductForModal] = useState<MainProductType>('Graduação');
 
@@ -57,7 +57,7 @@ export const R9Dashboard: React.FC = () => {
 
   const isPlannerArea = activeTab === 'planner' || activeTab === 'planner_summary';
 
-  const openPlannerSection = (section: 'calendar' | 'queue' | 'my_tasks' | 'tags') => {
+  const openPlannerSection = (section: 'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags') => {
     setPlannerSection(section);
     setActiveTab('planner');
     setIsPlannerMenuOpen(true);
@@ -68,7 +68,7 @@ export const R9Dashboard: React.FC = () => {
     setIsPlannerMenuOpen(true);
   };
 
-  const handlePlannerSectionChange = useCallback((section: 'calendar' | 'queue' | 'my_tasks' | 'tags' | 'summary') => {
+  const handlePlannerSectionChange = useCallback((section: 'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags' | 'summary') => {
     if (section === 'summary') {
       setActiveTab('planner_summary');
       setIsPlannerMenuOpen(true);
@@ -309,6 +309,9 @@ export const R9Dashboard: React.FC = () => {
                     <button id="nav-planner-my-tasks" onClick={() => openPlannerSection('my_tasks')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'my_tasks' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                       <CheckSquare className="w-3.5 h-3.5" /><span>Minhas tarefas</span>
                     </button>
+                    <button id="nav-planner-tasks" onClick={() => openPlannerSection('tasks')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'tasks' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                      <ListChecks className="w-3.5 h-3.5" /><span>Tarefas</span>
+                    </button>
                     {isActualAdmin && viewRole === 'admin' && (
                       <button id="nav-planner-tags" onClick={() => openPlannerSection('tags')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'tags' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                         <Tag className="w-3.5 h-3.5" /><span>Tags e categorias</span>
@@ -408,6 +411,11 @@ export const R9Dashboard: React.FC = () => {
                   <span className="flex items-center gap-2.5">
                     <Shield className="w-3.5 h-3.5 text-blue-300" />
                     <span>Administração</span>
+                    {pendingProfiles.length > 0 && (
+                      <span className="text-[10px] font-bold text-amber-950 bg-amber-400 rounded-full px-1.5 min-w-[18px] text-center" title="Cadastros aguardando autorização">
+                        {pendingProfiles.length}
+                      </span>
+                    )}
                   </span>
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isAdminMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -425,9 +433,15 @@ export const R9Dashboard: React.FC = () => {
                     <Users className="w-3.5 h-3.5 text-blue-600" />
                     <span className="whitespace-nowrap">Gerenciar Equipe</span>
                   </div>
-                  <span className="text-[10px] font-medium text-purple-200 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded">
-                    perfis
-                  </span>
+                  {pendingProfiles.length > 0 ? (
+                    <span className="text-[10px] font-bold text-amber-950 bg-amber-400 px-1.5 py-0.5 rounded" title="Cadastros aguardando autorização">
+                      {pendingProfiles.length} pendente{pendingProfiles.length > 1 ? 's' : ''}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium text-purple-200 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded">
+                      perfis
+                    </span>
+                  )}
                 </button>
 
                 <button

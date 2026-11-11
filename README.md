@@ -30,3 +30,20 @@ Menu **Comparador de Preços** (todos veem; só admin importa e altera o limite 
 - **Bolsa composta** (`65% 1ºS + 60% CT`): a comparação usa o preço do 1º semestre; o preço contínuo (CT) aparece abaixo.
 - **Ofensa:** preço final da concorrente X% ou mais abaixo do nosso (padrão 8%, configurável na própria tela).
 - **Histórico:** cada envio é guardado. A tela principal mostra a atualização com a data mais recente; reenviar na mesma semana substitui a anterior (que fica no histórico como "substituída"). Aba Histórico: foto de qualquer semana e evolução de um curso semana a semana.
+
+## Controle de acesso
+
+- **Antes de publicar:** rodar `supabase/acesso-autorizacao.sql` no SQL Editor do Supabase.
+- **Cadastro** só com e-mail `@estacio.br` ou `@yduqs.com.br`. A tela avisa, e o banco recusa qualquer outro domínio (trigger em `auth.users`), mesmo se alguém chamar a API direto.
+- **Autorização:** todo cadastro novo entra como `pending` e vê só a tela "Aguardando autorização". O admin autoriza ou recusa em Administração → Gerenciar Equipe. Também dá para bloquear e liberar de novo quem já tem acesso.
+- **No banco:** uma política RLS *restritiva* em todas as tabelas do schema `public` exige usuário autorizado (`active`/`inactive`). Ela se soma às políticas existentes, então nenhuma regra antiga fica mais frouxa. Só um admin consegue mudar o `status` de um perfil.
+- Perfis pendentes ou recusados não aparecem em rankings, metas, lançamento de venda nem no Planner.
+
+## Planejamento: tarefas e execuções
+
+- **Antes de publicar:** rodar `supabase/tarefas-modelo.sql` no SQL Editor (depois do `acesso-autorizacao.sql`).
+- **Tarefa** (`tarefas_modelo`) é o cadastro: título, responsáveis, formulário e regra de repetição. **Execução** (`tarefas`) é cada dia em que a tarefa roda.
+- O banco grava as execuções das próximas 8 semanas e renova esse prazo todo dia (pg_cron, com o app chamando `gerar_execucoes_tarefas` ao abrir o Planejamento como reserva).
+- Editar a tarefa atualiza as execuções futuras pendentes. As concluídas ficam como histórico. Excluir uma execução não a recria, e mover uma execução de dia não a duplica.
+- **Permissões:** todos criam tarefas, inclusive para colegas, com repetição e formulário. Só quem criou (ou um admin) altera, move ou exclui. Os responsáveis concluem, preenchem o formulário e comentam. As tarefas antigas, migradas, ficam com os admins.
+- **Aba "Tarefas"** (Planejamento → Tarefas): rotina da semana (o que roda em cada dia), mensais, avulsas em aberto e uma lista com regra, responsáveis, próximas datas e conclusão das últimas 4 semanas.

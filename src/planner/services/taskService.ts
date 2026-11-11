@@ -68,6 +68,8 @@ export async function createNextRecurrentTaskSafely(
   task: Task,
   nextDate: string
 ): Promise<Task | null> {
+  // Execuções ligadas a um cadastro são geradas pelo banco (gerar_execucoes_tarefas).
+  if (task.modeloId) return null;
   if (!nextDate || !task.title || !task.title.trim()) {
     return null;
   }
@@ -164,6 +166,7 @@ async function ensureFutureRecurringOccurrences(tasks: Task[], perSeries = 2): P
   const today = formatISO(new Date());
   const groups = new Map<string, Task[]>();
   tasks.forEach((task) => {
+    if (task.modeloId) return; // gerada pelo banco
     if (!task.recurrence || task.recurrence === 'Nenhuma') return;
     const seriesId = task.recurrenceSeriesId || task.id;
     groups.set(seriesId, [...(groups.get(seriesId) ?? []), task]);
@@ -441,6 +444,8 @@ export function mapDbRowToTask(row: any): Task {
     completedByAdmin: isTaskFinishedByAdmin,
     completed_by_admin: isTaskFinishedByAdmin,
     finalizada_por_admin: isTaskFinishedByAdmin,
+    modeloId: row.modelo_id ? String(row.modelo_id) : undefined,
+    plannedDate: normalizeDateOnly(row.data_prevista ?? null),
   };
 }
 

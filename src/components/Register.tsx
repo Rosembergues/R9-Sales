@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../context/AuthContext';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { isAllowedEmailDomain } from '../types';
 
 interface RegisterFormInputs {
   name: string;
@@ -48,7 +49,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
         setErrorMessage(result.error || 'Erro ao criar conta no Supabase. Tente novamente.');
       } else {
         setSuccessMessage(
-          'Conta cadastrada com sucesso! Se a confirmação de e-mail estiver ativa no seu projeto Supabase, verifique sua caixa de entrada antes de fazer login.'
+          'Conta criada! Agora um administrador precisa autorizar o seu acesso. Se for pedida a confirmação de e-mail, confirme pela sua caixa de entrada.'
         );
       }
     } catch (err: any) {
@@ -78,7 +79,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
             Criar Nova Conta
           </h1>
           <p className="text-sm text-gray-500 mt-2">
-            Cadastro direto no ambiente oficial Supabase Auth
+            Use seu e-mail corporativo @estacio.br ou @yduqs.com.br. O acesso é liberado após autorização de um administrador.
           </p>
         </div>
 
@@ -136,7 +137,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
             <input
               id="email"
               type="email"
-              placeholder="seuemail@exemplo.com"
+              placeholder="nome.sobrenome@estacio.br"
               autoComplete="email"
               className={`w-full px-3.5 py-2.5 text-sm bg-white rounded-lg border transition-colors outline-none focus:ring-2 focus:ring-[#00478f]/20 ${
                 errors.email
@@ -148,7 +149,9 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
                 pattern: {
                   value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
                   message: 'Insira um endereço de e-mail válido.'
-                }
+                },
+                validate: (value) =>
+                  isAllowedEmailDomain(value) || 'Use seu e-mail corporativo @estacio.br ou @yduqs.com.br.'
               })}
             />
             {errors.email && (

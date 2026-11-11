@@ -98,6 +98,7 @@ export const userService = {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
+        .in('status', ['active', 'inactive'])
         .order('created_at', { ascending: true });
 
       if (error) {

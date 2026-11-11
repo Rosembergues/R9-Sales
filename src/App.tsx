@@ -2,6 +2,8 @@ import React, { useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SalesProvider } from './context/SalesContext';
 import { AuthPage } from './components/auth/AuthPage';
+import { PendingApprovalPage } from './components/auth/PendingApprovalPage';
+import { hasApprovedAccess } from './types';
 import { R9Dashboard } from './components/dashboard/R9Dashboard';
 import { useIdleTimeout, THREE_HOURS_MS } from './hooks/useIdleTimeout';
 import { LocalSyncEngine } from './lib/supabase';
@@ -57,6 +59,11 @@ const MainLayout: React.FC = () => {
   // Se não autenticado, exibe a tela de login/cadastro
   if (!currentUser) {
     return <AuthPage />;
+  }
+
+  // Logado, mas ainda não autorizado por um admin (os dados também ficam bloqueados no banco)
+  if (!hasApprovedAccess(currentUser)) {
+    return <PendingApprovalPage />;
   }
 
   // Exibe a tela principal do sistema R9

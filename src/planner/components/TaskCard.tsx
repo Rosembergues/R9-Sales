@@ -20,6 +20,8 @@ interface TaskCardProps {
   onToggleStatus: (taskId: string, e: React.MouseEvent) => void;
   onDragStart?: (e: React.DragEvent, task: Task) => void;
   todayISO?: string;
+  /** Admin ou quem criou a tarefa pode arrastá-la (o Planner valida de novo ao soltar). */
+  canManageTask?: (task: Task) => boolean;
 }
 
 export default function TaskCard({
@@ -30,8 +32,10 @@ export default function TaskCard({
   onToggleStatus,
   onDragStart,
   todayISO = getTodayISO(),
+  canManageTask,
 }: TaskCardProps) {
   const isAdmin = userRole === 'admin';
+  const canDrag = isAdmin || Boolean(canManageTask?.(task));
   const isConcluida = task.status === 'concluida';
   const isEmAndamento = task.status === 'em_andamento';
   const isFinishedByAdmin = Boolean(
@@ -119,15 +123,15 @@ export default function TaskCard({
   return (
     <div
       id={`task-card-${task.id}`}
-      draggable={isAdmin}
+      draggable={canDrag}
       onDragStart={(e) => {
-        if (isAdmin && onDragStart) {
+        if (canDrag && onDragStart) {
           onDragStart(e, task);
         }
       }}
       onClick={() => onClick(task)}
       className={`group bg-white rounded-xl border transition-all duration-150 relative select-none shadow-[0_1px_4px_rgba(0,0,0,0.03)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.07)] ${getCardBorderClass()} ${
-        isAdmin
+        canDrag
           ? 'cursor-grab active:cursor-grabbing hover:border-slate-300'
           : 'cursor-pointer hover:border-slate-300'
       } ${
@@ -140,8 +144,8 @@ export default function TaskCard({
           : 'border-slate-200/90 bg-white'
       } p-2.5`}
     >
-      {/* Alça de Arraste sutil no hover para Admin */}
-      {isAdmin && (
+      {/* Alça de arraste sutil no hover (admin ou autor) */}
+      {canDrag && (
         <div className="absolute top-2 right-1.5 opacity-0 group-hover:opacity-40 transition-opacity text-slate-400">
           <GripVertical className="w-3.5 h-3.5" />
         </div>

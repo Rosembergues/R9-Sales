@@ -44,6 +44,18 @@ export interface SaleCustomData {
   [key: string]: any;
 }
 
+export type ProfileStatus = 'pending' | 'active' | 'inactive' | 'rejected';
+
+/** Pode acessar o sistema (autorizado por um admin). Perfis antigos sem status contam como ativos. */
+export const hasApprovedAccess = (p: { status?: string | null } | null | undefined) =>
+  !!p && ['active', 'inactive'].includes(p.status ?? 'active');
+
+/** Domínios aceitos no cadastro (a mesma regra está no banco: supabase/acesso-autorizacao.sql). */
+export const ALLOWED_EMAIL_DOMAINS = ['estacio.br', 'yduqs.com.br'];
+
+export const isAllowedEmailDomain = (email: string) =>
+  ALLOWED_EMAIL_DOMAINS.includes(email.trim().toLowerCase().split('@')[1] ?? '');
+
 export interface Profile {
   id: string;
   name: string;
@@ -51,7 +63,10 @@ export interface Profile {
   role: UserRole;
   avatar_url?: string;
   created_at: string;
-  status: 'active' | 'inactive';
+  /** pending = aguarda autorização · rejected = acesso recusado/revogado · inactive = fora dos rankings. */
+  status: ProfileStatus;
+  approved_at?: string | null;
+  approved_by?: string | null;
   phone?: string;
   target_monthly?: number; // meta mensal em quantidade de lançamentos
 }
