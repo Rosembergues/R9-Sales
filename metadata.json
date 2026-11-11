@@ -1,6 +1,6 @@
 {
-  "name": "R9 Sales",
-  "description": "Plataforma de acompanhamento e gestão de vendas em tempo real com autenticação Supabase, perfis de Administrador e Vendedor, gerenciamento de campanhas, lançamentos ágeis e rankings ao vivo.",
+  "name": "R9 Hub",
+  "description": "Central da operação comercial (R9 Hub): vendas, metas, comparador de preços da concorrência com autenticação Supabase, perfis de Administrador e Vendedor, gerenciamento de campanhas, lançamentos ágeis e rankings ao vivo.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

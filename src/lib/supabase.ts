@@ -35,7 +35,7 @@ function stripLegacyFinancialFields<T extends Record<string, unknown>>(record: T
 
 // Supabase SQL Setup Script for user convenience
 export const SUPABASE_SQL_SCHEMA = `-- ============================================================
--- SCHEMA OFICIAL SUPABASE PARA R9 SALES (GESTÃO DE VENDAS)
+-- SCHEMA OFICIAL SUPABASE PARA R9 HUB (GESTÃO DE VENDAS)
 -- Execute este script no SQL Editor do seu Dashboard Supabase:
 -- https://supabase.com/dashboard/project/_/sql
 -- ============================================================

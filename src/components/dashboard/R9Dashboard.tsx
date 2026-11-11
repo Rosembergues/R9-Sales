@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText } from 'lucide-react';
+import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText, Scale } from 'lucide-react';
 import { UsersProfilesTable } from '../admin/UsersProfilesTable';
 import { CampaignsManager } from '../admin/CampaignsManager';
 import { PerformancePage } from '../performance/PerformancePage';
@@ -16,6 +16,7 @@ import { NewSaleModal } from '../sales/NewSaleModal';
 import { MainProductType, Sale } from '../../types';
 import { getTodayBrDate, getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
 import Planner from '../../planner/components/Planner';
+import { PriceComparatorPage } from '../prices/PriceComparatorPage';
 
 export const R9Dashboard: React.FC = () => {
   const { currentUser, signOut } = useAuth();
@@ -112,7 +113,7 @@ export const R9Dashboard: React.FC = () => {
                   <span className="text-white font-black text-lg font-['Space_Grotesk']">R9</span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-white font-black tracking-tight text-lg font-['Space_Grotesk']">R9 SALES</div>
+                  <div className="text-white font-black tracking-tight text-lg font-['Space_Grotesk']">R9 HUB</div>
                   <div className="text-[10px] text-slate-400 font-semibold tracking-wider">OPERAÇÃO COMERCIAL</div>
                 </div>
               </div>
@@ -267,7 +268,7 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* Planejamento: submenu integrado à navegação principal do R9 Sales */}
+            {/* Planejamento: submenu integrado à navegação principal do R9 Hub */}
             {!isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
                 <button
@@ -322,6 +323,17 @@ export const R9Dashboard: React.FC = () => {
                 )}
               </div>
             )}
+
+            <button
+              id="nav-comparador-precos"
+              onClick={() => setActiveTab('comparador_precos')}
+              title={isSidebarCollapsed ? 'Comparador de Preços' : undefined}
+              aria-label="Comparador de Preços"
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'comparador_precos' ? 'bg-blue-500/15 text-blue-200 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+            >
+              <Scale className="w-3.5 h-3.5 text-blue-300" />
+              {!isSidebarCollapsed && <span>Comparador de Preços</span>}
+            </button>
 
             <button
               id="nav-mensagens"
@@ -539,7 +551,7 @@ export const R9Dashboard: React.FC = () => {
         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-[#f6f8fc]">
           <div className="w-full max-w-[1680px] mx-auto p-4 sm:p-6 lg:p-7 min-h-full">
             
-            {/* Planner integrado — compartilha a sessão autenticada do R9 Sales */}
+            {/* Planner integrado — compartilha a sessão autenticada do R9 Hub */}
             {(activeTab === 'planner' || activeTab === 'planner_summary') && currentUser && (
               <div className="animate-in fade-in duration-200 -m-1 sm:-m-2">
                 <Planner
@@ -670,6 +682,10 @@ export const R9Dashboard: React.FC = () => {
             )}
 
             {activeTab === 'mensagens' && <MessageRepository />}
+
+            {activeTab === 'comparador_precos' && (
+              <PriceComparatorPage canManage={isActualAdmin && viewRole === 'admin'} />
+            )}
 
             {activeTab === 'equipe' && (
               <div className="animate-in fade-in duration-200">

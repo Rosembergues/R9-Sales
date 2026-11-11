@@ -137,7 +137,7 @@ export default function TeamManagementView({
           </div>
           <h2 className="text-base font-bold text-zinc-900">Acesso Restrito a Administradores</h2>
           <p className="text-xs text-zinc-500 leading-relaxed">
-            Esta tela de gerenciamento de equipe e controle de papéis é exclusiva para administradores validados na tabela <code className="font-mono bg-zinc-100 px-1 py-0.5 rounded">profiles</code> do R9 Sales.
+            Esta tela de gerenciamento de equipe e controle de papéis é exclusiva para administradores validados na tabela <code className="font-mono bg-zinc-100 px-1 py-0.5 rounded">profiles</code> do R9 Hub.
           </p>
           <button
             type="button"
@@ -217,7 +217,7 @@ export default function TeamManagementView({
                 </span>
               </div>
               <p className="text-xs text-zinc-500 mt-1">
-                Controle de acessos, permissões e funções dos membros vinculados à tabela <code className="font-mono text-zinc-700 bg-zinc-100 px-1 py-0.5 rounded">profiles</code> do R9 Sales.
+                Controle de acessos, permissões e funções dos membros vinculados à tabela <code className="font-mono text-zinc-700 bg-zinc-100 px-1 py-0.5 rounded">profiles</code> do R9 Hub.
               </p>
             </div>
           </div>

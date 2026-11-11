@@ -1,5 +1,5 @@
 -- =====================================================================
--- R9 Sales · Ajustes de vendas
+-- R9 Hub · Ajustes de vendas
 -- Rodar no Supabase: SQL Editor → colar tudo → Run. Pode rodar mais de uma vez.
 -- =====================================================================
 

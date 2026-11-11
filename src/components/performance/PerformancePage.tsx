@@ -509,7 +509,7 @@ const ConsultantsTab: React.FC<{
         </table>
       </div>
       <p className="px-5 py-2.5 border-t border-slate-100 text-[11px] text-slate-400">
-        Vendas lançadas no R9 Sales. {hasTarget
+        Vendas lançadas no R9 Hub. {hasTarget
           ? `Meta individual = metas ${isWeek ? 'semanais' : 'mensais'} da Configuração de Metas que caem inteiras no período.`
           : 'As metas individuais são por BU; escolha BU Presencial, Digital, Pós ou Técnico para ver a meta.'}
       </p>
@@ -542,7 +542,7 @@ const Breakdown: React.FC<{ title: string; items: [string, number][]; total: num
 const ProfileTab: React.FC<{ profile: SalesProfile; rangeLabel: string; filterLabel: string }> = ({ profile, rangeLabel, filterLabel }) => (
   <div className="space-y-4">
     <p className="text-xs text-slate-500">
-      Vendas lançadas no R9 Sales · {filterLabel} · {rangeLabel}: <b className="text-slate-800">{profile.total}</b>
+      Vendas lançadas no R9 Hub · {filterLabel} · {rangeLabel}: <b className="text-slate-800">{profile.total}</b>
       {profile.total > 0 && <> · com bolsa/convênio: <b className="text-slate-800">{profile.withBolsa}</b> ({fmt((profile.withBolsa / profile.total) * 100)}%)</>}
     </p>
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">

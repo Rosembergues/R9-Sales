@@ -316,7 +316,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           Lançamentos no sistema
         </h2>
         <p className="text-xs text-slate-500 mt-0.5">
-          Vendas registradas pelos consultores no R9 Sales, comparadas com a meta oficial do mesmo dia (todas as BUs).
+          Vendas registradas pelos consultores no R9 Hub, comparadas com a meta oficial do mesmo dia (todas as BUs).
         </p>
       </div>
 

@@ -48,7 +48,7 @@ const MainLayout: React.FC = () => {
           R9
         </div>
         <p className="text-xs font-semibold text-gray-500 mt-3 font-['Space_Grotesk']">
-          Carregando ambiente R9 Sales...
+          Carregando ambiente R9 Hub...
         </p>
       </div>
     );

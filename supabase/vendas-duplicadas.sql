@@ -1,5 +1,5 @@
 -- =====================================================================
--- R9 Sales · Vendas duplicadas por número de oportunidade
+-- R9 Hub · Vendas duplicadas por número de oportunidade
 -- Rodar no Supabase: SQL Editor → colar → Run.
 -- O número da oportunidade é comparado sem espaços e em maiúsculas.
 -- =====================================================================

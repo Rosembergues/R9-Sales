@@ -28,9 +28,9 @@ interface PlannerProps {
     user_metadata?: { full_name?: string; nome?: string };
     [key: string]: any;
   };
-  /** Papel de visualização controlado pelo seletor global do R9 Sales. */
+  /** Papel de visualização controlado pelo seletor global do R9 Hub. */
   viewRole?: 'admin' | 'membro';
-  /** Navegação controlada pelo menu lateral principal do R9 Sales. */
+  /** Navegação controlada pelo menu lateral principal do R9 Hub. */
   externalNavigation?: boolean;
   section?: PlannerSection;
   onSectionChange?: (section: PlannerSection) => void;
@@ -48,7 +48,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   // Modo de visualização para simulação e validação (Exclusivo para Administrador)
   const [simulatedRole, setSimulatedRole] = useState<UserRole>(globalViewRole === 'membro' ? 'member' : 'admin');
 
-  // O seletor global do R9 Sales é a fonte única para alternar Admin/Membro.
+  // O seletor global do R9 Hub é a fonte única para alternar Admin/Membro.
   useEffect(() => {
     if (globalViewRole) setSimulatedRole(globalViewRole === 'membro' ? 'member' : 'admin');
   }, [globalViewRole]);
@@ -429,7 +429,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   const [selectedAssignee, setSelectedAssignee] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
 
-  // No modo integrado, a navegação é controlada pela sidebar principal do R9 Sales.
+  // No modo integrado, a navegação é controlada pela sidebar principal do R9 Hub.
   useEffect(() => {
     if (!externalNavigation) return;
     if (section === 'queue' && userRole !== 'admin') {
@@ -935,7 +935,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
 
   return (
     <div className={`r9-planner-shell ${externalNavigation ? 'h-[calc(100dvh-2rem)] min-h-[620px]' : 'h-[calc(100vh-4rem)] min-h-[620px]'} w-full flex flex-col bg-white overflow-hidden select-none font-sans text-zinc-900 rounded-2xl border border-slate-200 shadow-sm`}>
-      {/* Cabeçalho integrado ao R9 Sales: identidade única, sem perfil/logo/menu duplicado. */}
+      {/* Cabeçalho integrado ao R9 Hub: identidade única, sem perfil/logo/menu duplicado. */}
       <header
         id="planner-main-header"
         className={`${externalNavigation && (section === 'summary' || section === 'tags') ? 'hidden' : 'min-h-[78px] px-4 sm:px-6 py-3 border-b border-slate-200/80 bg-white flex items-center justify-between shrink-0 gap-4 z-20'}`}
