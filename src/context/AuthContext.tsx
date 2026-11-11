@@ -18,6 +18,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updateUserRole: (userId: string, newRole: UserRole) => Promise<{ success: boolean; error?: string }>;
   updateUserStatus: (userId: string, status: ProfileStatus) => Promise<{ success: boolean; error?: string }>;
+  updateUserName: (userId: string, name: string) => Promise<{ success: boolean; error?: string }>;
   /** Relê o perfil do usuário logado (ex.: conferir se já foi autorizado). */
   reloadCurrentUser: () => Promise<void>;
   deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>;
@@ -351,14 +352,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Alteração de cargo na tabela profiles por um administrador
   const updateUserRole = async (userId: string, newRole: UserRole) => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .update({ role: newRole, updated_at: new Date().toISOString() })
-        .eq('id', userId);
+        .eq('id', userId)
+        .select('id');
 
       if (error) {
         console.error('❌ [Supabase DB] Erro ao atualizar papel na tabela profiles:', error.message);
         return { success: false, error: error.message };
+      }
+      if (!data || data.length === 0) {
+        return { success: false, error: 'Nenhum perfil foi alterado. Verifique suas permissões de administrador.' };
       }
 
       setProfiles(prev => prev.map(p => (p.id === userId ? { ...p, role: newRole } : p)));
@@ -370,6 +375,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       console.error('💥 [Supabase DB] Exceção ao atualizar papel:', err);
       return { success: false, error: err?.message || 'Erro ao alterar perfil do usuário.' };
+    }
+  };
+
+  // Correção do nome exibido (ranking, planejamento, metas).
+  const updateUserName = async (userId: string, name: string) => {
+    const clean = name.trim().replace(/\s+/g, ' ');
+    if (clean.length < 2) return { success: false, error: 'Informe um nome com pelo menos 2 letras.' };
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ name: clean, updated_at: new Date().toISOString() })
+        .eq('id', userId)
+        .select('id');
+      if (error) return { success: false, error: error.message };
+      if (!data || data.length === 0) {
+        return { success: false, error: 'Nenhum perfil foi alterado. Verifique suas permissões de administrador.' };
+      }
+      setProfiles(prev => prev.map(p => (p.id === userId ? { ...p, name: clean } : p)));
+      if (currentUser?.id === userId) setCurrentUser(prev => (prev ? { ...prev, name: clean } : null));
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Erro ao alterar o nome.' };
     }
   };
 
@@ -427,6 +454,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOut,
         updateUserRole,
         updateUserStatus,
+        updateUserName,
         reloadCurrentUser,
         deleteUser,
         updateSupabaseCredentials,

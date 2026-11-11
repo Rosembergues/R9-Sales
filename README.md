@@ -47,3 +47,21 @@ Menu **Comparador de Preços** (todos veem; só admin importa e altera o limite 
 - Editar a tarefa atualiza as execuções futuras pendentes. As concluídas ficam como histórico. Excluir uma execução não a recria, e mover uma execução de dia não a duplica.
 - **Permissões:** todos criam tarefas, inclusive para colegas, com repetição e formulário. Só quem criou (ou um admin) altera, move ou exclui. Os responsáveis concluem, preenchem o formulário e comentam. As tarefas antigas, migradas, ficam com os admins.
 - **Aba "Tarefas"** (Planejamento → Tarefas): rotina da semana (o que roda em cada dia), mensais, avulsas em aberto e uma lista com regra, responsáveis, próximas datas e conclusão das últimas 4 semanas.
+
+## Metas por peso
+
+- **Antes de publicar:** rodar `supabase/metas-pesos.sql` (cria `metas_pesos` e a coluna `goals.ajuste_manual`).
+- Em Gerenciar Metas → **Pesos por BU**, cada consultor recebe um % por BU, e cada BU precisa somar 100%. Peso 0 = não recebe meta naquela BU.
+- A meta oficial importada de cada semana e mês é distribuída pelos pesos, com arredondamento que mantém a soma igual à oficial, e gravada em `goals`. Início, Desempenho e Rankings continuam lendo de lá.
+- **Quando recalcula:** ao abrir Gerenciar Metas, ao salvar os pesos e depois de cada importação de metas. Só a semana/mês atual e os futuros; períodos encerrados ficam congelados.
+- **Ajuste manual:** editar o valor de uma pessoa e salvar marca o ajuste. O restante da BU vai para os outros pelos pesos. "Voltar ao peso" desfaz o ajuste.
+- BU sem nenhum peso definido não é alterada (mantém o que estava gravado).
+
+## Gerenciar Equipe
+
+Rodar `supabase/equipe-protecoes.sql` no SQL Editor (pode rodar mais de uma vez).
+
+- **Situações:** Ativo (acessa e entra no ranking), Fora do ranking (acessa, mas sai de Ranking, Desempenho e distribuição de metas), Bloqueado (sem acesso; histórico mantido) e Aguardando autorização.
+- Ações por pessoa no menu ⋯: editar nome, tornar admin/consultor (com confirmação), tirar/voltar ao ranking, bloquear/autorizar de novo.
+- Não há mais exclusão de usuário pela tela: excluir apagava o histórico de metas. Para quem saiu da equipe, use **Bloquear acesso**.
+- Proteções no banco: só admin muda a função de alguém (antes o próprio usuário conseguia), ninguém bloqueia o próprio acesso e o último administrador não pode ser rebaixado, bloqueado nem excluído.

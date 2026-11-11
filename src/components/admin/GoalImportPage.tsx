@@ -16,6 +16,7 @@ import {
 } from '../../lib/goalImport';
 import { latestPerPeriodAndGroup, saveGoalImport } from '../../lib/goalImportService';
 import { invalidateOfficialGoals } from '../../hooks/useOfficialGoals';
+import { syncCurrentAndFutureGoals } from '../../lib/goalWeights';
 
 interface GoalImportPageProps {
   onBackToPlanner?: () => void;
@@ -80,7 +81,7 @@ const itemBlockingErrors = (item: ReviewItem, all: ReviewItem[]) => {
 };
 
 export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, profiles } = useAuth();
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const bulkInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -293,7 +294,18 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       setReviewItems([...items]);
     }
 
-    if (saved) invalidateOfficialGoals();
+    let weightNote = '';
+    if (saved) {
+      invalidateOfficialGoals();
+      // Meta oficial mudou: redistribui pelos pesos da semana atual em diante
+      try {
+        const consultantIds = profiles.filter(p => p.status !== 'inactive').map(p => p.id);
+        const r = await syncCurrentAndFutureGoals(consultantIds);
+        if (r.periods) weightNote = ` Metas dos consultores recalculadas pelos pesos em ${r.periods} período(s).`;
+      } catch (err) {
+        console.warn('Metas importadas, mas a distribuição por peso não foi aplicada:', err);
+      }
+    }
     const savedPeriods = Array.from(new Set(items.filter(i => i.status === 'saved').map(i => i.period)));
     if (savedPeriods.length) {
       setAvailablePeriods(prev => Array.from(new Set([...prev, ...savedPeriods])).sort());
@@ -308,7 +320,7 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       setReviewItems(null);
       setToast({
         type: 'success',
-        message: `${saved} arquivo(s) importado(s)${savedPeriods.length ? ` · ${savedPeriods.join(', ')}` : ''}.`,
+        message: `${saved} arquivo(s) importado(s)${savedPeriods.length ? ` · ${savedPeriods.join(', ')}` : ''}.${weightNote}`,
       });
     } else {
       setToast({ type: 'error', message: `${saved} importado(s), ${failed} com erro. Veja os detalhes na conferência.` });

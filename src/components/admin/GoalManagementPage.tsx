@@ -4,7 +4,8 @@ import { supabase, LocalSyncEngine } from '../../lib/supabase';
 import { Goal, DatabaseGoalRecord, ConsultantGoalValues } from '../../types';
 import { GoalFilePreview, GoalImportGroup, summarizeImportedGoals } from '../../lib/goalImport';
 import { latestPerPeriodAndGroup } from '../../lib/goalImportService';
-import { AlertCircle, ArrowLeft, CalendarDays, CalendarRange, CheckCircle2, RotateCw, Save, Search, Target, Users, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CalendarDays, CalendarRange, CheckCircle2, RotateCw, Save, Search, Target, Users, Sparkles, Percent, Undo2, Lock } from 'lucide-react';
+import { BU_KEYS, BuKey, WeightsMap, applyWeightedGoals, loadWeights, saveWeights, syncCurrentAndFutureGoals, todayIso, weightTotals } from '../../lib/goalWeights';
 
 interface GoalManagementPageProps {
   onBackToPlanner?: () => void;
@@ -67,11 +68,24 @@ const getWeekBounds = (year: number, month: number) => {
   };
 };
 
+const BU_LABEL: Record<BuKey, string> = {
+  bu_presencial: 'BU Presencial',
+  bu_digital: 'BU Digital',
+  pos: 'Pós-Graduação',
+  tecnico: 'Curso Técnico',
+};
+const BU_COLOR: Record<BuKey, string> = {
+  bu_presencial: 'text-blue-700',
+  bu_digital: 'text-emerald-700',
+  pos: 'text-purple-700',
+  tecnico: 'text-amber-700',
+};
+
 const toInt = (value: string | number | undefined | null) =>
   Math.max(0, Math.round(Number(value) || 0));
 
 export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackToPlanner }) => {
-  const { profiles } = useAuth();
+  const { profiles, currentUser } = useAuth();
   const now = new Date();
 
   const [configType, setConfigType] = useState<ConfigType>('semanal');
@@ -86,6 +100,15 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [importedPreviews, setImportedPreviews] = useState<Record<string, GoalFilePreview>>({});
+  // Pesos por BU (%) e ajustes manuais do período
+  const [weights, setWeights] = useState<WeightsMap>({});
+  const [savedWeights, setSavedWeights] = useState<WeightsMap>({});
+  const [weightsMissing, setWeightsMissing] = useState(false);
+  const [showWeights, setShowWeights] = useState(false);
+  const [isSavingWeights, setIsSavingWeights] = useState(false);
+  const [manualIds, setManualIds] = useState<Set<string>>(new Set());
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
 
   const activeConsultants = useMemo(
     () => profiles.filter(profile => profile.status !== 'inactive'),
@@ -101,23 +124,14 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
   }, [activeConsultants, searchTerm]);
 
   const defaultGoal = useCallback((type: ConfigType): ConsultantGoalValues => {
-    if (type === 'mensal') {
-      return {
-        target_bu_presencial: 12,
-        target_bu_digital: 8,
-        target_graduacao: 20,
-        target_pos: 5,
-        target_tecnico: 5,
-        target_total: 30,
-      };
-    }
+    void type;
     return {
-      target_bu_presencial: 3,
-      target_bu_digital: 2,
-      target_graduacao: 5,
-      target_pos: 2,
-      target_tecnico: 1,
-      target_total: 8,
+      target_bu_presencial: 0,
+      target_bu_digital: 0,
+      target_graduacao: 0,
+      target_pos: 0,
+      target_tecnico: 0,
+      target_total: 0,
     };
   }, []);
 
@@ -321,13 +335,16 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         if (error) throw error;
         loadedGoals = (data as DatabaseGoalRecord[]) || [];
       }
+      const manual = new Set<string>();
       loadedGoals.forEach(g => {
         if (!g.user_id) return;
         const parsed = parseGoal(g);
         next[g.user_id] = parsed;
         saved[g.user_id] = { ...parsed };
+        if ((g as any).ajuste_manual) manual.add(g.user_id);
       });
 
+      setManualIds(manual);
       setGoalsValues(next);
       setSavedGoalsMap(saved);
     } catch (error) {
@@ -350,7 +367,31 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     selectedYear,
     teamConfig.weekEnd,
     teamConfig.weekStart,
+    reloadTick,
   ]);
+
+  // Pesos + distribuição automática da semana atual em diante (uma vez ao abrir a tela)
+  const consultantIds = useMemo(() => activeConsultants.map(c => c.id), [activeConsultants]);
+  const syncedOnce = React.useRef(false);
+  useEffect(() => {
+    loadWeights().then(({ weights: w, missingTable }) => {
+      setWeights(w);
+      setSavedWeights(w);
+      setWeightsMissing(missingTable);
+    });
+  }, []);
+  useEffect(() => {
+    if (syncedOnce.current || !consultantIds.length) return;
+    syncedOnce.current = true;
+    setIsSyncing(true);
+    syncCurrentAndFutureGoals(consultantIds)
+      .then(() => {
+        setReloadTick(t => t + 1);
+        loadTeamConfig();
+      })
+      .catch(err => console.warn('Distribuição automática por peso não aplicada:', err))
+      .finally(() => setIsSyncing(false));
+  }, [consultantIds]);
 
   useEffect(() => {
     loadTeamConfig();
@@ -371,6 +412,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     value: string
   ) => {
     const numeric = toInt(value);
+    setManualIds(prev => new Set(prev).add(userId));
     setGoalsValues(prev => {
       const current = prev[userId] ?? defaultGoal(configType);
       const next = { ...current, [field]: numeric };
@@ -424,55 +466,83 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
     return { buPresencial, buDigital, pos, tecnico, total };
   }, [activeConsultants, goalsValues]);
 
-  // Distribute imported week goal evenly among active sellers
-  const handleAutoDistributeFromImport = () => {
-    const count = activeConsultants.length;
-    if (count === 0) return;
+  const currentPeriod = useMemo(() => ({
+    type: (configType === 'mensal' ? 'month' : 'week') as 'month' | 'week',
+    start: currentRange.start,
+    end: currentRange.end,
+  }), [configType, currentRange]);
+  const isClosedPeriod = currentPeriod.end < todayIso();
 
-    const impPres = Math.round(importedSummary.byBu.bu_presencial.target);
-    const impDig = Math.round(importedSummary.byBu.bu_digital.target);
-    const impPos = Math.round(importedSummary.byBu.pos.target);
-    const impTec = Math.round(importedSummary.byBu.tecnico.target);
+  // Recalcula o período aberto na tela pelos pesos (mantém os ajustes manuais)
+  const handleRecalculate = async () => {
+    if (isClosedPeriod) return;
+    setIsSyncing(true);
+    try {
+      const r = await applyWeightedGoals([currentPeriod], consultantIds, teamConfig.academicPeriod);
+      setReloadTick(t => t + 1);
+      await loadTeamConfig();
+      setToast({
+        type: r.untouchedBus.length ? 'info' : 'success',
+        message: r.untouchedBus.length
+          ? `Metas recalculadas. Sem pesos definidos em: ${r.untouchedBus.map(bu => BU_LABEL[bu]).join(', ')}.`
+          : 'Metas recalculadas pelos pesos.',
+      });
+    } catch (error: any) {
+      setToast({ type: 'error', message: error?.message || 'Não foi possível recalcular as metas.' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
-    const basePres = Math.floor(impPres / count);
-    const remPres = impPres % count;
+  // Tira o ajuste manual de uma pessoa e devolve a meta ao cálculo por peso
+  const handleBackToWeights = async (userId: string) => {
+    const type = currentPeriod.type;
+    const { error } = await supabase
+      .from('goals')
+      .update({ ajuste_manual: false })
+      .eq('user_id', userId)
+      .in('type', type === 'month' ? ['month', 'mensal'] : ['week', 'semanal'])
+      .eq('reference_start', currentPeriod.start);
+    if (error) {
+      setToast({ type: 'error', message: error.message });
+      return;
+    }
+    await handleRecalculate();
+  };
 
-    const baseDig = Math.floor(impDig / count);
-    const remDig = impDig % count;
+  const savedManual = (userId: string) => {
+    const current = goalsValues[userId];
+    const saved = savedGoalsMap[userId];
+    return JSON.stringify(current) === JSON.stringify(saved);
+  };
 
-    const basePos = Math.floor(impPos / count);
-    const remPos = impPos % count;
+  const weightSums = useMemo(() => weightTotals(weights, consultantIds), [weights, consultantIds]);
+  const weightsDirty = JSON.stringify(weights) !== JSON.stringify(savedWeights);
 
-    const baseTec = Math.floor(impTec / count);
-    const remTec = impTec % count;
+  const setWeight = (userId: string, bu: BuKey, value: string) => {
+    const n = Math.max(0, Math.min(100, Number(value.replace(',', '.')) || 0));
+    setWeights(prev => ({ ...prev, [userId]: { ...(prev[userId] ?? {}), [bu]: n } }));
+  };
 
-    const next: Record<string, ConsultantGoalValues> = {};
-    activeConsultants.forEach((c, index) => {
-      const buPres = basePres + (index < remPres ? 1 : 0);
-      const buDig = baseDig + (index < remDig ? 1 : 0);
-      const posVal = basePos + (index < remPos ? 1 : 0);
-      const tecVal = baseTec + (index < remTec ? 1 : 0);
-
-      next[c.id] = {
-        target_bu_presencial: buPres,
-        target_bu_digital: buDig,
-        target_graduacao: buPres + buDig,
-        target_pos: posVal,
-        target_tecnico: tecVal,
-        target_total: buPres + buDig + posVal + tecVal,
-      };
-    });
-
-    setGoalsValues(next);
-    setTeamConfig(prev => ({
-      ...prev,
-      weeklyTarget: impPres + impDig + impPos + impTec,
-    }));
-
-    setToast({
-      type: 'info',
-      message: 'Metas da semana distribuídas proporcionalmente com base nos arquivos importados!',
-    });
+  const handleSaveWeights = async () => {
+    const wrong = BU_KEYS.filter(bu => weightSums[bu] > 0 && Math.abs(weightSums[bu] - 100) > 0.01);
+    if (wrong.length) {
+      setToast({ type: 'error', message: `A soma precisa dar 100% em: ${wrong.map(bu => BU_LABEL[bu]).join(', ')}.` });
+      return;
+    }
+    setIsSavingWeights(true);
+    try {
+      await saveWeights(weights, consultantIds, currentUser?.id);
+      setSavedWeights(weights);
+      const r = await syncCurrentAndFutureGoals(consultantIds);
+      setReloadTick(t => t + 1);
+      await loadTeamConfig();
+      setToast({ type: 'success', message: `Pesos salvos. Metas recalculadas em ${r.periods} período(s), da semana atual em diante.` });
+    } catch (error: any) {
+      setToast({ type: 'error', message: error?.message || 'Não foi possível salvar os pesos.' });
+    } finally {
+      setIsSavingWeights(false);
+    }
   };
 
   const saveOperationalPeriod = async (
@@ -555,6 +625,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
           target_pos: pos,
           target_tecnico: tec,
           target_total: total,
+          ajuste_manual: manualIds.has(c.id),
         };
       });
 
@@ -564,6 +635,13 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         .upsert(payload, { onConflict: 'user_id,type,reference_start,academic_period' });
 
       if (fullError) {
+        // Coluna ajuste_manual ainda não criada (supabase/metas-pesos.sql): salva sem ela
+        if (fullError.message?.includes('ajuste_manual')) {
+          const { error: noFlagError } = await supabase
+            .from('goals')
+            .upsert(payload.map(({ ajuste_manual, ...rest }) => rest), { onConflict: 'user_id,type,reference_start,academic_period' });
+          if (noFlagError) throw noFlagError;
+        } else
         // Graceful fallback if supabase columns haven't been added yet:
         if (fullError.message?.includes('target_bu_presencial')) {
           console.warn('Colunas de BU não encontradas no Supabase; usando colunas padrão.');
@@ -625,6 +703,16 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
       LocalSyncEngine.saveGoals(merged);
 
       setSavedTeamConfig({ ...teamConfig });
+
+      // Período aberto: quem não foi ajustado à mão recebe o restante pelos pesos
+      if (referenceEnd >= todayIso() && manualIds.size > 0) {
+        try {
+          await applyWeightedGoals([{ type, start: referenceStart, end: referenceEnd }], consultantIds, teamConfig.academicPeriod);
+          setReloadTick(t => t + 1);
+        } catch (err) {
+          console.warn('Metas salvas, mas a redistribuição pelos pesos não foi aplicada:', err);
+        }
+      }
       setSavedGoalsMap(
         Object.fromEntries(
           payload.map(item => [
@@ -714,7 +802,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Defina a meta semanal de cada consultor por BU (Presencial e Digital). As metas importadas dos arquivos servem como balizador automático da semana.
+              A meta oficial importada é distribuída automaticamente pelos pesos de cada consultor em cada BU (da semana atual em diante). Ajuste uma pessoa à mão só quando precisar.
             </p>
           </div>
         </div>
@@ -848,12 +936,22 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
             </p>
           </div>
 
-          <button
-            onClick={handleAutoDistributeFromImport}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors cursor-pointer shadow-sm shrink-0"
-          >
-            <Sparkles className="w-3.5 h-3.5" /> Distribuir igualmente para os consultores
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowWeights(v => !v)}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-colors cursor-pointer ${showWeights ? 'bg-white text-blue-700 border-blue-300' : 'bg-white/70 text-slate-700 border-slate-200 hover:bg-white'}`}
+            >
+              <Percent className="w-3.5 h-3.5" /> Pesos por BU
+            </button>
+            <button
+              onClick={handleRecalculate}
+              disabled={isClosedPeriod || isSyncing}
+              title={isClosedPeriod ? 'Período encerrado: metas congeladas' : 'Recalcular pelos pesos (mantém ajustes manuais)'}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl transition-colors cursor-pointer shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> {isSyncing ? 'Calculando…' : 'Recalcular pelos pesos'}
+            </button>
+          </div>
         </div>
 
         {/* 4 Cards das BUs */}
@@ -968,6 +1066,96 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
         </div>
       </div>
 
+      {/* PESOS POR BU */}
+      {showWeights && (
+        <div className="bg-white rounded-2xl border border-blue-200 overflow-hidden shadow-2xs">
+          <div className="p-5 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Pesos por BU (%)</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Quanto da meta de cada BU vai para cada pessoa. Cada coluna precisa somar 100%. Peso 0 = não recebe meta naquela BU.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setWeights(savedWeights)}
+                disabled={!weightsDirty}
+                className="px-3 py-2 text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-xl disabled:opacity-40 cursor-pointer"
+              >
+                Descartar
+              </button>
+              <button
+                onClick={handleSaveWeights}
+                disabled={!weightsDirty || isSavingWeights}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-[#0052cc] hover:bg-[#00478f] text-white disabled:opacity-50 cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5" /> {isSavingWeights ? 'Salvando…' : 'Salvar pesos e recalcular'}
+              </button>
+            </div>
+          </div>
+          {weightsMissing ? (
+            <p className="p-5 text-xs text-amber-700 bg-amber-50">A tabela de pesos ainda não existe. Rode supabase/metas-pesos.sql no Supabase.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-5 py-2.5 font-bold text-gray-600">Consultor</th>
+                    {BU_KEYS.map(bu => (
+                      <th key={bu} className={`px-3 py-2.5 font-bold text-center ${BU_COLOR[bu]}`}>{BU_LABEL[bu]}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {displayedConsultants.map(c => (
+                    <tr key={c.id}>
+                      <td className="px-5 py-2 font-semibold text-gray-900">{c.name || c.email}</td>
+                      {BU_KEYS.map(bu => (
+                        <td key={bu} className="px-3 py-2 text-center">
+                          <div className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              value={weights[c.id]?.[bu] ?? 0}
+                              onChange={e => setWeight(c.id, bu, e.target.value)}
+                              className="w-16 text-center px-2 py-1.5 border border-gray-200 rounded-lg text-sm font-bold text-gray-900 focus:ring-1 focus:ring-blue-500"
+                            />
+                            <span className="text-gray-400">%</span>
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-50 border-t border-gray-200 font-bold">
+                  <tr>
+                    <td className="px-5 py-2.5 text-gray-700">Soma</td>
+                    {BU_KEYS.map(bu => {
+                      const sum = weightSums[bu];
+                      const ok = Math.abs(sum - 100) < 0.01;
+                      return (
+                        <td key={bu} className={`px-3 py-2.5 text-center font-black ${ok ? 'text-emerald-700' : sum === 0 ? 'text-gray-400' : 'text-red-600'}`}>
+                          {sum.toLocaleString('pt-BR')}%{!ok && sum > 0 && <div className="text-[10px] font-semibold">{sum > 100 ? `sobram ${(sum - 100).toLocaleString('pt-BR')}` : `faltam ${(100 - sum).toLocaleString('pt-BR')}`}</div>}
+                          {sum === 0 && <div className="text-[10px] font-semibold">sem pesos</div>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {isClosedPeriod && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
+          <Lock className="w-3.5 h-3.5" /> Período encerrado: as metas ficam congeladas e não são recalculadas pelos pesos.
+        </div>
+      )}
+
       {/* CONSULTANTS GOALS TABLE */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
         <div className="p-5 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -976,7 +1164,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
               Distribuição por Consultor ({configType === 'mensal' ? 'Mensal' : 'Semanal'})
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Informe a meta de cada consultor para BU Presencial, BU Digital, Pós e Técnico.
+              Calculada pelos pesos. Editar um valor marca a pessoa como ajustada à mão neste período.
             </p>
           </div>
 
@@ -1028,10 +1216,20 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                 return (
                   <tr key={consultant.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="px-5 py-3">
-                      <div className="font-semibold text-gray-900">
+                      <div className="font-semibold text-gray-900 flex items-center gap-2">
                         {consultant.name || consultant.email}
+                        {manualIds.has(consultant.id) && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">AJUSTADO</span>
+                        )}
                       </div>
-                      <div className="text-[10px] text-gray-400">{consultant.email}</div>
+                      <div className="text-[10px] text-gray-400 flex items-center gap-2">
+                        {consultant.email}
+                        {manualIds.has(consultant.id) && !isClosedPeriod && savedManual(consultant.id) && (
+                          <button onClick={() => handleBackToWeights(consultant.id)} className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600 hover:underline cursor-pointer">
+                            <Undo2 className="w-3 h-3" /> voltar ao peso
+                          </button>
+                        )}
+                      </div>
                     </td>
 
                     <td className="px-3 py-3 text-center">
@@ -1044,6 +1242,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         }
                         className="w-16 text-center px-2 py-1.5 border border-blue-200 bg-blue-50/30 rounded-lg text-sm font-bold text-blue-900 focus:bg-white focus:ring-1 focus:ring-blue-500" name="src_components_admin_goalmanagementpage_tsx_input_8"
                       />
+                      <div className="text-[10px] text-gray-400 mt-0.5">{weights[consultant.id]?.bu_presencial ?? 0}%</div>
                     </td>
 
                     <td className="px-3 py-3 text-center">
@@ -1056,6 +1255,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         }
                         className="w-16 text-center px-2 py-1.5 border border-emerald-200 bg-emerald-50/30 rounded-lg text-sm font-bold text-emerald-900 focus:bg-white focus:ring-1 focus:ring-emerald-500" name="src_components_admin_goalmanagementpage_tsx_input_9"
                       />
+                      <div className="text-[10px] text-gray-400 mt-0.5">{weights[consultant.id]?.bu_digital ?? 0}%</div>
                     </td>
 
                     <td className="px-3 py-3 text-center">
@@ -1068,6 +1268,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         }
                         className="w-16 text-center px-2 py-1.5 border border-purple-200 bg-purple-50/30 rounded-lg text-sm font-bold text-purple-900 focus:bg-white focus:ring-1 focus:ring-purple-500" name="src_components_admin_goalmanagementpage_tsx_input_10"
                       />
+                      <div className="text-[10px] text-gray-400 mt-0.5">{weights[consultant.id]?.pos ?? 0}%</div>
                     </td>
 
                     <td className="px-3 py-3 text-center">
@@ -1080,6 +1281,7 @@ export const GoalManagementPage: React.FC<GoalManagementPageProps> = ({ onBackTo
                         }
                         className="w-16 text-center px-2 py-1.5 border border-amber-200 bg-amber-50/30 rounded-lg text-sm font-bold text-amber-900 focus:bg-white focus:ring-1 focus:ring-amber-500" name="src_components_admin_goalmanagementpage_tsx_input_11"
                       />
+                      <div className="text-[10px] text-gray-400 mt-0.5">{weights[consultant.id]?.tecnico ?? 0}%</div>
                     </td>
 
                     <td className="px-5 py-3 text-right font-black text-sm text-gray-900">
