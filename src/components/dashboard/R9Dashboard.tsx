@@ -50,7 +50,7 @@ export const R9Dashboard: React.FC = () => {
 
   // Security guard: Non-admin or member view mode cannot view admin team management
   useEffect(() => {
-    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || activeTab === 'planner_summary')) {
+    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao')) {
       setActiveTab('home');
     }
   }, [isActualAdmin, viewRole, activeTab]);
@@ -301,25 +301,18 @@ export const R9Dashboard: React.FC = () => {
                     <button id="nav-planner-calendar" onClick={() => openPlannerSection('calendar')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'calendar' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                       <CalendarDays className="w-3.5 h-3.5" /><span>Calendário</span>
                     </button>
-                    {isActualAdmin && viewRole === 'admin' && (
-                      <button id="nav-planner-queue" onClick={() => openPlannerSection('queue')} className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'queue' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                        <span className="flex items-center gap-2.5"><Inbox className="w-3.5 h-3.5" /><span>Fila de tarefas</span></span>
-                      </button>
-                    )}
                     <button id="nav-planner-my-tasks" onClick={() => openPlannerSection('my_tasks')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'my_tasks' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                       <CheckSquare className="w-3.5 h-3.5" /><span>Minhas tarefas</span>
                     </button>
                     <button id="nav-planner-tasks" onClick={() => openPlannerSection('tasks')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'tasks' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                      <ListChecks className="w-3.5 h-3.5" /><span>Tarefas</span>
+                      <ListChecks className="w-3.5 h-3.5" /><span>Rotina da semana</span>
+                    </button>
+                    <button id="nav-planner-summary" onClick={openPlannerSummary} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner_summary' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                      <CalendarCheck className="w-3.5 h-3.5" /><span>Balanço da semana</span>
                     </button>
                     {isActualAdmin && viewRole === 'admin' && (
                       <button id="nav-planner-tags" onClick={() => openPlannerSection('tags')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'tags' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                         <Tag className="w-3.5 h-3.5" /><span>Tags e categorias</span>
-                      </button>
-                    )}
-                    {isActualAdmin && viewRole === 'admin' && (
-                      <button id="nav-planner-summary" onClick={openPlannerSummary} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner_summary' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                        <CalendarCheck className="w-3.5 h-3.5" /><span>Balanço da semana</span>
                       </button>
                     )}
                   </div>

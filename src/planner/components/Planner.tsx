@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import '../planner.css';
-import { CalendarDays, LayoutGrid, ChevronLeft, ChevronRight, CheckCircle2, Inbox, Tag, TrendingUp, RefreshCw, ListChecks } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckCircle2, Inbox, RefreshCw, Plus, SlidersHorizontal } from 'lucide-react';
 import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket, UserTaskSubmission, TaskModel } from '../types.ts';
 import { taskModelService, TaskModelInput, ruleLabel } from '../services/taskModelService.ts';
 import TaskModelModal from './TaskModelModal.tsx';
@@ -17,7 +17,7 @@ import TaskDetailModal from './TaskDetailModal.tsx';
 import TaskCompletionModal from './TaskCompletionModal.tsx';
 import LeftSidebar, { SidebarTab, NavFilter } from './LeftSidebar.tsx';
 import TeamManagementView from './TeamManagementView.tsx';
-import ExecutiveWeeklySummary from './ExecutiveWeeklySummary.tsx';
+import WeeklyBalanceView from './WeeklyBalanceView.tsx';
 import TagManagementView from './TagManagementView.tsx';
 import UnscheduledRightSidebar from './UnscheduledRightSidebar.tsx';
 
@@ -89,7 +89,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
 
   // Proteção de Rota: se não for admin ativo, bloqueia telas administrativas e redireciona para o planner
   useEffect(() => {
-    if (userRole !== 'admin' && (activeView === 'team_management' || activeView === 'executive_summary' || activeView === 'tag_management')) {
+    if (userRole !== 'admin' && (activeView === 'team_management' || activeView === 'tag_management')) {
       setActiveView('planner');
       if (externalNavigation) onSectionChange?.('calendar');
     }
@@ -455,17 +455,13 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
   const [taskSearch, setTaskSearch] = useState('');
   const [selectedAssignee, setSelectedAssignee] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  // Fila (tarefas sem data) como painel lateral do calendário
+  const [showQueue, setShowQueue] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // No modo integrado, a navegação é controlada pela sidebar principal do R9 Hub.
   useEffect(() => {
     if (!externalNavigation) return;
-    if (section === 'queue' && userRole !== 'admin') {
-      setActiveView('planner');
-      setSidebarTab('planner');
-      setNavFilter('my_tasks');
-      onSectionChange?.('my_tasks');
-      return;
-    }
     if (section === 'summary') {
       setActiveView('executive_summary');
       return;
@@ -480,7 +476,10 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
     }
     setActiveView('planner');
     if (section === 'queue') {
-      setSidebarTab('unscheduled');
+      // atalho antigo: abre o calendário com a fila aberta
+      setShowQueue(true);
+      setIsQueueSidebarCollapsed(false);
+      setSidebarTab('planner');
       setNavFilter('all');
     } else if (section === 'my_tasks') {
       setSidebarTab('planner');
@@ -976,76 +975,92 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
 
   return (
     <div className={`r9-planner-shell ${externalNavigation ? 'h-[calc(100dvh-2rem)] min-h-[620px]' : 'h-[calc(100vh-4rem)] min-h-[620px]'} w-full flex flex-col bg-white overflow-hidden select-none font-sans text-zinc-900 rounded-2xl border border-slate-200 shadow-sm`}>
-      {/* Cabeçalho integrado ao R9 Hub: identidade única, sem perfil/logo/menu duplicado. */}
-      <header
-        id="planner-main-header"
-        className={`${externalNavigation && (section === 'summary' || section === 'tags') ? 'hidden' : 'min-h-[78px] px-4 sm:px-6 py-3 border-b border-slate-200/80 bg-white flex items-center justify-between shrink-0 gap-4 z-20'}`}
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-11 h-11 rounded-xl bg-blue-50 text-[#0052cc] flex items-center justify-center shrink-0 border border-blue-100">
-            {section === 'summary' ? <TrendingUp className="w-5 h-5" /> : section === 'tags' ? <Tag className="w-5 h-5" /> : section === 'tasks' ? <ListChecks className="w-5 h-5" /> : section === 'queue' ? <Inbox className="w-5 h-5" /> : <CalendarDays className="w-5 h-5" />}
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight tracking-tight">
-              {section === 'summary' ? 'Balanço da semana' : section === 'tags' ? 'Tags e categorias' : section === 'tasks' ? 'Tarefas' : section === 'queue' ? 'Fila de tarefas' : section === 'my_tasks' ? 'Minhas tarefas' : 'Planejamento'}
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5 truncate">
-              {section === 'summary' ? 'Acompanhamento gerencial das ações da equipe' : section === 'tags' ? 'Organize as categorias usadas nas ações da equipe' : section === 'tasks' ? 'O que a equipe faz e em quais dias da semana' : section === 'queue' ? 'Ações que aguardam uma data no calendário' : section === 'my_tasks' ? 'Acompanhe as ações atribuídas a você' : 'Organize ações, responsáveis e prazos da equipe'}
-            </p>
-          </div>
-        </div>
-
-        {section === 'calendar' || section === 'my_tasks' || section === 'queue' ? (
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-            <div className="bg-slate-100 p-0.5 rounded-lg flex items-center border border-slate-200">
-              <button id="view-mode-week-button" type="button" onClick={() => setViewMode('week')} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${viewMode === 'week' ? 'bg-white text-[#003067] shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
-                <CalendarDays className="w-3.5 h-3.5" /><span>Semana</span>
-              </button>
-              <button id="view-mode-month-button" type="button" onClick={() => setViewMode('month')} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${viewMode === 'month' ? 'bg-white text-[#003067] shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
-                <LayoutGrid className="w-3.5 h-3.5" /><span>Mês</span>
-              </button>
+      {/* Cabeçalho único: título + período à esquerda; visão, filtros, fila e criação à direita */}
+      {(() => {
+        const isCalendar = activeView === 'planner' && (section === 'calendar' || section === 'my_tasks' || section === 'queue');
+        const hidden = externalNavigation && (section === 'summary' || section === 'tags');
+        const queueCount = tasks.filter((t) => !t.scheduledDate && t.status !== 'concluida').length;
+        const activeFilters = [taskSearch, selectedAssignee, selectedStatus, selectedBucket].filter(Boolean).length;
+        const title = section === 'tasks' ? 'Rotina da semana' : section === 'my_tasks' ? 'Minhas tarefas' : 'Calendário';
+        if (hidden) return null;
+        return (
+          <header id="planner-main-header" className="px-4 sm:px-5 py-3 border-b border-slate-200/80 bg-white flex flex-wrap items-center justify-between gap-3 shrink-0 z-20">
+            <div className="flex items-center gap-3 min-w-0">
+              <h1 className="text-base font-bold text-slate-900 whitespace-nowrap">{title}</h1>
+              {isCalendar && (
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={handlePrev} className="p-1.5 text-slate-500 hover:text-[#0052cc] hover:bg-blue-50 rounded-md cursor-pointer" title="Período anterior" aria-label="Período anterior"><ChevronLeft className="w-4 h-4" /></button>
+                  <button type="button" onClick={handleToday} className="px-2 py-1 text-xs font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-md cursor-pointer">Hoje</button>
+                  <button type="button" onClick={handleNext} className="p-1.5 text-slate-500 hover:text-[#0052cc] hover:bg-blue-50 rounded-md cursor-pointer" title="Próximo período" aria-label="Próximo período"><ChevronRight className="w-4 h-4" /></button>
+                  <span className="text-xs font-semibold text-slate-600 pl-1 whitespace-nowrap">{viewMode === 'week' ? formatWeekInterval(weekDates) : `${MONTH_NAMES_PT[currentReferenceDate.getMonth()]} de ${currentReferenceDate.getFullYear()}`}</span>
+                  <span className="text-[11px] text-slate-400 pl-2 whitespace-nowrap hidden md:inline">{periodTaskCount} no período</span>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-lg">
-              <button type="button" onClick={handlePrev} className="p-1.5 text-slate-500 hover:text-[#0052cc] hover:bg-blue-50 rounded-md cursor-pointer" title="Período anterior"><ChevronLeft className="w-4 h-4" /></button>
-              <button type="button" onClick={handleToday} className="px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-md cursor-pointer">Hoje</button>
-              <button type="button" onClick={handleNext} className="p-1.5 text-slate-500 hover:text-[#0052cc] hover:bg-blue-50 rounded-md cursor-pointer" title="Próximo período"><ChevronRight className="w-4 h-4" /></button>
-              <span className="text-xs font-semibold text-slate-700 px-1.5 whitespace-nowrap hidden lg:inline">{viewMode === 'week' ? formatWeekInterval(weekDates) : `${MONTH_NAMES_PT[currentReferenceDate.getMonth()]} de ${currentReferenceDate.getFullYear()}`}</span>
-            </div>
-            <button type="button" onClick={() => openNewTask()} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold shadow-sm transition-colors cursor-pointer whitespace-nowrap">
-              <span className="text-base leading-none">+</span> Nova tarefa
-            </button>
-          </div>
-        ) : null}
-      </header>
 
-      {externalNavigation && (section === 'calendar' || section === 'my_tasks' || section === 'queue') && activeView === 'planner' && (
-        <div className="px-4 sm:px-6 py-2.5 border-b border-slate-200/80 bg-[#fbfcfe] flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2 text-xs text-slate-500 min-w-0">
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><span className="w-2 h-2 rounded-full bg-[#0052cc]" /> {section === 'queue' ? 'Arraste ações da fila para os dias do calendário' : section === 'my_tasks' ? 'Ações atribuídas a você' : 'Agenda da equipe'}</span>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {section === 'calendar' && (
-              <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-100 border border-slate-200">
-                {([['all', 'Equipe'], ['my_tasks', 'Eu']] as const).map(([filter, label]) => (
-                  <button key={filter} type="button" onClick={() => setNavFilter(filter)} className={`px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${navFilter === filter ? 'bg-white text-[#003067] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{label}</button>
-                ))}
+            {isCalendar && (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="bg-slate-100 p-0.5 rounded-lg flex items-center border border-slate-200">
+                  {([['week', 'Semana'], ['month', 'Mês']] as const).map(([mode, label]) => (
+                    <button key={mode} id={`view-mode-${mode}-button`} type="button" onClick={() => setViewMode(mode)} className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${viewMode === mode ? 'bg-white text-[#003067] shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{label}</button>
+                  ))}
+                </div>
+                {section !== 'my_tasks' && (
+                  <div className="bg-slate-100 p-0.5 rounded-lg flex items-center border border-slate-200">
+                    {([['all', 'Equipe'], ['my_tasks', 'Eu']] as const).map(([filter, label]) => (
+                      <button key={filter} type="button" onClick={() => setNavFilter(filter)} className={`px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${navFilter === filter ? 'bg-white text-[#003067] shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{label}</button>
+                    ))}
+                  </div>
+                )}
+                <div className="relative">
+                  <button type="button" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen} className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer ${activeFilters ? 'border-blue-300 bg-blue-50 text-[#0052cc]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                    <SlidersHorizontal className="w-3.5 h-3.5" /> Filtros{activeFilters ? ` (${activeFilters})` : ''}
+                  </button>
+                  {filtersOpen && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setFiltersOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1.5 z-40 w-72 bg-white rounded-xl border border-slate-200 shadow-xl p-3 space-y-2.5">
+                        <label className="block">
+                          <span className="block text-[11px] font-semibold text-slate-500 mb-1">Buscar</span>
+                          <input value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} placeholder="Nome da tarefa" className="w-full h-8 rounded-lg border border-slate-200 px-2.5 text-xs outline-none focus:border-[#0052cc]" autoFocus />
+                        </label>
+                        <label className="block">
+                          <span className="block text-[11px] font-semibold text-slate-500 mb-1">Pessoa</span>
+                          <select value={selectedAssignee} onChange={(e) => setSelectedAssignee(e.target.value)} className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs"><option value="">Todas</option>{teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+                        </label>
+                        <label className="block">
+                          <span className="block text-[11px] font-semibold text-slate-500 mb-1">Status</span>
+                          <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs"><option value="">Todos</option><option value="pendente">Pendente</option><option value="em_andamento">Em andamento</option><option value="concluida">Concluída</option></select>
+                        </label>
+                        <label className="block">
+                          <span className="block text-[11px] font-semibold text-slate-500 mb-1">Categoria</span>
+                          <select value={selectedBucket ?? ''} onChange={(e) => setSelectedBucket(e.target.value || null)} className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs"><option value="">Todas</option>{allBuckets.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+                        </label>
+                        {activeFilters > 0 && (
+                          <button type="button" onClick={() => { setTaskSearch(''); setSelectedAssignee(''); setSelectedStatus(''); setSelectedBucket(null); }} className="text-xs font-semibold text-[#0052cc] hover:underline cursor-pointer">Limpar filtros</button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowQueue((v) => !v); setIsQueueSidebarCollapsed(false); }}
+                  aria-pressed={showQueue}
+                  title="Tarefas sem data"
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer ${showQueue ? 'border-blue-300 bg-blue-50 text-[#0052cc]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <Inbox className="w-3.5 h-3.5" /> Fila
+                  {queueCount > 0 && <span className="text-[10px] font-bold bg-slate-200 text-slate-700 rounded-full px-1.5">{queueCount}</span>}
+                </button>
+                <button type="button" onClick={() => openNewTask()} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold shadow-sm transition-colors cursor-pointer whitespace-nowrap">
+                  <Plus className="w-3.5 h-3.5" /> Nova tarefa
+                </button>
               </div>
             )}
-            {section === 'calendar' && <label className="relative"><span className="sr-only">Buscar tarefas</span><input value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} placeholder="Buscar ações" className="h-8 w-32 sm:w-40 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] outline-none focus:border-[#0052cc]" /></label>}
-            {section === 'calendar' && <label><span className="sr-only">Filtrar por responsável</span><select value={selectedAssignee} onChange={(event) => setSelectedAssignee(event.target.value)} className="h-8 max-w-32 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600"><option value="">Todas as pessoas</option>{teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
-            {section === 'calendar' && <label><span className="sr-only">Filtrar por status</span><select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600"><option value="">Todos os status</option><option value="pendente">Pendente</option><option value="em_andamento">Em andamento</option><option value="concluida">Concluída</option></select></label>}
-            <label className="relative">
-              <span className="sr-only">Filtrar por categoria</span>
-              <select value={selectedBucket ?? ''} onChange={(event) => setSelectedBucket(event.target.value || null)} className="h-8 min-w-[150px] rounded-lg border border-slate-200 bg-white pl-2.5 pr-7 text-[11px] font-semibold text-slate-600 outline-none focus:border-[#0052cc] focus:ring-2 focus:ring-blue-100">
-                <option value="">Todas as categorias</option>
-                {allBuckets.map((bucket) => <option key={bucket} value={bucket}>{bucket}</option>)}
-              </select>
-            </label>
-            <span className="text-xs text-slate-500 whitespace-nowrap">{periodTaskCount} {section === 'queue' ? 'ações na fila' : 'ações no período'}</span>
-            {section === 'my_tasks' && <button onClick={() => { setNavFilter('all'); onSectionChange?.('calendar'); }} className="text-xs font-semibold text-[#0052cc] hover:underline cursor-pointer">Ver equipe toda</button>}
-          </div>
-        </div>
-      )}
+          </header>
+        );
+      })()}
 
       {/* 2. Estrutura Limpa: Menu Lateral Esquerdo Unificado + Grade Central Espaçosa */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
@@ -1126,12 +1141,12 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
               onTagsUpdated={(updated) => setTagBuckets(updated)}
               onBackToPlanner={goToCalendar}
             />
-          ) : activeView === 'executive_summary' && userRole === 'admin' ? (
-            <ExecutiveWeeklySummary
+          ) : activeView === 'executive_summary' ? (
+            <WeeklyBalanceView
               tasks={tasks}
+              models={models}
               teamMembers={teamMembers}
               todayDate={todayDate}
-              onBackToPlanner={goToCalendar}
               onTaskClick={handleTaskClick}
             />
           ) : activeView === 'team_management' && userRole === 'admin' ? (
@@ -1153,7 +1168,7 @@ export default function Planner({ user, viewRole: globalViewRole, externalNaviga
                 Buscando registros da tabela <code className="text-zinc-600 font-mono bg-zinc-100 px-1 py-0.5 rounded">tarefas</code> e sincronizando status em tempo real.
               </p>
             </div>
-          ) : externalNavigation && section === 'queue' ? (
+          ) : externalNavigation && showQueue && activeView === 'planner' ? (
             <div className="flex-1 min-h-0 flex overflow-hidden">
               <div className="flex-1 min-w-0 min-h-0 flex flex-col">
                 {viewMode === 'week' ? (
