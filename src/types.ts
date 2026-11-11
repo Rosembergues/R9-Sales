@@ -113,6 +113,8 @@ export interface Sale {
   custom_data?: SaleCustomData;
   notes?: string;
   created_at: string;
+  /** Campos obrigatórios que a venda gravada não tem (vendas antigas). Só leitura, nunca gravado. */
+  missing_fields?: Array<'opportunity' | 'candidate' | 'date' | 'seller' | 'product' | 'modality' | 'shift' | 'fdi'>;
 }
 
 export interface LeaderboardEntry {

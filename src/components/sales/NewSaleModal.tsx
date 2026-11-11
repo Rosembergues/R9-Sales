@@ -23,6 +23,7 @@ import {
   normalizeOpportunity,
   validateSaleDate,
 } from '../../lib/saleValidation';
+import { FDI_LABEL, PARCELA_OPTIONS, fdiOptionsFor, modalitiesFor, shiftsFor } from '../../lib/saleOptions';
 
 interface NewSaleModalProps {
   isOpen: boolean;
@@ -30,51 +31,6 @@ interface NewSaleModalProps {
   onSuccess?: () => void;
   initialProduct?: MainProductType;
 }
-
-const BASE_FDI: ProductChannelFDI[] = [
-  'Simplificada',
-  'MSV',
-  'Transferência Externa',
-  'Reabertura',
-  'Vestibular',
-  'ENEM'
-];
-
-const FDI_LABEL: Record<ProductChannelFDI, string> = {
-  Simplificada: 'Simplificada',
-  MSV: 'MSV',
-  'Transferência Externa': 'TE',
-  Reabertura: 'Reabertura',
-  Vestibular: 'Vestibular',
-  ENEM: 'ENEM',
-  Técnico: 'Técnico',
-  'Pós Graduação': 'Pós-Graduação'
-};
-
-const PARCELA_OPTIONS: ParcelaLeveOption[] = [
-  '1 parcela',
-  '2 parcelas',
-  '3 parcelas',
-  'Sem parcelas'
-];
-
-const MODALITIES: Record<MainProductType, Array<{ name: ModalityType; shifts: ShiftType[] }>> = {
-  'Graduação': [
-    { name: 'Presencial', shifts: ['Manhã', 'Noite'] },
-    { name: 'Semipresencial', shifts: ['Manhã', 'Noite'] },
-    { name: 'Ao Vivo', shifts: ['Manhã', 'Noite'] },
-    { name: 'EAD', shifts: ['Virtual'] },
-    { name: 'FLEX', shifts: ['Virtual'] }
-  ],
-  'Pós Graduação': [
-    { name: 'Pós Presencial', shifts: ['Manhã', 'Noite'] },
-    { name: 'Pós Ao Vivo', shifts: ['Manhã', 'Noite'] },
-    { name: 'Pós Digital', shifts: ['Virtual'] }
-  ],
-  'Curso Técnico': [
-    { name: 'Técnico Presencial', shifts: ['Manhã', 'Noite'] }
-  ]
-};
 
 const getTodayDateStr = () => {
   const today = new Date();
@@ -86,35 +42,31 @@ const formatIsoToBrDate = (iso: string) => {
   return year && month && day ? `${day}/${month}/${year}` : '';
 };
 
-const fdiOptionsFor = (product: MainProductType): ProductChannelFDI[] => {
-  if (product === 'Graduação') return BASE_FDI;
-  if (product === 'Pós Graduação') return [...BASE_FDI, 'Pós Graduação'];
-  return [...BASE_FDI, 'Técnico'];
-};
-
-const defaultModalityFor = (product: MainProductType): ModalityType => MODALITIES[product][0].name;
+type MissingKey = 'product' | 'fdi' | 'modality' | 'shift' | 'parcela' | 'bolsa' | 'empresa';
 
 export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
-  initialProduct = 'Graduação'
+  initialProduct
 }) => {
   const { currentUser, profiles } = useAuth();
   const { sales, activeCampaigns, addSale, findSaleByOpportunity } = useSales();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedSellerId, setSelectedSellerId] = useState(currentUser?.id || '');
-  const [mainProduct, setMainProduct] = useState<MainProductType>(initialProduct);
+  // Nada vem marcado: o consultor escolhe cada opção (ver supabase/vendas-completas.sql).
+  const [mainProduct, setMainProduct] = useState<MainProductType | ''>(initialProduct || '');
   const [opportunityNumber, setOpportunityNumber] = useState('');
   const [candidateName, setCandidateName] = useState('');
   const [saleDateIso, setSaleDateIso] = useState(getTodayDateStr());
-  const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI>('Simplificada');
-  const [modality, setModality] = useState<ModalityType>(() => defaultModalityFor((initialProduct || 'Graduação') as MainProductType));
-  const [shift, setShift] = useState<ShiftType>('Noite');
+  const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI | ''>('');
+  const [modality, setModality] = useState<ModalityType | ''>('');
+  const [shift, setShift] = useState<ShiftType | ''>('');
 
-  const [parcelaLeve, setParcelaLeve] = useState<ParcelaLeveOption>('Sem parcelas');
-  const [hasBolsaConvenio, setHasBolsaConvenio] = useState(false);
+  const [parcelaLeve, setParcelaLeve] = useState<ParcelaLeveOption | ''>('');
+  const [hasBolsaConvenio, setHasBolsaConvenio] = useState<boolean | null>(null);
+  const [missing, setMissing] = useState<Set<MissingKey>>(new Set());
   const [empresaConvenio, setEmpresaConvenio] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -158,22 +110,19 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   const official = useOfficialGoals();
   const cycleWindows = useMemo(() => buildCycleWindows(official.points), [official.points]);
   const effectiveCycle = useMemo(
-    () => suggestSaleCycle(saleGoalGroup(mainProduct, modality), saleDateIso, cycleWindows),
+    () => (mainProduct && modality ? suggestSaleCycle(saleGoalGroup(mainProduct, modality), saleDateIso, cycleWindows) : null),
     [mainProduct, modality, saleDateIso, cycleWindows]
   );
 
   // Alerta (não bloqueia): mesmo aluno, mesmo produto, outra oportunidade.
   const sameStudentSales = useMemo(
-    () => findSameStudentSales(sales, candidateName, mainProduct),
+    () => (mainProduct ? findSameStudentSales(sales, candidateName, mainProduct) : []),
     [sales, candidateName, mainProduct]
   );
 
   const fdiOptions = useMemo(() => fdiOptionsFor(mainProduct), [mainProduct]);
-  const availableModalities = useMemo(() => MODALITIES[mainProduct], [mainProduct]);
-  const currentAllowedShifts = useMemo<ShiftType[]>(
-    () => availableModalities.find(m => m.name === modality)?.shifts || ['Manhã', 'Noite'],
-    [availableModalities, modality]
-  );
+  const availableModalities = useMemo(() => modalitiesFor(mainProduct), [mainProduct]);
+  const currentAllowedShifts = useMemo<ShiftType[]>(() => shiftsFor(mainProduct, modality), [mainProduct, modality]);
 
   useEffect(() => {
     if (!isOpen || wasOpenRef.current) {
@@ -182,15 +131,16 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
     }
     setStep(1);
     setSelectedSellerId(currentUser?.id || '');
-    setMainProduct(initialProduct);
+    setMainProduct(initialProduct || '');
     setOpportunityNumber('');
     setCandidateName('');
     setSaleDateIso(getTodayDateStr());
-    setFdiChannel(initialProduct === 'Pós Graduação' ? 'Pós Graduação' : initialProduct === 'Curso Técnico' ? 'Técnico' : 'Simplificada');
-    setModality(defaultModalityFor((initialProduct || 'Graduação') as MainProductType));
-    setShift('Noite');
-    setParcelaLeve('Sem parcelas');
-    setHasBolsaConvenio(false);
+    setFdiChannel('');
+    setModality('');
+    setShift('');
+    setParcelaLeve('');
+    setHasBolsaConvenio(null);
+    setMissing(new Set());
     setEmpresaConvenio('');
     setNotes('');
     setErrorMessage(null);
@@ -211,23 +161,6 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
     });
   }, [isOpen, step]);
 
-  useEffect(() => {
-    const options = fdiOptionsFor(mainProduct);
-    if (!options.includes(fdiChannel)) setFdiChannel(options[0]);
-    const defaultModality = defaultModalityFor(mainProduct);
-    setModality(defaultModality);
-    setShift(MODALITIES[mainProduct][0].shifts[0] === 'Virtual' ? 'Virtual' : 'Noite');
-  }, [mainProduct]);
-
-  useEffect(() => {
-    const config = availableModalities.find(m => m.name === modality);
-    if (!config) {
-      setModality(availableModalities[0].name);
-      return;
-    }
-    if (!config.shifts.includes(shift)) setShift(config.shifts[0]);
-  }, [availableModalities, modality, shift]);
-
   if (!isOpen) return null;
 
   const validateStep = (targetStep: number) => {
@@ -240,12 +173,34 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
       const dateError = validateSaleDate(saleDateIso);
       if (dateError) return setErrorMessage(dateError), false;
     }
-    if (targetStep >= 3 && hasBolsaConvenio && !empresaConvenio.trim()) {
-      setErrorMessage('Informe a empresa do convênio ou selecione “Não”.');
-      return false;
+    if (targetStep >= 3) {
+      const gaps = new Set<MissingKey>();
+      if (!mainProduct) gaps.add('product');
+      if (!fdiChannel) gaps.add('fdi');
+      if (!modality) gaps.add('modality');
+      if (!shift) gaps.add('shift');
+      setMissing(gaps);
+      if (gaps.size) return setErrorMessage('Escolha produto, forma de ingresso, modalidade e turno para continuar.'), false;
+    }
+    if (targetStep >= 4) {
+      const gaps = new Set<MissingKey>();
+      if (!parcelaLeve) gaps.add('parcela');
+      if (hasBolsaConvenio === null) gaps.add('bolsa');
+      if (hasBolsaConvenio && !empresaConvenio.trim()) gaps.add('empresa');
+      setMissing(gaps);
+      if (gaps.has('empresa') && gaps.size === 1) return setErrorMessage('Informe a empresa do convênio ou selecione “Não”.'), false;
+      if (gaps.size) return setErrorMessage('Escolha a condição de pagamento e se tem bolsa/convênio.'), false;
     }
     return true;
   };
+
+  const clearMissing = (key: MissingKey) =>
+    setMissing(prev => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
 
   /** Verifica se a oportunidade já foi lançada (vendas carregadas + servidor). */
   const checkDuplicate = async (): Promise<boolean> => {
@@ -270,21 +225,41 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   };
 
   const handleProductChange = (product: MainProductType) => {
+    if (product === mainProduct) return;
     setMainProduct(product);
-    const nextFdi = product === 'Pós Graduação' ? 'Pós Graduação' : product === 'Curso Técnico' ? 'Técnico' : 'Simplificada';
-    setFdiChannel(nextFdi);
+    clearMissing('product');
+    // Opções que não existem no novo produto voltam a ficar em branco.
+    if (fdiChannel && !fdiOptionsFor(product).includes(fdiChannel)) setFdiChannel('');
+    const options = modalitiesFor(product);
+    if (options.length === 1) {
+      setModality(options[0].name);
+      clearMissing('modality');
+      const onlyShift = options[0].shifts.length === 1 ? options[0].shifts[0] : '';
+      setShift(onlyShift);
+      if (onlyShift) clearMissing('shift');
+    } else {
+      setModality('');
+      setShift('');
+    }
   };
 
   const handleModalityChange = (next: ModalityType) => {
     setModality(next);
-    const config = availableModalities.find(m => m.name === next);
-    if (config) setShift(config.shifts[0]);
+    clearMissing('modality');
+    const shifts = shiftsFor(mainProduct, next);
+    // Turno único (EAD, Flex, Pós Digital = Virtual) é marcado sozinho.
+    if (shifts.length === 1) {
+      setShift(shifts[0]);
+      clearMissing('shift');
+    } else if (!shifts.includes(shift as ShiftType)) {
+      setShift('');
+    }
   };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (submittingRef.current) return;
-    if (!validateStep(3)) return;
+    if (!validateStep(4)) return;
     submittingRef.current = true;
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -299,7 +274,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
       const response = await addSale({
         campaign_id: activeCampaigns[0]?.id || 'camp-1',
         client_name: candidateName.trim(),
-        product_name: mainProduct,
+        product_name: mainProduct as MainProductType,
         seller_id: chosenSellerId,
         seller_name: chosenSellerName,
         seller_email: chosenSellerEmail,
@@ -314,14 +289,14 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
           seller_email: chosenSellerEmail,
           sale_date: formattedDateBr,
           main_product: mainProduct,
-          business_unit: getSaleBusinessUnit(mainProduct, modality),
+          business_unit: getSaleBusinessUnit(mainProduct as MainProductType, modality as ModalityType),
           fdi: fdiChannel,
           fdi_channel: fdiChannel,
           modality,
           shift,
           ...(effectiveCycle ? { academic_period: effectiveCycle } : {}),
           parcela_leve: parcelaLeve,
-          has_bolsa_convenio: hasBolsaConvenio,
+          has_bolsa_convenio: Boolean(hasBolsaConvenio),
           empresa_convenio: hasBolsaConvenio ? empresaConvenio.trim() : ''
         },
         notes: notes.trim()
@@ -457,8 +432,8 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
               </div>
 
               <div>
-                <FieldLabel icon={<BookOpen className="w-4 h-4" />} label="Produto" />
-                <div className="grid grid-cols-3 gap-3 mt-2">
+                <FieldLabel icon={<BookOpen className="w-4 h-4" />} label="Produto" invalid={missing.has('product')} />
+                <div className={`grid grid-cols-3 gap-3 mt-2 rounded-2xl ${missing.has('product') ? 'ring-2 ring-red-300 ring-offset-2' : ''}`}>
                   <ProductCard active={mainProduct === 'Graduação'} icon={<GraduationCap className="w-5 h-5" />} label="Graduação" onClick={() => handleProductChange('Graduação')} />
                   <ProductCard active={mainProduct === 'Pós Graduação'} icon={<Award className="w-5 h-5" />} label="Pós" onClick={() => handleProductChange('Pós Graduação')} />
                   <ProductCard active={mainProduct === 'Curso Técnico'} icon={<Wrench className="w-5 h-5" />} label="Técnico" onClick={() => handleProductChange('Curso Técnico')} />
@@ -466,30 +441,36 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
               </div>
 
               <div>
-                <FieldLabel icon={<Sparkles className="w-4 h-4" />} label="Forma de ingresso" />
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
-                  {fdiOptions.map(option => (
-                    <ChoiceButton key={option} active={fdiChannel === option} label={FDI_LABEL[option]} onClick={() => setFdiChannel(option)} />
-                  ))}
-                </div>
+                <FieldLabel icon={<Sparkles className="w-4 h-4" />} label="Forma de ingresso" invalid={missing.has('fdi')} />
+                {!mainProduct ? <PickFirst text="Escolha o produto primeiro." /> : (
+                  <div className={`grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 rounded-xl ${missing.has('fdi') ? 'ring-2 ring-red-300 ring-offset-2' : ''}`}>
+                    {fdiOptions.map(option => (
+                      <ChoiceButton key={option} active={fdiChannel === option} label={FDI_LABEL[option]} onClick={() => { setFdiChannel(option); clearMissing('fdi'); }} />
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
-                <FieldLabel icon={<Layers3 className="w-4 h-4" />} label="Modalidade" />
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
-                  {availableModalities.map(option => (
-                    <ChoiceButton key={option.name} active={modality === option.name} label={option.name} onClick={() => handleModalityChange(option.name)} />
-                  ))}
-                </div>
+                <FieldLabel icon={<Layers3 className="w-4 h-4" />} label="Modalidade" invalid={missing.has('modality')} />
+                {!mainProduct ? <PickFirst text="Escolha o produto primeiro." /> : (
+                  <div className={`grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 rounded-xl ${missing.has('modality') ? 'ring-2 ring-red-300 ring-offset-2' : ''}`}>
+                    {availableModalities.map(option => (
+                      <ChoiceButton key={option.name} active={modality === option.name} label={option.name} onClick={() => handleModalityChange(option.name)} />
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
-                <FieldLabel icon={<Clock3 className="w-4 h-4" />} label="Turno" />
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  {currentAllowedShifts.map(option => (
-                    <ChoiceButton key={option} active={shift === option} label={option} onClick={() => setShift(option)} />
-                  ))}
-                </div>
+                <FieldLabel icon={<Clock3 className="w-4 h-4" />} label="Turno" invalid={missing.has('shift')} />
+                {!modality ? <PickFirst text="Escolha a modalidade primeiro." /> : (
+                  <div className={`grid grid-cols-3 gap-2 mt-2 rounded-xl ${missing.has('shift') ? 'ring-2 ring-red-300 ring-offset-2' : ''}`}>
+                    {currentAllowedShifts.map(option => (
+                      <ChoiceButton key={option} active={shift === option} label={option} onClick={() => { setShift(option); clearMissing('shift'); }} />
+                    ))}
+                  </div>
+                )}
               </div>
 
             </section>
@@ -502,20 +483,23 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
               </div>
 
               <div>
-                <FieldLabel label="Condição de pagamento" />
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
-                  {PARCELA_OPTIONS.map(option => <ChoiceButton key={option} active={parcelaLeve === option} label={option} onClick={() => setParcelaLeve(option)} />)}
+                <FieldLabel label="Condição de pagamento" invalid={missing.has('parcela')} />
+                <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 rounded-xl ${missing.has('parcela') ? 'ring-2 ring-red-300 ring-offset-2' : ''}`}>
+                  {PARCELA_OPTIONS.map(option => <ChoiceButton key={option} active={parcelaLeve === option} label={option} onClick={() => { setParcelaLeve(option); clearMissing('parcela'); }} />)}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-gray-200 p-4 space-y-3">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-900"><Building2 className="w-4 h-4 text-[#0052cc]" /> Bolsa / Convênio</div>
+              <div className={`rounded-2xl border p-4 space-y-3 ${missing.has('bolsa') ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-200'}`}>
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                  <Building2 className="w-4 h-4 text-[#0052cc]" /> Bolsa / Convênio
+                  {missing.has('bolsa') && <span className="text-[11px] font-semibold text-red-600">· escolha uma opção</span>}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <ChoiceButton active={!hasBolsaConvenio} label="Não" onClick={() => { setHasBolsaConvenio(false); setEmpresaConvenio(''); }} />
-                  <ChoiceButton active={hasBolsaConvenio} label="Sim" onClick={() => setHasBolsaConvenio(true)} />
+                  <ChoiceButton active={hasBolsaConvenio === false} label="Não" onClick={() => { setHasBolsaConvenio(false); setEmpresaConvenio(''); clearMissing('bolsa'); clearMissing('empresa'); }} />
+                  <ChoiceButton active={hasBolsaConvenio === true} label="Sim" onClick={() => { setHasBolsaConvenio(true); clearMissing('bolsa'); }} />
                 </div>
                 {hasBolsaConvenio && (
-                  <input value={empresaConvenio} onChange={e => setEmpresaConvenio(e.target.value)} placeholder="Nome da empresa" className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc]" name="src_components_sales_newsalemodal_tsx_input_5" />
+                  <input value={empresaConvenio} onChange={e => { setEmpresaConvenio(e.target.value); clearMissing('empresa'); }} placeholder="Nome da empresa" className={`w-full h-11 px-3 rounded-xl border bg-white text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-[#0052cc] ${missing.has('empresa') ? 'border-red-300' : 'border-gray-200'}`} name="src_components_sales_newsalemodal_tsx_input_5" />
                 )}
               </div>
 
@@ -544,12 +528,12 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
                   <Summary label="Aluno" value={candidateName} />
                   <Summary label="Data" value={formatIsoToBrDate(saleDateIso)} />
                   <Summary label="Produto" value={mainProduct} />
-                  <Summary label="Forma de ingresso" value={FDI_LABEL[fdiChannel]} />
+                  <Summary label="Forma de ingresso" value={fdiChannel ? FDI_LABEL[fdiChannel] : ''} />
                   <Summary label="Modalidade" value={modality} />
                   <Summary label="Turno" value={shift} />
                   {effectiveCycle && <Summary label="Ciclo" value={effectiveCycle} />}
                   <Summary label="Condição" value={parcelaLeve} />
-                  <Summary label="Bolsa / Convênio" value={hasBolsaConvenio ? empresaConvenio : 'Não'} />
+                  <Summary label="Bolsa / Convênio" value={hasBolsaConvenio === null ? '' : hasBolsaConvenio ? empresaConvenio : 'Não'} />
                 </div>
               </div>
             </section>
@@ -577,8 +561,16 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   );
 };
 
-const FieldLabel: React.FC<{ icon?: React.ReactNode; label: string }> = ({ icon, label }) => (
-  <label className="flex items-center gap-2 text-xs font-bold text-gray-800">{icon && <span className="text-[#0052cc]">{icon}</span>}{label}</label>
+const FieldLabel: React.FC<{ icon?: React.ReactNode; label: string; invalid?: boolean }> = ({ icon, label, invalid }) => (
+  <label className={`flex items-center gap-2 text-xs font-bold ${invalid ? 'text-red-600' : 'text-gray-800'}`}>
+    {icon && <span className={invalid ? 'text-red-500' : 'text-[#0052cc]'}>{icon}</span>}
+    {label}
+    {invalid && <span className="font-semibold text-[11px]">· escolha uma opção</span>}
+  </label>
+);
+
+const PickFirst: React.FC<{ text: string }> = ({ text }) => (
+  <p className="mt-2 text-[11px] text-gray-400 italic">{text}</p>
 );
 
 const ProductCard: React.FC<{ active: boolean; icon: React.ReactNode; label: string; onClick: () => void }> = ({ active, icon, label, onClick }) => (

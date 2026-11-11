@@ -13,7 +13,6 @@ import { SalesSpreadsheetTable } from './SalesSpreadsheetTable';
 import { DailyClosingView } from './DailyClosingView';
 import { HomeDashboard } from './HomeDashboard';
 import { NewSaleModal } from '../sales/NewSaleModal';
-import { MainProductType, Sale } from '../../types';
 import { getTodayBrDate, getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
 import Planner from '../../planner/components/Planner';
 import { PriceComparatorPage } from '../prices/PriceComparatorPage';
@@ -37,7 +36,6 @@ export const R9Dashboard: React.FC = () => {
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
   const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags'>('calendar');
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
-  const [initialProductForModal, setInitialProductForModal] = useState<MainProductType>('Graduação');
 
   // Keep viewRole aligned if user changes
   useEffect(() => {
@@ -143,7 +141,7 @@ export const R9Dashboard: React.FC = () => {
                       {userName}
                     </p>
                     <p className="text-[11px] text-slate-400 truncate">
-                      {userRoleText} • R9 Corp
+                      {userRoleText} • R9 Hub
                     </p>
                   </div>
                 </div>
@@ -230,22 +228,6 @@ export const R9Dashboard: React.FC = () => {
                     <span>Vendas</span>
                   </div>
                   <span className="text-[11px] font-bold text-slate-400">{sales.length}</span>
-                </button>
-
-                <button
-                  id="nav-boletos-do-dia"
-                  onClick={() => setActiveTab('boletos_do_dia')}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'boletos_do_dia'
-                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Receipt className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Boletos do Dia</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-gray-500">{boletosDoDiaCount}</span>
                 </button>
 
                 <button
@@ -586,24 +568,15 @@ export const R9Dashboard: React.FC = () => {
             )}
 
             {/* View switcher based on sidebar selection */}
-            {(activeTab === 'canvas' || activeTab === 'planilha') && (
+            {(activeTab === 'canvas' || activeTab === 'planilha' || activeTab === 'boletos_do_dia') && (
               <div className="space-y-4 animate-in fade-in duration-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                  <div>
-                    <h2 className="text-base font-bold text-gray-900 font-['Space_Grotesk'] flex items-center gap-2">
-                      <span>Vendas</span>
-                      <span className="text-[10px] font-semibold text-[#0052cc] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                        50 por página
-                      </span>
-                    </h2>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Consulte, filtre e edite suas vendas com paginação e exportação.
-                    </p>
-                  </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 font-['Space_Grotesk']">Vendas</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Consulte, filtre, corrija e exporte as vendas da equipe.</p>
                 </div>
-
-                {/* Spreadsheet Component */}
-                <SalesSpreadsheetTable 
+                <SalesSpreadsheetTable
+                  key={activeTab === 'boletos_do_dia' ? 'today' : 'all'}
+                  initialPeriod={activeTab === 'boletos_do_dia' ? 'today' : 'all'}
                   onOpenNewSaleModal={() => setShowNewSaleModal(true)}
                 />
               </div>
@@ -611,31 +584,6 @@ export const R9Dashboard: React.FC = () => {
 
             {(activeTab === 'resumo' || activeTab === 'resumo_semanal' || activeTab === 'analytics' || activeTab.startsWith('produto_')) && (
               <PerformancePage onOpenNewSaleModal={() => setShowNewSaleModal(true)} />
-            )}
-
-            {activeTab === 'boletos_do_dia' && (
-              <div className="space-y-4 animate-in fade-in duration-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                  <div>
-                    <h2 className="text-base font-bold text-gray-900 font-['Space_Grotesk'] flex items-center gap-2">
-                      <Receipt className="w-4 h-4 text-blue-600" />
-                      <span>Boletos do Dia</span>
-                      <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                        Hoje
-                      </span>
-                    </h2>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Listagem detalhada das vendas e boletos registrados na data de hoje
-                    </p>
-                  </div>
-                </div>
-
-                {/* Spreadsheet Component filtered specifically for today */}
-                <SalesSpreadsheetTable 
-                  onlyToday={true}
-                  onOpenNewSaleModal={() => setShowNewSaleModal(true)}
-                />
-              </div>
             )}
 
             {activeTab === 'fechamento_diario' && (
@@ -752,7 +700,6 @@ export const R9Dashboard: React.FC = () => {
       <NewSaleModal
         isOpen={showNewSaleModal}
         onClose={() => setShowNewSaleModal(false)}
-        initialProduct={initialProductForModal}
       />
 
     </div>

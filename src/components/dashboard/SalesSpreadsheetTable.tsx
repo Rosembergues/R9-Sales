@@ -1,1187 +1,538 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Search, ChevronDown, ArrowUp, ArrowDown, Plus, X, FileSpreadsheet, Edit3, RotateCcw, Shield } from 'lucide-react';
-import { Sale, MainProductType } from '../../types';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Edit3, FileSpreadsheet, Plus, RotateCcw, Search, Shield, X,
+} from 'lucide-react';
+import { Sale } from '../../types';
 import { useSales } from '../../context/SalesContext';
 import { useAuth } from '../../context/AuthContext';
 import { EditSaleModal } from '../sales/EditSaleModal';
-import { getSaleDateBr, getTodayBrDate, getSaleFdiDisplay, getRealSaleDate, parseDateString } from '../../lib/salesMapper';
-import { supabase, LocalSyncEngine } from '../../lib/supabase';
+import { getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
+import { ALL_FDI, ALL_MODALITIES, ALL_SHIFTS, MAIN_PRODUCTS, REQUIRED_FIELD_LABEL, modalitiesFor } from '../../lib/saleOptions';
+import { SalesQueryFilters, SalesSortField } from '../../lib/salesQuery';
+
+export type SalesPeriod = 'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom';
 
 interface SalesSpreadsheetTableProps {
   onOpenNewSaleModal?: () => void;
-  onlyToday?: boolean;
+  initialPeriod?: SalesPeriod;
 }
 
-type SortField = 
-  | 'collaborator'
-  | 'opportunity'
-  | 'candidate'
-  | 'date'
-  | 'fdi'
-  | 'modality'
-  | 'shift'
-  | 'parcela_leve'
-  | 'bolsa_convenio'
-  | 'empresa'
-  | 'notes';
+const PAGE_SIZE = 50;
 
-type SortDirection = 'asc' | 'desc' | null;
+const PERIODS: Array<{ id: SalesPeriod; label: string }> = [
+  { id: 'all', label: 'Todas' },
+  { id: 'today', label: 'Hoje' },
+  { id: 'yesterday', label: 'Ontem' },
+  { id: 'week', label: 'Esta semana' },
+  { id: 'month', label: 'Este mês' },
+  { id: 'custom', label: 'Escolher datas' },
+];
 
-interface ColumnFilterState {
-  [key: string]: string[]; // array of selected distinct values
+const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Intervalo de datas (aaaa-mm-dd) do período escolhido. Semana = segunda a hoje. */
+function periodRange(period: SalesPeriod, customFrom: string, customTo: string): { dateFrom?: string; dateTo?: string } {
+  const now = new Date();
+  const today = isoOf(now);
+  if (period === 'today') return { dateFrom: today, dateTo: today };
+  if (period === 'yesterday') {
+    const y = isoOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+    return { dateFrom: y, dateTo: y };
+  }
+  if (period === 'week') {
+    const offset = (now.getDay() + 6) % 7;
+    return { dateFrom: isoOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset)), dateTo: today };
+  }
+  if (period === 'month') return { dateFrom: isoOf(new Date(now.getFullYear(), now.getMonth(), 1)), dateTo: today };
+  if (period === 'custom') return { dateFrom: customFrom || undefined, dateTo: customTo || undefined };
+  return {};
 }
 
-export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({
-  onOpenNewSaleModal,
-  onlyToday = false
-}) => {
-  const { fetchSalesPage } = useSales();
-  const { currentUser } = useAuth();
+const FDI_COLORS: Record<string, string> = {
+  Vestibular: 'bg-blue-50 text-blue-700 border-blue-200/60',
+  ENEM: 'bg-amber-50 text-amber-700 border-amber-200/60',
+  'Transferência Externa': 'bg-purple-50 text-purple-700 border-purple-200/60',
+  Simplificada: 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
+  MSV: 'bg-indigo-50 text-indigo-700 border-indigo-200/60',
+  Reabertura: 'bg-cyan-50 text-cyan-700 border-cyan-200/60',
+  Técnico: 'bg-orange-50 text-orange-700 border-orange-200/60',
+  'Pós Graduação': 'bg-rose-50 text-rose-700 border-rose-200/60',
+};
 
+const MissingCell: React.FC = () => (
+  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600">
+    <AlertTriangle className="w-3 h-3" /> Falta preencher
+  </span>
+);
+
+/** Valores de exibição de uma venda. `null` = campo obrigatório que a venda não tem. */
+function rowOf(sale: Sale) {
+  const miss = new Set(sale.missing_fields || []);
+  const c = sale.custom_data || {};
+  return {
+    sale,
+    collaborator: miss.has('seller') ? null : sale.seller_name || '—',
+    opportunity: miss.has('opportunity') ? null : c.opportunity_number || '—',
+    candidate: miss.has('candidate') ? null : c.candidate_name || sale.client_name || '—',
+    date: miss.has('date') ? null : getSaleDateBr(sale),
+    fdi: miss.has('fdi') ? null : getSaleFdiDisplay(sale),
+    product: miss.has('product') ? null : c.main_product || sale.product_name || '—',
+    modality: miss.has('modality') ? null : c.modality || '—',
+    shift: miss.has('shift') ? null : c.shift || '—',
+    parcelaLeve: c.parcela_leve || 'Sem parcelas',
+    hasBolsa: c.has_bolsa_convenio ? 'Sim' : 'Não',
+    empresa: c.empresa_convenio || '',
+    notes: sale.notes || '',
+    incomplete: miss.size > 0,
+  };
+}
+
+type Row = ReturnType<typeof rowOf>;
+
+const COLUMNS: Array<{ key: SalesSortField; label: string; className?: string; render: (r: Row) => React.ReactNode }> = [
+  { key: 'collaborator', label: 'Consultor', render: r => r.collaborator ?? <MissingCell />, className: 'font-medium text-gray-900' },
+  { key: 'opportunity', label: 'Oportunidade', render: r => r.opportunity ?? <MissingCell />, className: 'font-mono text-[11px] text-gray-700' },
+  { key: 'candidate', label: 'Aluno', render: r => r.candidate ?? <MissingCell />, className: 'font-medium text-gray-900 min-w-[180px]' },
+  { key: 'date', label: 'Data', render: r => r.date ?? <MissingCell />, className: 'text-[11px] text-gray-600' },
+  {
+    key: 'fdi', label: 'FDI', render: r => (r.fdi === null ? <MissingCell /> : (
+      <span className={`inline-flex px-2 py-0.5 rounded border text-[11px] font-medium ${FDI_COLORS[r.fdi] || 'bg-slate-50 text-slate-700 border-slate-200/60'}`}>{r.fdi}</span>
+    )),
+  },
+  { key: 'modality', label: 'Modalidade', render: r => r.modality ?? <MissingCell /> },
+  { key: 'shift', label: 'Turno', render: r => r.shift ?? <MissingCell /> },
+  { key: 'parcela_leve', label: 'Parcela Leve', render: r => r.parcelaLeve },
+  { key: 'bolsa_convenio', label: 'Bolsa Convênio', render: r => (r.hasBolsa === 'Sim' ? <span className="text-emerald-700 font-bold">Sim</span> : 'Não') },
+  { key: 'empresa', label: 'Empresa', render: r => r.empresa || '—', className: 'min-w-[120px]' },
+  { key: 'notes', label: 'Observação', render: r => r.notes, className: 'italic text-gray-600 max-w-[240px] truncate' },
+];
+
+const selectCls = (active: boolean) =>
+  `h-8 pl-2.5 pr-7 rounded-lg border text-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+    active ? 'bg-blue-50 border-blue-300 text-blue-800 font-semibold' : 'bg-white border-gray-200 text-gray-700'
+  }`;
+
+export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({ onOpenNewSaleModal, initialPeriod = 'all' }) => {
+  const { fetchSalesPage, fetchSalesSummary, fetchAllFilteredSales, sales: liveSales } = useSales();
+  const { currentUser, profiles } = useAuth();
+  const isAdmin = currentUser?.role === 'admin';
+
+  // Filtros
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<SortField>('date');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [selectedProductFilter, setSelectedProductFilter] = useState<'Todos' | MainProductType>('Todos');
-  const [currentPage, setCurrentPage] = useState(1);
-  const PAGE_SIZE = 50;
-  const [pageSales, setPageSales] = useState<Sale[]>([]);
-  const [totalRemoteSales, setTotalRemoteSales] = useState(0);
-  const [isPageLoading, setIsPageLoading] = useState(false);
-  const [pageError, setPageError] = useState<string | null>(null);
-  
-  // Excel-like Column Filters
-  const [columnFilters, setColumnFilters] = useState<ColumnFilterState>({});
-  const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);
-  const filterMenuRef = useRef<HTMLDivElement>(null);
+  const [period, setPeriod] = useState<SalesPeriod>(initialPeriod);
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [sellerId, setSellerId] = useState('');
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [product, setProduct] = useState('');
+  const [modality, setModality] = useState('');
+  const [fdi, setFdi] = useState('');
+  const [shift, setShift] = useState('');
+  const [incompleteOnly, setIncompleteOnly] = useState(false);
 
-  // Selected row for detail modal or quick view
+  // Ordenação e página
+  const [sortField, setSortField] = useState<SalesSortField>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Dados
+  const [pageSales, setPageSales] = useState<Sale[]>([]);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState({ withBolsa: 0, withParcela: 0, incomplete: 0 });
+  const [isLoading, setIsLoading] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
 
-  const isAdmin = currentUser?.role === 'admin';
   const canEditSale = (sale: Sale) => Boolean(currentUser && (isAdmin || sale.seller_id === currentUser.id));
 
-  // Close filter dropdown on outside click
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target as Node)) {
-        setOpenFilterColumn(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    const t = setTimeout(() => setSearchTerm(searchInput.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
-  // Helper to extract clean cell values for a sale
-  const getSaleRowData = (sale: Sale) => {
-    const collaborator = sale.seller_name || 'Consultor';
-    const opportunity = sale.custom_data?.opportunity_number || sale.id.replace('sale-', '955');
-    const candidate = sale.custom_data?.candidate_name || sale.client_name || '';
-    
-    // Format date DD/MM/YYYY - Strictly based on Sale Date (Data da Venda)
-    const dateStr = getSaleDateBr(sale);
-    const realDate = getRealSaleDate(sale) || (sale.created_at ? new Date(sale.created_at) : null);
-    const dateTimestamp = realDate && !isNaN(realDate.getTime()) ? realDate.getTime() : 0;
+  const filters = useMemo<SalesQueryFilters>(() => ({
+    searchTerm,
+    product: product || undefined,
+    modality: modality || undefined,
+    fdi: fdi || undefined,
+    shift: shift || undefined,
+    sellerId: onlyMine ? currentUser?.id : sellerId || undefined,
+    incompleteOnly,
+    ...periodRange(period, customFrom, customTo),
+  }), [searchTerm, product, modality, fdi, shift, onlyMine, currentUser?.id, sellerId, incompleteOnly, period, customFrom, customTo]);
 
-    // 5. FDI - texto exclusivo correspondente à opção selecionada na seção 3
-    const fdi = (typeof sale.fdi === 'string' && sale.fdi.trim() !== '' && !['true', 'false', 'sim', 'nao', 'não'].includes(sale.fdi.toLowerCase()))
-      ? sale.fdi.trim()
-      : getSaleFdiDisplay(sale);
+  const filtersKey = JSON.stringify(filters);
+  useEffect(() => setCurrentPage(1), [filtersKey, sortField, sortDirection]);
 
-    const modality = sale.custom_data?.modality || 'Presencial';
-    const shift = sale.custom_data?.shift || 'Noite';
-    const parcelaLeve = sale.custom_data?.parcela_leve || 'Sem parcelas';
-    const hasBolsa = sale.custom_data?.has_bolsa_convenio ? 'Sim' : 'Não';
-    const empresa = sale.custom_data?.empresa_convenio || '';
-    const notes = sale.notes || '';
-    const mainProduct = sale.custom_data?.main_product || 'Graduação';
-
-    return {
-      collaborator,
-      opportunity,
-      candidate,
-      date: dateStr,
-      dateTimestamp,
-      fdi,
-      modality,
-      shift,
-      parcelaLeve,
-      hasBolsa,
-      empresa,
-      notes,
-      mainProduct,
-      raw: sale
-    };
-  };
-
-  // Carrega e atualiza a página atual de vendas, filtrando itens excluídos
-  const loadCurrentPage = useCallback(() => {
-    let cancelled = false;
-    setIsPageLoading(true);
+  const requestId = useRef(0);
+  const load = useCallback(async () => {
+    const id = ++requestId.current;
+    setIsLoading(true);
     setPageError(null);
-    fetchSalesPage({
-      page: currentPage,
-      pageSize: PAGE_SIZE,
-      searchTerm,
-      productFilter: selectedProductFilter,
-      sortField,
-      sortDirection: sortDirection || 'desc',
-      onlyToday,
-    }).then(result => {
-      if (cancelled) return;
-      setPageSales(result.data);
-      setTotalRemoteSales(result.count);
-      setPageError(result.error || null);
-      setIsPageLoading(false);
-    }).catch(error => {
-      if (cancelled) return;
+    try {
+      const [page, sum] = await Promise.all([
+        fetchSalesPage({ ...filters, page: currentPage, pageSize: PAGE_SIZE, sortField, sortDirection }),
+        fetchSalesSummary(filters),
+      ]);
+      if (id !== requestId.current) return;
+      setPageSales(page.data);
+      setTotal(page.count);
+      setPageError(page.error || null);
+      setSummary(sum);
+    } catch (err) {
+      if (id !== requestId.current) return;
       setPageSales([]);
-      setTotalRemoteSales(0);
-      setPageError(error instanceof Error ? error.message : 'Não foi possível carregar as vendas.');
-      setIsPageLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [fetchSalesPage, currentPage, searchTerm, selectedProductFilter, sortField, sortDirection, onlyToday]);
-
-  useEffect(() => {
-    const cleanup = loadCurrentPage();
-    return cleanup;
-  }, [loadCurrentPage]);
-
-  // Listener Realtime dedicado para remoção imediata de vendas excluídas
-  useEffect(() => {
-    const channel = supabase
-      .channel('sales_spreadsheet_table_sync')
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'sales' },
-        (payload: any) => {
-          const deletedId = String(payload.old?.id || '');
-          if (deletedId) {
-            setPageSales(prev => prev.filter(s => s.id !== deletedId));
-            setTotalRemoteSales(prev => Math.max(0, prev - 1));
-            setSelectedSale(curr => (curr && curr.id === deletedId ? null : curr));
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  // Distinct values for each column (for the Excel filter dropdowns)
-  const distinctColumnValues = useMemo(() => {
-    const values: { [key: string]: Set<string> } = {
-      collaborator: new Set(),
-      opportunity: new Set(),
-      candidate: new Set(),
-      date: new Set(),
-      fdi: new Set(),
-      modality: new Set(),
-      shift: new Set(),
-      parcela_leve: new Set(),
-      bolsa_convenio: new Set(),
-      empresa: new Set(),
-      notes: new Set()
-    };
-
-    pageSales.forEach(sale => {
-      const data = getSaleRowData(sale);
-      values.collaborator.add(data.collaborator);
-      values.opportunity.add(data.opportunity);
-      values.candidate.add(data.candidate);
-      values.date.add(data.date);
-      values.fdi.add(data.fdi);
-      values.modality.add(data.modality);
-      values.shift.add(data.shift);
-      values.parcela_leve.add(data.parcelaLeve);
-      values.bolsa_convenio.add(data.hasBolsa);
-      if (data.empresa) values.empresa.add(data.empresa);
-      if (data.notes) values.notes.add(data.notes);
-    });
-
-    return {
-      collaborator: Array.from(values.collaborator).sort(),
-      opportunity: Array.from(values.opportunity).sort(),
-      candidate: Array.from(values.candidate).sort(),
-      date: Array.from(values.date).sort((a, b) => {
-        const timeA = parseDateString(a)?.getTime() || 0;
-        const timeB = parseDateString(b)?.getTime() || 0;
-        return timeB - timeA;
-      }),
-      fdi: Array.from(values.fdi).sort(),
-      modality: Array.from(values.modality).sort(),
-      shift: Array.from(values.shift).sort(),
-      parcela_leve: Array.from(values.parcela_leve).sort(),
-      bolsa_convenio: Array.from(values.bolsa_convenio).sort(),
-      empresa: Array.from(values.empresa).sort(),
-      notes: Array.from(values.notes).sort()
-    };
-  }, [pageSales]);
-
-  // Handle column filtering toggle
-  const toggleColumnFilterValue = (columnKey: string, value: string) => {
-    setColumnFilters(prev => {
-      const current = prev[columnKey] || [];
-      const updated = current.includes(value)
-        ? current.filter(v => v !== value)
-        : [...current, value];
-      
-      if (updated.length === 0) {
-        const next = { ...prev };
-        delete next[columnKey];
-        return next;
-      }
-      return { ...prev, [columnKey]: updated };
-    });
-  };
-
-  const clearColumnFilter = (columnKey: string) => {
-    setColumnFilters(prev => {
-      const next = { ...prev };
-      delete next[columnKey];
-      return next;
-    });
-  };
-
-  const clearAllFilters = () => {
-    setColumnFilters({});
-    setSearchTerm('');
-    setSelectedProductFilter('Todos');
-  };
-
-  // Handle column sorting
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      if (sortDirection === 'asc') setSortDirection('desc');
-      else if (sortDirection === 'desc') {
-        setSortField('date');
-        setSortDirection('desc');
-      } else setSortDirection('asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
+      setTotal(0);
+      setPageError(err instanceof Error ? err.message : 'Não foi possível carregar as vendas.');
+    } finally {
+      if (id === requestId.current) setIsLoading(false);
     }
+  }, [fetchSalesPage, fetchSalesSummary, filters, currentPage, sortField, sortDirection]);
+
+  useEffect(() => { load(); }, [load]);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  // Venda lançada, editada ou excluída por qualquer pessoa: a lista do contexto muda
+  // (tempo real) e a página é recarregada.
+  const firstLive = useRef(true);
+  useEffect(() => {
+    if (firstLive.current) { firstLive.current = false; return; }
+    const t = setTimeout(() => loadRef.current(), 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveSales]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
+
+  const rows = useMemo(() => pageSales.map(rowOf), [pageSales]);
+
+  const consultants = useMemo(
+    () => [...profiles].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    [profiles],
+  );
+  const modalityOptions = product ? modalitiesFor(product as never).map(m => m.name) : ALL_MODALITIES;
+
+  const hasFilters = Boolean(searchInput || period !== 'all' || sellerId || onlyMine || product || modality || fdi || shift || incompleteOnly);
+  const clearAll = () => {
+    setSearchInput(''); setSearchTerm(''); setPeriod('all'); setCustomFrom(''); setCustomTo('');
+    setSellerId(''); setOnlyMine(false); setProduct(''); setModality(''); setFdi(''); setShift(''); setIncompleteOnly(false);
   };
 
-  // Filtered & Sorted Sales rows
-  const processedRows = useMemo(() => {
-    const todayFormatted = getTodayBrDate();
+  const handleSort = (field: SalesSortField) => {
+    if (sortField !== field) { setSortField(field); setSortDirection('asc'); return; }
+    if (sortDirection === 'asc') { setSortDirection('desc'); return; }
+    setSortField('date'); setSortDirection('desc');
+  };
 
-    return pageSales
-      .map(sale => getSaleRowData(sale))
-      .filter(row => {
-        // Only today filter (Strictly comparing the Sale Date)
-        if (onlyToday) {
-          if (row.date !== todayFormatted) return false;
-        }
-
-        // Product category filter
-        if (selectedProductFilter !== 'Todos' && row.mainProduct !== selectedProductFilter) {
-          return false;
-        }
-
-        // Global search query
-        if (searchTerm.trim()) {
-          const q = searchTerm.toLowerCase();
-          const match = 
-            row.collaborator.toLowerCase().includes(q) ||
-            row.opportunity.toLowerCase().includes(q) ||
-            row.candidate.toLowerCase().includes(q) ||
-            row.date.toLowerCase().includes(q) ||
-            row.fdi.toLowerCase().includes(q) ||
-            row.modality.toLowerCase().includes(q) ||
-            row.shift.toLowerCase().includes(q) ||
-            row.parcelaLeve.toLowerCase().includes(q) ||
-            row.empresa.toLowerCase().includes(q) ||
-            row.notes.toLowerCase().includes(q);
-          if (!match) return false;
-        }
-
-        // Column individual filters
-        for (const [colKey, selectedVals] of Object.entries(columnFilters) as [string, string[]][]) {
-          if (!selectedVals || selectedVals.length === 0) continue;
-          let rowVal = '';
-          switch (colKey) {
-            case 'collaborator': rowVal = row.collaborator; break;
-            case 'opportunity': rowVal = row.opportunity; break;
-            case 'candidate': rowVal = row.candidate; break;
-            case 'date': rowVal = row.date; break;
-            case 'fdi': rowVal = row.fdi; break;
-            case 'modality': rowVal = row.modality; break;
-            case 'shift': rowVal = row.shift; break;
-            case 'parcela_leve': rowVal = row.parcelaLeve; break;
-            case 'bolsa_convenio': rowVal = row.hasBolsa; break;
-            case 'empresa': rowVal = row.empresa; break;
-            case 'notes': rowVal = row.notes; break;
-          }
-          if (!selectedVals.includes(rowVal)) {
-            return false;
-          }
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        if (!sortDirection) return 0;
-
-        if (sortField === 'date') {
-          // Precise chronological comparison based on real sale date timestamp
-          const diff = a.dateTimestamp - b.dateTimestamp;
-          if (diff !== 0) {
-            return sortDirection === 'asc' ? diff : -diff;
-          }
-          // Secondary fallback to created_at
-          const createA = new Date(a.raw.created_at || 0).getTime();
-          const createB = new Date(b.raw.created_at || 0).getTime();
-          return sortDirection === 'asc' ? createA - createB : createB - createA;
-        }
-
-        let valA = '';
-        let valB = '';
-
-        switch (sortField) {
-          case 'collaborator': valA = a.collaborator; valB = b.collaborator; break;
-          case 'opportunity': valA = a.opportunity; valB = b.opportunity; break;
-          case 'candidate': valA = a.candidate; valB = b.candidate; break;
-          case 'fdi': valA = a.fdi; valB = b.fdi; break;
-          case 'modality': valA = a.modality; valB = b.modality; break;
-          case 'shift': valA = a.shift; valB = b.shift; break;
-          case 'parcela_leve': valA = a.parcelaLeve; valB = b.parcelaLeve; break;
-          case 'bolsa_convenio': valA = a.hasBolsa; valB = b.hasBolsa; break;
-          case 'empresa': valA = a.empresa; valB = b.empresa; break;
-          case 'notes': valA = a.notes; valB = b.notes; break;
-        }
-
-        const comp = valA.localeCompare(valB, 'pt-BR', { numeric: true });
-        return sortDirection === 'asc' ? comp : -comp;
-      });
-  }, [pageSales, searchTerm, sortField, sortDirection, selectedProductFilter, columnFilters]);
-
-  // Paginação é feita no Supabase; aqui apenas exibimos a página retornada.
-  const totalPages = Math.max(1, Math.ceil(totalRemoteSales / PAGE_SIZE));
-  const paginatedRows = processedRows;
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, selectedProductFilter, columnFilters, sortField, sortDirection, onlyToday]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
-
-  // Export to CSV / Excel spreadsheet format
-  const exportToCSV = () => {
-    const headers = [
-      'Nome do Colaborador',
-      'Número da Oportunidade',
-      'Nome do Candidato',
-      'Data',
-      'FDI',
-      'Modalidade',
-      'Turno',
-      'Parcela Leve',
-      'Bolsa Convênio Aplicada',
-      'Qual Empresa?',
-      'Observação'
-    ];
-
-    const rows = processedRows.map(r => [
-      `"${r.collaborator}"`,
-      `"${r.opportunity}"`,
-      `"${r.candidate.replace(/"/g, '""')}"`,
-      `"${r.date}"`,
-      `"${r.fdi}"`,
-      `"${r.modality}"`,
-      `"${r.shift}"`,
-      `"${r.parcelaLeve}"`,
-      `"${r.hasBolsa}"`,
-      `"${r.empresa}"`,
-      `"${r.notes.replace(/"/g, '""')}"`
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + 
-      [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
-
-    const encodedUri = encodeURI(csvContent);
+  const exportToCSV = async () => {
+    setIsExporting(true);
+    const { data, error } = await fetchAllFilteredSales(filters, sortField, sortDirection);
+    setIsExporting(false);
+    if (error) { setPageError(error); return; }
+    const q = (v: string | null) => `"${(v ?? 'Falta preencher').replace(/"/g, '""')}"`;
+    const header = ['Consultor', 'Oportunidade', 'Aluno', 'Data', 'Produto', 'FDI', 'Modalidade', 'Turno', 'Parcela Leve', 'Bolsa Convênio', 'Empresa', 'Observação'];
+    const lines = data.map(rowOf).map(r => [
+      q(r.collaborator), q(r.opportunity), q(r.candidate), q(r.date), q(r.product), q(r.fdi), q(r.modality), q(r.shift),
+      q(r.parcelaLeve), q(r.hasBolsa), q(r.empresa), q(r.notes),
+    ].join(';'));
+    const blob = new Blob(['﻿' + [header.join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `R9_Planilha_Vendas_${new Date().toISOString().slice(0,10)}.csv`);
+    link.href = url;
+    link.download = `R9_Vendas_${isoOf(new Date())}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  // Helper for filter popover dropdown
-  const renderFilterMenu = (columnKey: string, columnLabel: string, distinctList: string[]) => {
-    if (openFilterColumn !== columnKey) return null;
-    const selectedList = columnFilters[columnKey] || [];
-
-    return (
-      <div 
-        ref={filterMenuRef}
-        className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50 p-2 text-xs text-gray-700 animate-in fade-in duration-150"
-      >
-        <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-2">
-          <span className="font-bold text-gray-800 text-[11px] truncate max-w-[140px]">
-            Filtrar {columnLabel}
-          </span>
-          {selectedList.length > 0 && (
-            <button
-              onClick={() => clearColumnFilter(columnKey)}
-              className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
-            >
-              Limpar
-            </button>
-          )}
-        </div>
-
-        {/* Sort quick actions */}
-        <div className="flex items-center gap-1 mb-2">
-          <button
-            onClick={() => {
-              setSortField(columnKey as SortField);
-              setSortDirection('asc');
-              setOpenFilterColumn(null);
-            }}
-            className="flex-1 px-2 py-1 bg-gray-50 hover:bg-gray-100 rounded text-[11px] font-medium text-gray-600 flex items-center justify-center gap-1"
-          >
-            <ArrowUp className="w-3 h-3 text-gray-500" /> A-Z
-          </button>
-          <button
-            onClick={() => {
-              setSortField(columnKey as SortField);
-              setSortDirection('desc');
-              setOpenFilterColumn(null);
-            }}
-            className="flex-1 px-2 py-1 bg-gray-50 hover:bg-gray-100 rounded text-[11px] font-medium text-gray-600 flex items-center justify-center gap-1"
-          >
-            <ArrowDown className="w-3 h-3 text-gray-500" /> Z-A
-          </button>
-        </div>
-
-        {/* Checkbox list */}
-        <div className="max-h-40 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-          {distinctList.length === 0 ? (
-            <p className="text-gray-400 italic text-[11px] py-1">Nenhuma opção disponível</p>
-          ) : (
-            distinctList.map(val => {
-              const isChecked = selectedList.includes(val);
-              return (
-                <label 
-                  key={val}
-                  className="flex items-center gap-2 px-1.5 py-1 hover:bg-blue-50 rounded cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() => toggleColumnFilterValue(columnKey, val)}
-                    className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" name="src_components_dashboard_salesspreadsheettable_tsx_input_1"
-                  />
-                  <span className="text-[11px] text-gray-700 truncate">{val}</span>
-                </label>
-              );
-            })
-          )}
-        </div>
-
-        <div className="pt-2 mt-2 border-t border-gray-100 flex justify-end">
-          <button
-            onClick={() => setOpenFilterColumn(null)}
-            className="px-2.5 py-1 bg-[#0052cc] text-white text-[11px] font-semibold rounded hover:bg-[#00478f]"
-          >
-            Aplicar
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const hasActiveFilters = Object.keys(columnFilters).length > 0 || searchTerm !== '' || selectedProductFilter !== 'Todos';
-
-  const pageRangeStart = totalRemoteSales === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
-  const pageRangeEnd = Math.min(currentPage * PAGE_SIZE, totalRemoteSales);
+  const rangeStart = total === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, total);
 
   return (
     <div className="w-full space-y-3 font-sans">
-      
-      {/* Top Controls Toolbar: Search, Filters & Export */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1">
-        
-        {/* Left: Global Search & Product Chips */}
+      {/* Linha 1: busca, período e ações */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          
-          {/* Search Box */}
-          <div className="relative min-w-[220px] max-w-xs">
+          <div className="relative min-w-[220px]">
             <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar em toda a planilha..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-7 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-800 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all" name="src_components_dashboard_salesspreadsheettable_tsx_input_2"
+              placeholder="Buscar aluno, oportunidade, consultor..."
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              className="w-full h-8 pl-8 pr-7 bg-white border border-gray-200 rounded-lg text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              name="sales_search"
             />
-            {searchTerm && (
-              <button 
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
+            {searchInput && (
+              <button onClick={() => setSearchInput('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer" title="Limpar busca">
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
-
-          {/* Product Filter Pills */}
-          <div className="inline-flex bg-gray-100/80 p-0.5 rounded-lg border border-gray-200 text-xs font-medium">
-            {(['Todos', 'Graduação', 'Pós Graduação', 'Curso Técnico'] as const).map((prod) => (
+          <div className="inline-flex flex-wrap bg-gray-100/80 p-0.5 rounded-lg border border-gray-200">
+            {PERIODS.map(p => (
               <button
-                key={prod}
-                onClick={() => setSelectedProductFilter(prod)}
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                  selectedProductFilter === prod
-                    ? 'bg-white text-gray-900 shadow-2xs font-bold'
-                    : 'text-gray-500 hover:text-gray-800'
+                  period === p.id ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
-                {prod}
+                {p.label}
               </button>
             ))}
           </div>
-
-          {/* Reset Filters */}
-          {hasActiveFilters && (
-            <button
-              onClick={clearAllFilters}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-              title="Limpar todos os filtros"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>Limpar Filtros</span>
-            </button>
+          {period === 'custom' && (
+            <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+              <input type="date" value={customFrom} max={customTo || undefined} onChange={e => setCustomFrom(e.target.value)} className="h-8 px-2 border border-gray-200 rounded-lg text-xs" name="sales_from" />
+              <span>até</span>
+              <input type="date" value={customTo} min={customFrom || undefined} onChange={e => setCustomTo(e.target.value)} className="h-8 px-2 border border-gray-200 rounded-lg text-xs" name="sales_to" />
+            </div>
           )}
-
         </div>
 
-        {/* Right: Record count, Export & Add sale */}
         <div className="flex items-center gap-2">
-          
-          <div className="text-[11px] text-gray-500 font-medium px-2 py-1 bg-gray-50 rounded-md border border-gray-200">
-            <span className="font-bold text-gray-800">{processedRows.length}</span> registros
+          <div className="text-[11px] text-gray-500 font-medium px-2 py-1 bg-gray-50 rounded-md border border-gray-200 whitespace-nowrap">
+            <span className="font-bold text-gray-800">{total}</span> {total === 1 ? 'venda' : 'vendas'}
           </div>
-
-          {/* Export to CSV/Excel */}
           <button
-            id="export-excel-btn"
             onClick={exportToCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-            title="Exportar dados para planilha Excel (.csv)"
+            disabled={isExporting || total === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
+            title="Exporta todas as vendas do filtro atual"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Exportar Excel</span>
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>{isExporting ? 'Exportando...' : 'Exportar Excel'}</span>
           </button>
-
-          {/* Lançar Venda */}
           {onOpenNewSaleModal && (
             <button
-              id="new-sale-spreadsheet-btn"
               onClick={onOpenNewSaleModal}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0052cc] hover:bg-[#00478f] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0052cc] hover:bg-[#00478f] text-white rounded-lg text-xs font-bold cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Lançar Venda</span>
             </button>
           )}
-
         </div>
-
       </div>
 
-      {/* SPREADSHEET GRID CONTAINER (Exact Excel Design) */}
-      <div className="w-full bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden">
-        
-        <div className="overflow-x-auto max-h-[700px] overflow-y-auto">
-          
-          <table className="w-full border-collapse text-left text-xs font-sans whitespace-nowrap">
-            
-            {/* Excel-style Column Headers */}
-            <thead className="sticky top-0 z-20 bg-[#F4F5F7] border-b-2 border-gray-300 select-none shadow-xs">
-              <tr className="divide-x divide-gray-300">
-                
-                {/* 1. Nome do Colaborador */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('collaborator')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Nome do Colaborador
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'collaborator' ? null : 'collaborator');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['collaborator'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Colaborador"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('collaborator', 'Colaborador', distinctColumnValues.collaborator)}
-                </th>
-
-                {/* 2. Número da Oportunidade */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('opportunity')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Número da Oportunidade
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'opportunity' ? null : 'opportunity');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['opportunity'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Oportunidade"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('opportunity', 'Oportunidade', distinctColumnValues.opportunity)}
-                </th>
-
-                {/* 3. Nome do Candidato */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors min-w-[200px]">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('candidate')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Nome do Candidato
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'candidate' ? null : 'candidate');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['candidate'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Candidato"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('candidate', 'Candidato', distinctColumnValues.candidate)}
-                </th>
-
-                {/* 4. Data */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('date')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Data
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'date' ? null : 'date');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['date'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Data"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('date', 'Data', distinctColumnValues.date)}
-                </th>
-
-                {/* 5. FDI */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('fdi')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      FDI
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'fdi' ? null : 'fdi');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['fdi'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar FDI"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('fdi', 'FDI', distinctColumnValues.fdi)}
-                </th>
-
-                {/* 6. Modalidade */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('modality')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Modalidade
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'modality' ? null : 'modality');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['modality'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Modalidade"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('modality', 'Modalidade', distinctColumnValues.modality)}
-                </th>
-
-                {/* 7. Turno */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('shift')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Turno
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'shift' ? null : 'shift');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['shift'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Turno"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('shift', 'Turno', distinctColumnValues.shift)}
-                </th>
-
-                {/* 8. Parcela Leve */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('parcela_leve')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Parcela Leve
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'parcela_leve' ? null : 'parcela_leve');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['parcela_leve'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Parcela Leve"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('parcela_leve', 'Parcela Leve', distinctColumnValues.parcela_leve)}
-                </th>
-
-                {/* 9. Bolsa Convênio Aplicada */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('bolsa_convenio')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Bolsa Convênio Aplicada
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'bolsa_convenio' ? null : 'bolsa_convenio');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['bolsa_convenio'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Bolsa Convênio"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('bolsa_convenio', 'Bolsa Convênio', distinctColumnValues.bolsa_convenio)}
-                </th>
-
-                {/* 10. Qual Empresa? */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors min-w-[140px]">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('empresa')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Qual Empresa?
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'empresa' ? null : 'empresa');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['empresa'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Empresa"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('empresa', 'Qual Empresa?', distinctColumnValues.empresa)}
-                </th>
-
-                {/* 11. Observação */}
-                <th className="relative px-3 py-2.5 font-semibold text-gray-800 text-xs tracking-tight bg-[#F4F5F7] hover:bg-gray-200/80 transition-colors min-w-[130px]">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span 
-                      onClick={() => handleSort('notes')}
-                      className="cursor-pointer hover:text-blue-700"
-                    >
-                      Observação
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFilterColumn(openFilterColumn === 'notes' ? null : 'notes');
-                      }}
-                      className={`p-0.5 rounded hover:bg-gray-300 transition-colors ${columnFilters['notes'] ? 'text-blue-600 font-bold' : 'text-gray-500'}`}
-                      title="Filtrar Observações"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {renderFilterMenu('notes', 'Observação', distinctColumnValues.notes)}
-                </th>
-
-                {/* 12. Ações */}
-                <th className="px-3 py-2.5 font-semibold text-gray-800 text-xs text-center bg-[#F4F5F7] w-24">
-                  Ações
-                </th>
-
-
-
-              </tr>
-            </thead>
-
-            {/* Excel-style Rows with alternating stripe coloring (#FFFFFF and #EDF5FD / #F0F7FF) */}
-            <tbody className="divide-y divide-gray-200">
-              {isPageLoading ? (
-                <tr><td colSpan={12} className="py-12 text-center text-xs text-gray-500">Carregando vendas...</td></tr>
-              ) : pageError ? (
-                <tr><td colSpan={12} className="py-12 text-center text-xs text-red-500">{pageError}</td></tr>
-              ) : paginatedRows.length === 0 ? (
-                <tr>
-                  <td colSpan={12} className="py-14 text-center text-gray-400 bg-white">
-                    <div className="flex flex-col items-center justify-center space-y-2.5 max-w-sm mx-auto">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-500 flex items-center justify-center">
-                        <FileSpreadsheet className="w-6 h-6" />
-                      </div>
-                      {totalRemoteSales === 0 ? (
-                        <>
-                          <p className="text-sm font-bold text-gray-800">Planilha de Vendas Zerada</p>
-                          <p className="text-xs text-gray-500">
-                            Nenhuma venda cadastrada no sistema. Utilize o botão abaixo para lançar novos registros.
-                          </p>
-                          {onOpenNewSaleModal && (
-                            <button
-                              onClick={onOpenNewSaleModal}
-                              className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-                            >
-                              <Plus className="w-4 h-4" />
-                              <span>Lançar Nova Venda</span>
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-xs font-semibold text-gray-700">Nenhum lançamento encontrado na planilha com os filtros atuais.</p>
-                          <button
-                            onClick={clearAllFilters}
-                            className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer"
-                          >
-                            Limpar todos os filtros
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                paginatedRows.map((row, idx) => {
-                  // Alternating zebra color: even = #FFFFFF, odd = #EDF5FD (soft excel ice blue)
-                  const isEven = idx % 2 === 0;
-                  const rowBgClass = isEven ? 'bg-white hover:bg-blue-50/70' : 'bg-[#EDF5FD] hover:bg-blue-100/70';
-
-                  return (
-                    <tr 
-                      key={row.raw.id || idx}
-                      onClick={() => setSelectedSale(row.raw)}
-                      className={`${rowBgClass} transition-colors divide-x divide-gray-200 cursor-pointer group`}
-                    >
-                      
-                      {/* 1. Nome do Colaborador */}
-                      <td className="px-3 py-1.5 text-gray-800 font-normal">
-                        <span className="font-medium text-gray-900">{row.collaborator}</span>
-                      </td>
-
-                      {/* 2. Número da Oportunidade */}
-                      <td className="px-3 py-1.5 text-gray-700 font-mono text-[11px]">
-                        {row.opportunity}
-                      </td>
-
-                      {/* 3. Nome do Candidato */}
-                      <td className="px-3 py-1.5 text-gray-900 font-medium">
-                        {row.candidate}
-                      </td>
-
-                      {/* 4. Data */}
-                      <td className="px-3 py-1.5 text-gray-600 text-[11px]">
-                        {row.date}
-                      </td>
-
-                      {/* 5. FDI */}
-                      <td className="px-3 py-1.5 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
-                          row.fdi === 'Vestibular' 
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
-                            : row.fdi === 'ENEM' 
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200/60'
-                            : row.fdi === 'Transferência Externa' || row.fdi === 'Transferência'
-                            ? 'bg-purple-50 text-purple-700 border border-purple-200/60'
-                            : row.fdi === 'Simplificada'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
-                            : row.fdi === 'MSV'
-                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60'
-                            : row.fdi === 'Reabertura'
-                            ? 'bg-cyan-50 text-cyan-700 border border-cyan-200/60'
-                            : row.fdi === 'Técnico'
-                            ? 'bg-orange-50 text-orange-700 border border-orange-200/60'
-                            : row.fdi === 'Pós Graduação'
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200/60'
-                            : 'bg-slate-50 text-slate-700 border border-slate-200/60'
-                        }`}>
-                          {row.fdi}
-                        </span>
-                      </td>
-
-                      {/* 6. Modalidade */}
-                      <td className="px-3 py-1.5 text-gray-800">
-                        {row.modality}
-                      </td>
-
-                      {/* 7. Turno */}
-                      <td className="px-3 py-1.5 text-gray-700">
-                        {row.shift}
-                      </td>
-
-                      {/* 8. Parcela Leve */}
-                      <td className="px-3 py-1.5 text-gray-700">
-                        {row.parcelaLeve}
-                      </td>
-
-                      {/* 9. Bolsa Convênio Aplicada */}
-                      <td className="px-3 py-1.5 text-gray-800">
-                        {row.hasBolsa === 'Sim' ? (
-                          <span className="text-emerald-700 font-bold">Sim</span>
-                        ) : (
-                          <span className="text-gray-600">Não</span>
-                        )}
-                      </td>
-
-                      {/* 10. Qual Empresa? */}
-                      <td className="px-3 py-1.5 text-gray-700">
-                        {row.empresa || '-'}
-                      </td>
-
-                      {/* 11. Observação */}
-                      <td className="px-3 py-1.5 text-gray-600 italic">
-                        {row.notes || ''}
-                      </td>
-
-                      {/* 12. Ações */}
-                      <td className="px-2 py-1 text-center" onClick={(e) => e.stopPropagation()}>
-                        {canEditSale(row.raw) ? (
-                          <button
-                            type="button"
-                            onClick={() => setEditingSale(row.raw)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded-lg text-[11px] font-semibold transition-all shadow-2xs cursor-pointer"
-                            title={isAdmin ? "Editar Lançamento (Admin)" : "Editar minha venda"}
-                          >
-                            <Edit3 className="w-3 h-3 text-blue-600" />
-                            <span>Editar</span>
-                          </button>
-                        ) : (
-                          <span className="text-[11px] text-gray-300">—</span>
-                        )}
-                      </td>
-
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-
-          </table>
-
-        </div>
-
-        {/* Paginação */}
-        <div className="bg-white px-4 py-2 border-t border-gray-200 flex items-center justify-between text-[11px] text-gray-500">
-          <span>
-            {totalRemoteSales === 0 ? 'Nenhum registro' : `Mostrando ${pageRangeStart}–${pageRangeEnd} de ${totalRemoteSales}`}
-          </span>
-          <div className="flex items-center gap-1">
-            <button type="button" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="px-2.5 py-1 rounded border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-100">Anterior</button>
-            <span className="px-2">Página <strong className="text-gray-800">{currentPage}</strong> / {totalPages}</span>
-            <button type="button" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} className="px-2.5 py-1 rounded border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-100">Próxima</button>
-          </div>
-        </div>
-
-        {/* Excel Bottom Status Bar */}
-        <div className="bg-[#F8F9FA] px-4 py-2 border-t border-gray-300 flex items-center justify-between text-[11px] text-gray-500 font-medium">
-          <div className="flex items-center gap-4">
-            <span>Linhas visíveis: <strong className="text-gray-800">{processedRows.length}</strong></span>
-            <span>Com Bolsa Convênio: <strong className="text-gray-800">{processedRows.filter(r => r.hasBolsa === 'Sim').length}</strong></span>
-            <span>Com Parcela Leve: <strong className="text-gray-800">{processedRows.filter(r => r.parcelaLeve !== 'Sem parcelas').length}</strong></span>
-          </div>
-
-          <div className="flex items-center gap-2 text-gray-400">
-            <span>Dica: Clique nas setas dos cabeçalhos para ordenar e filtrar</span>
-          </div>
-        </div>
-
+      {/* Linha 2: filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={onlyMine ? '' : sellerId} disabled={onlyMine} onChange={e => setSellerId(e.target.value)} className={selectCls(Boolean(sellerId) && !onlyMine)} name="sales_seller">
+          <option value="">Todos os consultores</option>
+          {consultants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={product} onChange={e => { setProduct(e.target.value); setModality(''); }} className={selectCls(Boolean(product))} name="sales_product">
+          <option value="">Todos os produtos</option>
+          {MAIN_PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={modality} onChange={e => setModality(e.target.value)} className={selectCls(Boolean(modality))} name="sales_modality">
+          <option value="">Todas as modalidades</option>
+          {modalityOptions.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select value={fdi} onChange={e => setFdi(e.target.value)} className={selectCls(Boolean(fdi))} name="sales_fdi">
+          <option value="">Todas as FDI</option>
+          {ALL_FDI.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+        <select value={shift} onChange={e => setShift(e.target.value)} className={selectCls(Boolean(shift))} name="sales_shift">
+          <option value="">Todos os turnos</option>
+          {ALL_SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <label className={`h-8 inline-flex items-center gap-1.5 px-2.5 rounded-lg border text-xs cursor-pointer ${onlyMine ? 'bg-blue-50 border-blue-300 text-blue-800 font-semibold' : 'bg-white border-gray-200 text-gray-700'}`}>
+          <input type="checkbox" checked={onlyMine} onChange={e => setOnlyMine(e.target.checked)} className="w-3.5 h-3.5" name="sales_only_mine" />
+          Só as minhas
+        </label>
+        <button
+          onClick={() => setIncompleteOnly(v => !v)}
+          className={`h-8 inline-flex items-center gap-1.5 px-2.5 rounded-lg border text-xs font-semibold cursor-pointer ${
+            incompleteOnly ? 'bg-red-600 border-red-600 text-white' : summary.incomplete > 0 ? 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-500'
+          }`}
+          title="Vendas sem algum campo obrigatório"
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Cadastros incompletos{summary.incomplete > 0 || incompleteOnly ? ` (${summary.incomplete})` : ''}
+        </button>
+        {hasFilters && (
+          <button onClick={clearAll} className="h-8 inline-flex items-center gap-1 px-2 rounded-lg text-[11px] font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 cursor-pointer">
+            <RotateCcw className="w-3 h-3" /> Limpar filtros
+          </button>
+        )}
       </div>
 
-      {/* MODAL DE DETALHES DO LANÇAMENTO AO CLICAR NA LINHA */}
-      {selectedSale && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-150 space-y-4">
-            
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-[#00478f] flex items-center justify-center font-bold">
-                  <FileSpreadsheet className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-gray-900">
-                    Detalhes do Lançamento
-                  </h3>
-                  <p className="text-[11px] text-gray-500 font-mono">
-                    {selectedSale.custom_data?.opportunity_number || selectedSale.id}
-                  </p>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setSelectedSale(null)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
-                <span className="text-[10px] text-gray-400 font-medium block">Colaborador</span>
-                <span className="font-semibold text-gray-800">{selectedSale.seller_name || 'Consultor'}</span>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
-                <span className="text-[10px] text-gray-400 font-medium block">Candidato / Aluno</span>
-                <span className="font-semibold text-gray-800">{selectedSale.custom_data?.candidate_name || selectedSale.client_name}</span>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
-                <span className="text-[10px] text-gray-400 font-medium block">Produto & Modalidade</span>
-                <span className="font-semibold text-gray-800">
-                  {selectedSale.custom_data?.main_product || 'Graduação'} - {selectedSale.custom_data?.modality || 'Presencial'}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
-                <span className="text-[10px] text-gray-400 font-medium block">FDI & Turno</span>
-                <span className="font-semibold text-gray-800">
-                  {getSaleFdiDisplay(selectedSale)} ({selectedSale.custom_data?.shift || 'Noite'})
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
-                <span className="text-[10px] text-gray-400 font-medium block">Condições de Pagamento</span>
-                <span className="font-semibold text-gray-800">
-                  {selectedSale.custom_data?.parcela_leve || 'Sem parcelas'}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
-                <span className="text-[10px] text-gray-400 font-medium block">Bolsa Convênio</span>
-                <span className="font-semibold text-gray-800">
-                  {selectedSale.custom_data?.has_bolsa_convenio ? `Sim (${selectedSale.custom_data.empresa_convenio || 'Parceiro'})` : 'Não'}
-                </span>
-              </div>
-            </div>
-
-            {selectedSale.notes && (
-              <div className="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/60 text-xs">
-                <span className="text-[10px] text-amber-800 font-bold block">Observações</span>
-                <p className="text-amber-900 mt-0.5">{selectedSale.notes}</p>
-              </div>
-            )}
-
-            <div className="pt-2 flex items-center justify-between gap-2 border-t border-gray-100">
-              {selectedSale && canEditSale(selectedSale) ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const saleToEdit = selectedSale;
-                    setSelectedSale(null);
-                    setEditingSale(saleToEdit);
-                  }}
-                  className="px-3.5 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>{isAdmin ? 'Editar Lançamento (Admin)' : 'Editar minha venda'}</span>
-                </button>
-              ) : (
-                <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                  <Shield className="w-3.5 h-3.5 text-gray-400" />
-                  <span>Somente leitura</span>
-                </div>
-              )}
-
-              <button
-                onClick={() => setSelectedSale(null)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
-              >
-                Fechar
-              </button>
-            </div>
-
-          </div>
+      {incompleteOnly && (
+        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800">
+          Vendas gravadas sem algum campo obrigatório. Abra a venda e clique em <strong>Editar</strong> para completar
+          {isAdmin ? '.' : ' (só o dono da venda ou um admin consegue editar).'}
         </div>
       )}
 
-      {/* MODAL DE EDIÇÃO DE VENDA (ADMIN/AUTOR) */}
+      {/* Planilha */}
+      <div className="w-full bg-white rounded-xl border border-gray-300 shadow-xs overflow-hidden">
+        <div className="overflow-x-auto max-h-[700px] overflow-y-auto">
+          <table className="w-full border-collapse text-left text-xs whitespace-nowrap">
+            <thead className="sticky top-0 z-20 bg-[#F4F5F7] border-b-2 border-gray-300 select-none">
+              <tr className="divide-x divide-gray-300">
+                {COLUMNS.map(col => {
+                  const active = sortField === col.key;
+                  const Icon = !active ? ArrowUpDown : sortDirection === 'asc' ? ArrowUp : ArrowDown;
+                  return (
+                    <th key={col.key} className="px-3 py-2.5 font-semibold text-gray-800 bg-[#F4F5F7]">
+                      <button onClick={() => handleSort(col.key)} className={`inline-flex items-center gap-1.5 cursor-pointer hover:text-blue-700 ${active ? 'text-blue-700' : ''}`}>
+                        {col.label}
+                        <Icon className={`w-3 h-3 ${active ? '' : 'text-gray-400'}`} />
+                      </button>
+                    </th>
+                  );
+                })}
+                <th className="px-3 py-2.5 font-semibold text-gray-800 text-center bg-[#F4F5F7] w-24">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {isLoading && rows.length === 0 ? (
+                <tr><td colSpan={COLUMNS.length + 1} className="py-12 text-center text-gray-500">Carregando vendas...</td></tr>
+              ) : pageError ? (
+                <tr><td colSpan={COLUMNS.length + 1} className="py-12 text-center text-red-500">{pageError}</td></tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={COLUMNS.length + 1} className="py-14 text-center">
+                    <p className="text-xs font-semibold text-gray-700">
+                      {hasFilters ? 'Nenhuma venda encontrada com esses filtros.' : 'Nenhuma venda cadastrada ainda.'}
+                    </p>
+                    {hasFilters && (
+                      <button onClick={clearAll} className="mt-2 text-xs text-blue-600 hover:underline font-semibold cursor-pointer">Limpar filtros</button>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, idx) => (
+                  <tr
+                    key={row.sale.id}
+                    onClick={() => setSelectedSale(row.sale)}
+                    className={`${idx % 2 === 0 ? 'bg-white' : 'bg-[#EDF5FD]'} hover:bg-blue-100/60 divide-x divide-gray-200 cursor-pointer ${isLoading ? 'opacity-60' : ''}`}
+                  >
+                    {COLUMNS.map(col => (
+                      <td key={col.key} className={`px-3 py-1.5 text-gray-800 ${col.className || ''}`}>{col.render(row)}</td>
+                    ))}
+                    <td className="px-2 py-1 text-center" onClick={e => e.stopPropagation()}>
+                      {canEditSale(row.sale) ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingSale(row.sale)}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border cursor-pointer ${
+                            row.incomplete ? 'bg-red-600 border-red-600 text-white hover:bg-red-700' : 'bg-white border-blue-200 text-blue-700 hover:bg-blue-50'
+                          }`}
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          {row.incomplete ? 'Completar' : 'Editar'}
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-gray-300">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bg-[#F8F9FA] px-4 py-2 border-t border-gray-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-gray-500">
+          <div className="flex flex-wrap items-center gap-4">
+            <span>{total === 0 ? 'Nenhuma venda' : `Mostrando ${rangeStart}–${rangeEnd} de ${total}`}</span>
+            <span>Com Bolsa Convênio: <strong className="text-gray-800">{summary.withBolsa}</strong></span>
+            <span>Com Parcela Leve: <strong className="text-gray-800">{summary.withParcela}</strong></span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="px-2.5 py-1 rounded border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-100 cursor-pointer">Anterior</button>
+            <span className="px-2">Página <strong className="text-gray-800">{currentPage}</strong> / {totalPages}</span>
+            <button type="button" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} className="px-2.5 py-1 rounded border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-100 cursor-pointer">Próxima</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Detalhes da venda */}
+      {selectedSale && (() => {
+        const r = rowOf(selectedSale);
+        const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
+          <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100">
+            <span className="text-[10px] text-gray-400 font-medium block">{label}</span>
+            <span className="font-semibold text-gray-800">{value ?? <MissingCell />}</span>
+          </div>
+        );
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setSelectedSale(null)}>
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 space-y-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Detalhes da venda</h3>
+                  <p className="text-[11px] text-gray-500 font-mono">Oportunidade {r.opportunity ?? '—'}</p>
+                </div>
+                <button onClick={() => setSelectedSale(null)} className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer" title="Fechar">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {r.incomplete && (
+                <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                  Cadastro incompleto: falta {selectedSale.missing_fields!.map(f => REQUIRED_FIELD_LABEL[f].toLowerCase()).join(', ')}.
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <Field label="Consultor" value={r.collaborator} />
+                <Field label="Aluno" value={r.candidate} />
+                <Field label="Data" value={r.date} />
+                <Field label="Produto" value={r.product} />
+                <Field label="Modalidade" value={r.modality} />
+                <Field label="Turno" value={r.shift} />
+                <Field label="FDI" value={r.fdi} />
+                <Field label="Parcela Leve" value={r.parcelaLeve} />
+                <Field label="Bolsa Convênio" value={r.hasBolsa === 'Sim' ? `Sim (${r.empresa || 'empresa não informada'})` : 'Não'} />
+              </div>
+
+              {r.notes && (
+                <div className="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/60 text-xs">
+                  <span className="text-[10px] text-amber-800 font-bold block">Observação</span>
+                  <p className="text-amber-900 mt-0.5 whitespace-pre-wrap">{r.notes}</p>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-between gap-2 border-t border-gray-100">
+                {canEditSale(selectedSale) ? (
+                  <button
+                    type="button"
+                    onClick={() => { const s = selectedSale; setSelectedSale(null); setEditingSale(s); }}
+                    className="px-3.5 py-2 bg-[#0052cc] hover:bg-[#00478f] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" /> {r.incomplete ? 'Completar cadastro' : 'Editar venda'}
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                    <Shield className="w-3.5 h-3.5" /> Somente leitura
+                  </div>
+                )}
+                <button onClick={() => setSelectedSale(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg cursor-pointer">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <EditSaleModal
         isOpen={!!editingSale}
         sale={editingSale}
         onClose={() => setEditingSale(null)}
-        onSuccess={() => {
-          // Recarrega a página: reflete tanto edição quanto exclusão feitas no modal.
-          setSelectedSale(null);
-          loadCurrentPage();
-        }}
+        onSuccess={() => { setSelectedSale(null); loadRef.current(); }}
       />
-
     </div>
   );
 };

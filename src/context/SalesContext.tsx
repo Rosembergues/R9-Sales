@@ -10,6 +10,7 @@ import {
   normalizeOpportunity,
 } from '../lib/saleValidation';
 import { useAuth } from './AuthContext';
+import { SALES_SORT_COLUMN, SalesQueryFilters, SalesSortField, applySalesFilters } from '../lib/salesQuery';
 import confetti from 'canvas-confetti';
 
 interface SalesContextType {
@@ -39,15 +40,17 @@ interface SalesContextType {
   toggleCampaignStatus: (campaignId: string) => Promise<{ success: boolean; error?: string }>;
   deleteCampaign: (campaignId: string) => Promise<{ success: boolean; error?: string }>;
   triggerConfetti: () => void;
-  fetchSalesPage: (params: {
+  /** Uma página da planilha de Vendas; os filtros valem para todas as vendas. */
+  fetchSalesPage: (params: SalesQueryFilters & {
     page: number;
     pageSize?: number;
-    searchTerm?: string;
-    productFilter?: string;
-    sortField?: string;
+    sortField?: SalesSortField;
     sortDirection?: 'asc' | 'desc';
-    onlyToday?: boolean;
   }) => Promise<{ data: Sale[]; count: number; error?: string }>;
+  /** Totais do filtro inteiro (rodapé da planilha). */
+  fetchSalesSummary: (filters: SalesQueryFilters) => Promise<{ withBolsa: number; withParcela: number; incomplete: number }>;
+  /** Todas as vendas do filtro (exportação). */
+  fetchAllFilteredSales: (filters: SalesQueryFilters, sortField?: SalesSortField, sortDirection?: 'asc' | 'desc') => Promise<{ data: Sale[]; error?: string }>;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -246,79 +249,66 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const fetchSalesPage = useCallback(async ({
     page,
     pageSize = 50,
-    searchTerm = '',
-    productFilter = 'Todos',
     sortField = 'date',
     sortDirection = 'desc',
-    onlyToday = false,
-  }: {
+    ...filters
+  }: SalesQueryFilters & {
     page: number;
     pageSize?: number;
-    searchTerm?: string;
-    productFilter?: string;
-    sortField?: string;
+    sortField?: SalesSortField;
     sortDirection?: 'asc' | 'desc';
-    onlyToday?: boolean;
   }) => {
     const client = getSupabaseClient();
     if (!client) return { data: [], count: 0, error: 'Supabase não configurado.' };
 
     const from = Math.max(0, (page - 1) * pageSize);
-    const to = from + pageSize - 1;
-    const sortMap: Record<string, string> = {
-      date: 'sale_date',
-      collaborator: 'seller_name',
-      candidate: 'client_name',
-      opportunity: 'opportunity',
-      fdi: 'fdi',
-      modality: 'modality',
-      shift: 'turn',
-      empresa: 'client_name',
-    };
+    const sortColumn = SALES_SORT_COLUMN[sortField] || 'sale_date';
+    const ascending = sortDirection === 'asc';
 
-    let query = client
-      .from('sales')
-      .select('*', { count: 'exact' });
-
-    const q = searchTerm.trim();
-    if (q) {
-      const escaped = q.replace(/[%,_()\\]/g, ' ');
-      query = query.or([
-        `seller_name.ilike.%${escaped}%`,
-        `client_name.ilike.%${escaped}%`,
-        `opportunity.ilike.%${escaped}%`,
-        `fdi.ilike.%${escaped}%`,
-        `product_name.ilike.%${escaped}%`,
-        `notes.ilike.%${escaped}%`,
-      ].join(','));
-    }
-
-    if (productFilter && productFilter !== 'Todos') {
-      const escapedProduct = productFilter.replace(/[%,_()\\]/g, ' ');
-      query = query.or(`product_name.ilike.%${escapedProduct}%,product.ilike.%${escapedProduct}%`);
-    }
-
-    if (onlyToday) {
-      // sale_date é persistida como TIMESTAMPTZ no banco. O formulário pode
-      // receber a data no fuso local, então os limites também são locais.
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0).toISOString();
-      query = query.gte('sale_date', start).lt('sale_date', end);
-    }
-
-    const sortColumn = sortMap[sortField] || 'sale_date';
-    query = query.order(sortColumn, { ascending: sortDirection === 'asc' });
-    if (sortColumn !== 'created_at') query = query.order('created_at', { ascending: sortDirection === 'asc' });
-    query = query.range(from, to);
+    let query = applySalesFilters(client.from('sales').select('*', { count: 'exact' }), filters);
+    query = query.order(sortColumn, { ascending, nullsFirst: false });
+    if (sortColumn !== 'sale_date') query = query.order('sale_date', { ascending: false });
+    query = query.order('id', { ascending: true }).range(from, from + pageSize - 1);
 
     const { data, count, error } = await query;
     if (error) {
       logSupabaseError('fetchSalesPage', error);
       return { data: [], count: 0, error: error.message };
     }
-
     return { data: (data || []).map(row => normalizeRemoteSale(row)), count: count || 0 };
+  }, []);
+
+  const fetchSalesSummary = useCallback(async (filters: SalesQueryFilters) => {
+    const client = getSupabaseClient();
+    if (!client) return { withBolsa: 0, withParcela: 0, incomplete: 0 };
+    const head = () => applySalesFilters(client.from('sales').select('id', { count: 'exact', head: true }), filters);
+    const [bolsa, parcela, incomplete] = await Promise.all([
+      head().eq('partner_scholarship', true),
+      head().eq('light_installment', true),
+      filters.incompleteOnly ? head() : applySalesFilters(client.from('sales').select('id', { count: 'exact', head: true }), { ...filters, incompleteOnly: true }),
+    ]);
+    return { withBolsa: bolsa.count || 0, withParcela: parcela.count || 0, incomplete: incomplete.count || 0 };
+  }, []);
+
+  const fetchAllFilteredSales = useCallback(async (
+    filters: SalesQueryFilters,
+    sortField: SalesSortField = 'date',
+    sortDirection: 'asc' | 'desc' = 'desc',
+  ) => {
+    const client = getSupabaseClient();
+    if (!client) return { data: [], error: 'Supabase não configurado.' };
+    const sortColumn = SALES_SORT_COLUMN[sortField] || 'sale_date';
+    const rows: any[] = [];
+    for (let from = 0; ; from += SALES_PAGE) {
+      const { data, error } = await applySalesFilters(client.from('sales').select('*'), filters)
+        .order(sortColumn, { ascending: sortDirection === 'asc', nullsFirst: false })
+        .order('id', { ascending: true })
+        .range(from, from + SALES_PAGE - 1);
+      if (error) return { data: [], error: error.message };
+      rows.push(...(data || []));
+      if (!data || data.length < SALES_PAGE) break;
+    }
+    return { data: rows.map(row => normalizeRemoteSale(row)) };
   }, []);
 
   const activeCampaigns = useMemo(() => {
@@ -914,6 +904,8 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         deleteCampaign,
         triggerConfetti,
         fetchSalesPage,
+        fetchSalesSummary,
+        fetchAllFilteredSales,
       }}
     >
       {children}

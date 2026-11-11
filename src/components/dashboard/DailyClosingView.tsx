@@ -4,6 +4,7 @@ import { Sale } from '../../types';
 import { CalendarCheck, Calendar, ChevronLeft, ChevronRight, Copy, Check, Receipt, Plus, Search, GraduationCap, BookOpen, Wrench, Layers, Edit3, User, X } from 'lucide-react';
 import { EditSaleModal } from '../sales/EditSaleModal';
 import { getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
+import { useAuth } from '../../context/AuthContext';
 
 interface DailyClosingViewProps {
   onOpenNewSaleModal?: () => void;
@@ -57,6 +58,8 @@ const FDI_CHANNEL_CONFIG: Record<string, { bg: string; text: string; border: str
 
 export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSaleModal }) => {
   const { sales } = useSales();
+  const { profiles } = useAuth();
+  const [selectedSellerFilter, setSelectedSellerFilter] = useState<string | null>(null);
 
   // Selected date state (defaults to today)
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
@@ -95,6 +98,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     setSelectedDate(prev);
     setSelectedModalityFilter(null);
     setSelectedFdiFilter(null);
+    setSelectedSellerFilter(null);
   };
 
   const handleNextDay = () => {
@@ -103,12 +107,14 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     setSelectedDate(next);
     setSelectedModalityFilter(null);
     setSelectedFdiFilter(null);
+    setSelectedSellerFilter(null);
   };
 
   const handleSetToday = () => {
     setSelectedDate(new Date());
     setSelectedModalityFilter(null);
     setSelectedFdiFilter(null);
+    setSelectedSellerFilter(null);
   };
 
   const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -118,6 +124,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
       setSelectedDate(new Date(year, month - 1, day));
       setSelectedModalityFilter(null);
       setSelectedFdiFilter(null);
+      setSelectedSellerFilter(null);
     }
   };
 
@@ -138,6 +145,9 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     if (lower === 'técnico' || lower === 'tecnico') return 'Técnico Presencial';
     return trimmed;
   };
+
+  const modalityOf = (s: Sale) =>
+    s.missing_fields?.includes('modality') ? 'Falta preencher' : normalizeModality(s.custom_data?.modality);
 
   // Filter sales for the selected date - strictly based on Data da Venda (never created_at)
   const daySales = useMemo(() => {
@@ -161,7 +171,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
 
     // Populate with actual day sales
     daySales.forEach((sale) => {
-      const mod = normalizeModality(sale.custom_data?.modality);
+      const mod = modalityOf(sale);
       if (!counts[mod]) {
         counts[mod] = { count: 0 };
       }
@@ -220,6 +230,21 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     return list;
   }, [extraModalities]);
 
+  // Boletos por consultor no dia (consultores ativos aparecem mesmo com zero).
+  const sellerStats = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    profiles
+      .filter(p => p.role === 'seller' && p.status !== 'inactive')
+      .forEach(p => map.set(p.id, { id: p.id, name: p.name, count: 0 }));
+    daySales.forEach(s => {
+      const id = s.seller_id || s.seller_name || 'sem-consultor';
+      const entry = map.get(id) || { id, name: s.seller_name || 'Sem consultor', count: 0 };
+      entry.count += 1;
+      map.set(id, entry);
+    });
+    return [...map.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'pt-BR'));
+  }, [profiles, daySales]);
+
   // Breakdown by FDI channel
   const fdiStats = useMemo(() => {
     const counts: Record<string, { count: number }> = {};
@@ -260,11 +285,15 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
     let result = daySales;
 
     if (selectedModalityFilter) {
-      result = result.filter((s) => normalizeModality(s.custom_data?.modality) === selectedModalityFilter);
+      result = result.filter((s) => modalityOf(s) === selectedModalityFilter);
     }
 
     if (selectedFdiFilter) {
       result = result.filter((s) => getSaleFdiDisplay(s) === selectedFdiFilter);
+    }
+
+    if (selectedSellerFilter) {
+      result = result.filter((s) => (s.seller_id || s.seller_name || 'sem-consultor') === selectedSellerFilter);
     }
 
     if (tableSearch.trim()) {
@@ -273,19 +302,28 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
         const candidate = (s.custom_data?.candidate_name || '').toLowerCase();
         const opp = (s.custom_data?.opportunity_number || '').toLowerCase();
         const seller = (s.seller_name || '').toLowerCase();
-        const mod = normalizeModality(s.custom_data?.modality).toLowerCase();
+        const mod = modalityOf(s).toLowerCase();
         const fdi = getSaleFdiDisplay(s).toLowerCase();
         return candidate.includes(q) || opp.includes(q) || seller.includes(q) || mod.includes(q) || fdi.includes(q);
       });
     }
 
     return result;
-  }, [daySales, selectedModalityFilter, selectedFdiFilter, tableSearch]);
+  }, [daySales, selectedModalityFilter, selectedFdiFilter, selectedSellerFilter, tableSearch]);
 
   // Copy structured closing summary to clipboard (ready for WhatsApp / Telegram)
   const handleCopyClosingSummary = async () => {
     let text = `📊 *FECHAMENTO DIÁRIO - ${selectedDateFormatted}*\n`;
     text += `🎯 *Total de Boletos:* ${dayTotalCount}\n\n`;
+
+    const sellersWithSales = sellerStats.filter(s => s.count > 0);
+    if (sellersWithSales.length > 0) {
+      text += `*Por consultor:*\n`;
+      sellersWithSales.forEach(s => {
+        text += `• ${s.name}: ${s.count}\n`;
+      });
+      text += `\n`;
+    }
 
     // Graduação
     text += `*Graduação:*\n`;
@@ -327,7 +365,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
       }
     });
 
-    text += `\n_Gerado automaticamente pelo R9 Corp_`;
+    text += `\n_Gerado automaticamente pelo R9 Hub_`;
 
     try {
       await navigator.clipboard.writeText(text);
@@ -580,6 +618,55 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
 
       </div>
 
+      {/* Boletos por consultor */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-bold text-gray-900">Boletos por Consultor</h3>
+            <p className="text-xs text-gray-500">Clique em um consultor para ver só as vendas dele na tabela abaixo</p>
+          </div>
+          {selectedSellerFilter && (
+            <button
+              onClick={() => setSelectedSellerFilter(null)}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              Limpar filtro ({sellerStats.find(s => s.id === selectedSellerFilter)?.name})
+            </button>
+          )}
+        </div>
+        {sellerStats.length === 0 ? (
+          <p className="text-xs text-gray-400">Nenhum consultor cadastrado.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {sellerStats.map(seller => {
+              const isSelected = selectedSellerFilter === seller.id;
+              return (
+                <button
+                  key={seller.id}
+                  type="button"
+                  disabled={seller.count === 0}
+                  onClick={() => setSelectedSellerFilter(isSelected ? null : seller.id)}
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left transition-all ${
+                    isSelected
+                      ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500/20'
+                      : seller.count > 0
+                        ? 'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
+                        : 'bg-gray-50 border-gray-100 cursor-default'
+                  }`}
+                >
+                  <span className={`text-xs font-semibold truncate ${seller.count > 0 ? 'text-gray-900' : 'text-gray-400'}`}>{seller.name}</span>
+                  <span className={`shrink-0 min-w-[26px] h-6 px-1.5 inline-flex items-center justify-center rounded-lg text-xs font-black ${
+                    seller.count > 0 ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-gray-100 text-gray-400'
+                  }`}>
+                    {seller.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* 2.5. BREAKDOWN BY CHANNEL (FDI) */}
       <div className="space-y-4">
         
@@ -771,8 +858,8 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSal
                   const candidate = sale.custom_data?.candidate_name || sale.product_name || 'Sem nome';
                   const opp = sale.custom_data?.opportunity_number || sale.id.slice(0, 8);
                   const seller = sale.seller_name || 'Consultor';
-                  const mod = normalizeModality(sale.custom_data?.modality);
-                  const shift = sale.custom_data?.shift || 'Noite';
+                  const mod = modalityOf(sale);
+                  const shift = sale.missing_fields?.includes('shift') ? 'Falta preencher' : (sale.custom_data?.shift || '—');
                   const fdi = getSaleFdiDisplay(sale);
                   const fdiConfig = FDI_CHANNEL_CONFIG[fdi] || {
                     bg: 'bg-slate-50',

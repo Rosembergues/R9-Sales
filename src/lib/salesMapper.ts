@@ -1,3 +1,4 @@
+import { findMissingSaleFields } from './saleOptions';
 import { 
   Sale, 
   RemoteSaleRow, 
@@ -342,6 +343,7 @@ export function normalizeRemoteSale(row: RemoteSaleRow): Sale {
     sale_date: dateBr,
     notes: row.notes || '',
     created_at: row.created_at || new Date().toISOString(),
+    missing_fields: findMissingSaleFields(row as Record<string, any>),
     custom_data: {
       ...custom,
       candidate_name: candidate,

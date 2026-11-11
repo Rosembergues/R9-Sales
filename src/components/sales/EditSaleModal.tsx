@@ -30,6 +30,14 @@ import { getSaleFdiDisplay } from '../../lib/salesMapper';
 import { useOfficialGoals } from '../../hooks/useOfficialGoals';
 import { buildCycleWindows, getSaleBusinessUnit, saleGoalGroup, suggestSaleCycle } from '../../lib/saleCycle';
 import { validateSaleDate } from '../../lib/saleValidation';
+import {
+  MAIN_PRODUCTS,
+  PARCELA_OPTIONS,
+  REQUIRED_FIELD_LABEL,
+  fdiOptionsFor,
+  modalitiesFor,
+  shiftsFor,
+} from '../../lib/saleOptions';
 
 interface EditSaleModalProps {
   sale: Sale | null;
@@ -37,37 +45,6 @@ interface EditSaleModalProps {
   onClose: () => void;
   onSuccess?: () => void;
 }
-
-const FDI_CHANNELS: ProductChannelFDI[] = [
-  'Simplificada',
-  'MSV',
-  'Reabertura',
-  'Transferência Externa',
-  'Vestibular',
-  'ENEM',
-  'Técnico',
-  'Pós Graduação'
-];
-
-const PARCELA_LEVE_OPTIONS: ParcelaLeveOption[] = [
-  '3 parcelas',
-  '2 parcelas',
-  '1 parcela',
-  'Sem parcelas'
-];
-
-const isFdiChannelDisabled = (channel: ProductChannelFDI, product: MainProductType): boolean => {
-  if (product === 'Graduação') {
-    return channel === 'Técnico' || channel === 'Pós Graduação';
-  }
-  if (product === 'Pós Graduação') {
-    return channel !== 'Pós Graduação';
-  }
-  if (product === 'Curso Técnico') {
-    return channel !== 'Técnico';
-  }
-  return false;
-};
 
 export const EditSaleModal: React.FC<EditSaleModalProps> = ({
   sale,
@@ -83,10 +60,11 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
   const [opportunityNumber, setOpportunityNumber] = useState('');
   const [candidateName, setCandidateName] = useState('');
   const [saleDate, setSaleDate] = useState('');
-  const [mainProduct, setMainProduct] = useState<MainProductType>('Graduação');
-  const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI>('Simplificada');
-  const [modality, setModality] = useState<ModalityType>('Presencial');
-  const [shift, setShift] = useState<ShiftType>('Noite');
+  const [mainProduct, setMainProduct] = useState<MainProductType | ''>('');
+  const [fdiChannel, setFdiChannel] = useState<ProductChannelFDI | ''>('');
+  const [modality, setModality] = useState<ModalityType | ''>('');
+  const [shift, setShift] = useState<ShiftType | ''>('');
+  const [triedSave, setTriedSave] = useState(false);
   const [parcelaLeve, setParcelaLeve] = useState<ParcelaLeveOption>('Sem parcelas');
   const [hasBolsaConvenio, setHasBolsaConvenio] = useState(false);
   const [empresaConvenio, setEmpresaConvenio] = useState('');
@@ -133,11 +111,18 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       }
       setSaleDate(dateVal);
 
-      setMainProduct(sale.custom_data?.main_product || 'Graduação');
-      const resolvedChannel = getSaleFdiDisplay(sale);
-      setFdiChannel((resolvedChannel as ProductChannelFDI) || 'Simplificada');
-      setModality(sale.custom_data?.modality || 'Presencial');
-      setShift(sale.custom_data?.shift || 'Noite');
+      // Campo que a venda gravada não tem começa em branco: precisa ser preenchido para salvar.
+      const gaps = new Set(sale.missing_fields || []);
+      const product = gaps.has('product') ? '' : (MAIN_PRODUCTS.includes(sale.custom_data?.main_product as MainProductType) ? sale.custom_data!.main_product! : '');
+      setMainProduct(product);
+      const resolvedChannel = getSaleFdiDisplay(sale) as ProductChannelFDI;
+      setFdiChannel(!gaps.has('fdi') && fdiOptionsFor(product).includes(resolvedChannel) ? resolvedChannel : '');
+      const mod = sale.custom_data?.modality;
+      const validMod = !gaps.has('modality') && mod && modalitiesFor(product).some(m => m.name === mod) ? mod : '';
+      setModality(validMod);
+      const sh = sale.custom_data?.shift;
+      setShift(!gaps.has('shift') && sh && shiftsFor(product, validMod).includes(sh) ? sh : '');
+      setTriedSave(false);
       setParcelaLeve(sale.custom_data?.parcela_leve || 'Sem parcelas');
       setHasBolsaConvenio(!!sale.custom_data?.has_bolsa_convenio);
       setEmpresaConvenio(sale.custom_data?.empresa_convenio || '');
@@ -157,7 +142,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
   }, [saleDate]);
   const effectiveCycle = useMemo(
-    () => suggestSaleCycle(saleGoalGroup(mainProduct, modality), saleDateIso, cycleWindows),
+    () => (mainProduct && modality ? suggestSaleCycle(saleGoalGroup(mainProduct, modality), saleDateIso, cycleWindows) : null),
     [mainProduct, modality, saleDateIso, cycleWindows]
   );
 
@@ -205,6 +190,21 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       setErrorMessage(dateError);
       return;
     }
+    setTriedSave(true);
+    const empty = [
+      !mainProduct && 'produto',
+      !fdiChannel && 'FDI',
+      !modality && 'modalidade',
+      !shift && 'turno',
+    ].filter(Boolean);
+    if (empty.length) {
+      setErrorMessage(`Preencha ${empty.join(', ')} para salvar.`);
+      return;
+    }
+    if (hasBolsaConvenio && !empresaConvenio.trim()) {
+      setErrorMessage('Informe a empresa do convênio ou desmarque a bolsa.');
+      return;
+    }
     if (isSaving) return;
 
     setIsSaving(true);
@@ -246,8 +246,9 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       const updatedFields: Partial<Sale> = {
         client_name: candidateName.trim(),
         notes: notes.trim(),
-        product_name: mainProduct,
+        product_name: mainProduct as MainProductType,
         fdi: fdiChannel,
+        missing_fields: [],
         seller_id: effectiveSellerId,
         collaborator_id: effectiveSellerId,
         seller_name: effectiveSellerName,
@@ -263,15 +264,15 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           seller_id: effectiveSellerId,
           seller_email: effectiveSellerEmail,
           sale_date: saleDate.trim(),
-          main_product: mainProduct,
+          main_product: mainProduct as MainProductType,
           fdi: fdiChannel,
-          fdi_channel: fdiChannel,
-          modality,
-          shift,
+          fdi_channel: fdiChannel as ProductChannelFDI,
+          modality: modality as ModalityType,
+          shift: shift as ShiftType,
           parcela_leve: parcelaLeve,
           has_bolsa_convenio: hasBolsaConvenio,
           empresa_convenio: hasBolsaConvenio ? empresaConvenio.trim() : '',
-          business_unit: getSaleBusinessUnit(mainProduct, modality),
+          business_unit: getSaleBusinessUnit(mainProduct as MainProductType, modality as ModalityType),
           // Se as metas ainda não carregaram ou não cobrem a data, mantém o ciclo já gravado.
           academic_period: effectiveCycle || sale.custom_data?.academic_period || undefined,
         }
@@ -333,12 +334,14 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 <h3 className="text-base font-bold text-slate-900 font-['Space_Grotesk']">
                   Editar Lançamento de Venda
                 </h3>
-                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 text-[10px] font-bold uppercase tracking-wider">
-                  Admin
-                </span>
+                {isAdmin && (
+                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 text-[10px] font-bold uppercase tracking-wider">
+                    Admin
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400">
-                Oportunidade #{opportunityNumber || sale.id} • Modificação autorizada de registro
+                Oportunidade #{opportunityNumber || sale.id}
               </p>
             </div>
           </div>
@@ -363,6 +366,16 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-medium flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {(sale.missing_fields?.length ?? 0) > 0 && (
+          <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <span>
+              <strong>Cadastro incompleto.</strong> Esta venda foi gravada sem{' '}
+              {sale.missing_fields!.map(f => REQUIRED_FIELD_LABEL[f].toLowerCase()).join(', ')}. Preencha os campos em branco para salvar.
+            </span>
           </div>
         )}
 
@@ -456,17 +469,20 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 onChange={(e) => {
                   const newProduct = e.target.value as MainProductType;
                   setMainProduct(newProduct);
-                  if (isFdiChannelDisabled(fdiChannel, newProduct)) {
-                    if (newProduct === 'Graduação') setFdiChannel('Vestibular');
-                    else if (newProduct === 'Pós Graduação') setFdiChannel('Pós Graduação');
-                    else if (newProduct === 'Curso Técnico') setFdiChannel('Técnico');
+                  if (fdiChannel && !fdiOptionsFor(newProduct).includes(fdiChannel)) setFdiChannel('');
+                  const options = modalitiesFor(newProduct);
+                  if (options.length === 1) {
+                    setModality(options[0].name);
+                    setShift(options[0].shifts.length === 1 ? options[0].shifts[0] : '');
+                  } else if (!options.some(m => m.name === modality)) {
+                    setModality('');
+                    setShift('');
                   }
                 }}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors font-semibold" name="src_components_sales_editsalemodal_tsx_select_5"
+                className={selectClass(triedSave && !mainProduct, 'font-semibold')} name="src_components_sales_editsalemodal_tsx_select_5"
               >
-                <option value="Graduação">Graduação</option>
-                <option value="Pós Graduação">Pós Graduação</option>
-                <option value="Curso Técnico">Curso Técnico</option>
+                <option value="" disabled>Selecione o produto</option>
+                {MAIN_PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
 
@@ -477,17 +493,12 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               </label>
               <select
                 value={fdiChannel}
+                disabled={!mainProduct}
                 onChange={(e) => setFdiChannel(e.target.value as ProductChannelFDI)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_6"
+                className={selectClass(triedSave && !fdiChannel)} name="src_components_sales_editsalemodal_tsx_select_6"
               >
-                {FDI_CHANNELS.map(ch => {
-                  const isDisabled = isFdiChannelDisabled(ch, mainProduct);
-                  return (
-                    <option key={ch} value={ch} disabled={isDisabled}>
-                      {ch} {isDisabled ? '(Indisponível)' : ''}
-                    </option>
-                  );
-                })}
+                <option value="" disabled>{mainProduct ? 'Selecione a FDI' : 'Escolha o produto primeiro'}</option>
+                {fdiOptionsFor(mainProduct).map(ch => <option key={ch} value={ch}>{ch}</option>)}
               </select>
             </div>
           </div>
@@ -498,18 +509,18 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               <label className="block font-semibold text-slate-700 mb-1">Modalidade</label>
               <select
                 value={modality}
-                onChange={(e) => setModality(e.target.value as ModalityType)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_7"
+                disabled={!mainProduct}
+                onChange={(e) => {
+                  const next = e.target.value as ModalityType;
+                  setModality(next);
+                  const shifts = shiftsFor(mainProduct, next);
+                  if (shifts.length === 1) setShift(shifts[0]);
+                  else if (!shifts.includes(shift as ShiftType)) setShift('');
+                }}
+                className={selectClass(triedSave && !modality)} name="src_components_sales_editsalemodal_tsx_select_7"
               >
-                <option value="Presencial">Presencial</option>
-                <option value="Semipresencial">Semipresencial</option>
-                <option value="Ao Vivo">Ao Vivo</option>
-                <option value="EAD">EAD</option>
-                <option value="FLEX">FLEX</option>
-                <option value="Técnico Presencial">Técnico Presencial</option>
-                <option value="Pós Presencial">Pós Presencial</option>
-                <option value="Pós Ao Vivo">Pós Ao Vivo</option>
-                <option value="Pós Digital">Pós Digital</option>
+                <option value="" disabled>{mainProduct ? 'Selecione a modalidade' : 'Escolha o produto primeiro'}</option>
+                {modalitiesFor(mainProduct).map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
               </select>
             </div>
 
@@ -520,13 +531,12 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
               </label>
               <select
                 value={shift}
+                disabled={!modality}
                 onChange={(e) => setShift(e.target.value as ShiftType)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_8"
+                className={selectClass(triedSave && !shift)} name="src_components_sales_editsalemodal_tsx_select_8"
               >
-                <option value="Noite">Noite</option>
-                <option value="Manhã">Manhã</option>
-                <option value="Virtual">Virtual / EAD</option>
-                <option value="Manhã e Noite">Manhã e Noite</option>
+                <option value="" disabled>{modality ? 'Selecione o turno' : 'Escolha a modalidade primeiro'}</option>
+                {shiftsFor(mainProduct, modality).map(sh => <option key={sh} value={sh}>{sh}</option>)}
               </select>
             </div>
           </div>
@@ -543,7 +553,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
                 onChange={(e) => setParcelaLeve(e.target.value as ParcelaLeveOption)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors" name="src_components_sales_editsalemodal_tsx_select_9"
               >
-                {PARCELA_LEVE_OPTIONS.map(opt => (
+                {PARCELA_OPTIONS.map(opt => (
                   <option key={opt} value={opt}>{opt}</option>
                 ))}
               </select>
@@ -660,3 +670,8 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     </div>
   );
 };
+
+const selectClass = (invalid: boolean, extra = '') =>
+  `w-full px-3 py-2 border rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-60 ${
+    invalid ? 'bg-red-50 border-red-300' : 'bg-slate-50 border-slate-200'
+  } ${extra}`;

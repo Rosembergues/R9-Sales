@@ -390,7 +390,7 @@ export default function LeftSidebar({
                 {currentUser.name}
               </p>
               <span className="text-[11px] text-slate-500 font-medium truncate block">
-                {isAdmin ? 'Administrator • R9 Corp' : 'Standard User • R9 Corp'}
+                {isAdmin ? 'Administrador • R9 Hub' : 'Consultor • R9 Hub'}
               </span>
             </div>
           </div>

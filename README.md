@@ -65,3 +65,13 @@ Rodar `supabase/equipe-protecoes.sql` no SQL Editor (pode rodar mais de uma vez)
 - Ações por pessoa no menu ⋯: editar nome, tornar admin/consultor (com confirmação), tirar/voltar ao ranking, bloquear/autorizar de novo.
 - Não há mais exclusão de usuário pela tela: excluir apagava o histórico de metas. Para quem saiu da equipe, use **Bloquear acesso**.
 - Proteções no banco: só admin muda a função de alguém (antes o próprio usuário conseguia), ninguém bloqueia o próprio acesso e o último administrador não pode ser rebaixado, bloqueado nem excluído.
+
+## Vendas & Operação
+
+Rodar `supabase/vendas-completas.sql` no SQL Editor (pode rodar mais de uma vez). No fim ele mostra quantas vendas antigas estão incompletas, por campo.
+
+- **Venda sempre completa:** o formulário de lançar venda começa sem nada marcado (produto, FDI, modalidade, turno, parcela leve e bolsa). O turno é marcado sozinho só quando a modalidade tem uma única opção (EAD, Flex e Pós Digital são sempre Virtual). O banco recusa venda nova sem oportunidade, aluno, data, consultor, produto, modalidade, turno ou FDI.
+- **Vendas antigas incompletas** aparecem como "Falta preencher" na planilha. O filtro **Cadastros incompletos** lista essas vendas, e o botão **Completar** abre a edição com os campos em branco.
+- **Vendas:** os filtros (período, consultor, produto, modalidade, FDI, turno, "Só as minhas") e a busca valem para todas as vendas, não só para a página. Exportar Excel leva todas as vendas do filtro. Uma venda nova aparece sozinha, sem recarregar.
+- **Boletos do Dia** saiu do menu: é Vendas com o período "Hoje".
+- **Fechamento Diário:** bloco "Boletos por Consultor" (clique filtra a tabela) e o texto copiado inclui a lista por consultor.
