@@ -21,6 +21,8 @@ import type { ProductChannelFDI } from '../types';
 interface SalesContextType {
   /** Todas as vendas (carregadas na abertura e mantidas em tempo real). */
   sales: Sale[];
+  /** true quando a primeira carga de vendas de quem está logado terminou (com ou sem erro). */
+  salesLoaded: boolean;
   addSale: (saleData: {
     client_name: string;
     client_document?: string;
@@ -98,9 +100,15 @@ async function fetchAllSalesRows(client: NonNullable<ReturnType<typeof getSupaba
 export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, profiles } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
+  // Para quem a última carga terminou: a tela só mostra números depois disso.
+  const [loadedForUser, setLoadedForUser] = useState<string | null>(null);
+  const userId = currentUser?.id ?? null;
+  const salesLoaded = Boolean(userId) && loadedForUser === userId;
 
   // Carga inicial: envia as vendas que ficaram na fila offline e lê todas do servidor.
   const loadData = useCallback(async () => {
+    // Sem login o banco não devolve nada: espera a pessoa entrar.
+    if (!userId) return;
     const client = getSupabaseClient();
     try {
       const { data: remoteSales, error: salesError } = await fetchAllSalesRows(client);
@@ -158,8 +166,10 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     } catch {
       // Sem resposta do servidor: a tela mostra a lista vazia até a próxima carga.
+    } finally {
+      setLoadedForUser(userId);
     }
-  }, [profiles]);
+  }, [profiles, userId]);
 
   useEffect(() => {
     loadData();
@@ -652,6 +662,7 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <SalesContext.Provider
       value={{
         sales,
+        salesLoaded,
         addSale,
         findSaleByOpportunity,
         updateSale,

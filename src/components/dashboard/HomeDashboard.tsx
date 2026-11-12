@@ -60,7 +60,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenGoalImport,
 }) => {
   const { currentUser, profiles } = useAuth();
-  const { sales } = useSales();
+  const { sales, salesLoaded } = useSales();
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today');
 
   const now = useMemo(() => new Date(), []);
@@ -77,6 +77,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     weekly: number;
     monthly: number;
   }>({ weekly: 0, monthly: 0 });
+  const [manualLoaded, setManualLoaded] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -131,6 +132,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         }
       } catch (err) {
         console.warn('Erro ao carregar metas manuais na Home:', err);
+      } finally {
+        if (isMounted) setManualLoaded(true);
       }
     };
 
@@ -295,6 +298,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </section>
 
+      {/* Só mostra números quando vendas e metas chegaram: evita a tela aparecer com zeros e trocar logo depois. */}
+      {!(salesLoaded && manualLoaded && !official.loading) ? <HomeSkeleton /> : (
+      <>
       <OfficialGoalsPanel
         points={official.points}
         cycles={cycles}
@@ -503,6 +509,41 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <div className="w-9 h-9 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center"><BarChart3 className="w-4 h-4" /></div>
           <div><div className="text-xs font-bold text-slate-800">Vendas no mês</div><div className="text-[11px] text-slate-400">{brNumber(monthSales.length)} lançamentos</div></div>
         </div>
+      </div>
+      </>
+      )}
+    </div>
+  );
+};
+
+/** Esqueleto do Início enquanto os dados carregam (mesmo desenho, sem números). */
+const HomeSkeleton: React.FC = () => {
+  const block = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
+  const bar = 'rounded-md bg-slate-100';
+  return (
+    <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Carregando o resumo">
+      <div className={`${block} p-5 space-y-3`}>
+        <div className={`${bar} h-4 w-48`} />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {[0, 1, 2].map(i => <div key={i} className={`${bar} h-20`} />)}
+        </div>
+      </div>
+      <div className={`${bar} h-4 w-56`} />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[0, 1, 2].map(i => (
+          <div key={i} className={`${block} p-5 flex items-center gap-4`}>
+            <div className="w-12 h-12 rounded-xl bg-slate-100" />
+            <div className="flex-1 space-y-2">
+              <div className={`${bar} h-3 w-20`} />
+              <div className={`${bar} h-6 w-12`} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.85fr_0.85fr] gap-4">
+        <div className={`${block} h-64`} />
+        <div className={`${block} h-64`} />
+        <div className={`${block} h-64`} />
       </div>
     </div>
   );
