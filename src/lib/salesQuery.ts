@@ -58,11 +58,24 @@ export const INCOMPLETE_SALE_FILTER = [
 ].join(',');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function applySalesFilters<Q extends { or: any; ilike: any; eq: any; gte: any; lt: any }>(query: Q, f: SalesQueryFilters): Q {
-  let q = query;
+/** O mínimo de um construtor de consulta do Supabase que os filtros usam. */
+export interface FilterableQuery {
+  or(filters: string): unknown;
+  ilike(column: string, pattern: string): unknown;
+  eq(column: string, value: string): unknown;
+  gte(column: string, value: string): unknown;
+  lt(column: string, value: string): unknown;
+}
+
+/**
+ * Aplica os filtros na consulta e a devolve. Os filtros do Supabase alteram a
+ * própria consulta, então o retorno é a mesma consulta, com o tipo original.
+ */
+export function applySalesFilters<Q>(query: Q, f: SalesQueryFilters): Q {
+  const q = query as unknown as FilterableQuery;
   const term = clean(f.searchTerm || '');
   if (term) {
-    q = q.or([
+    q.or([
       `seller_name.ilike.%${term}%`,
       `client_name.ilike.%${term}%`,
       `opportunity.ilike.%${term}%`,
@@ -73,14 +86,14 @@ export function applySalesFilters<Q extends { or: any; ilike: any; eq: any; gte:
   }
   if (f.product) {
     const p = clean(f.product);
-    q = q.or(`product.ilike.${p}%,product_name.ilike.${p}%`);
+    q.or(`product.ilike.${p}%,product_name.ilike.${p}%`);
   }
-  if (f.sellerId) q = q.eq('seller_id', f.sellerId);
-  if (f.modality) q = q.ilike('modality', clean(f.modality));
-  if (f.fdi) q = q.ilike('fdi', clean(f.fdi));
-  if (f.shift) q = q.ilike('turn', clean(f.shift));
-  if (f.dateFrom) q = q.gte('sale_date', localDayStartIso(f.dateFrom));
-  if (f.dateTo) q = q.lt('sale_date', localDayStartIso(f.dateTo, 1));
-  if (f.incompleteOnly) q = q.or(INCOMPLETE_SALE_FILTER);
-  return q;
+  if (f.sellerId) q.eq('seller_id', f.sellerId);
+  if (f.modality) q.ilike('modality', clean(f.modality));
+  if (f.fdi) q.ilike('fdi', clean(f.fdi));
+  if (f.shift) q.ilike('turn', clean(f.shift));
+  if (f.dateFrom) q.gte('sale_date', localDayStartIso(f.dateFrom));
+  if (f.dateTo) q.lt('sale_date', localDayStartIso(f.dateTo, 1));
+  if (f.incompleteOnly) q.or(INCOMPLETE_SALE_FILTER);
+  return query;
 }

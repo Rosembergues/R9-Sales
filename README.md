@@ -1,78 +1,120 @@
 # R9 Hub
 
-## Baseline
-Esta versão parte da baseline aprovada e inclui o primeiro rascunho da **Importação de Metas**.
+Central da operação comercial do R9: lançamento e consulta de vendas, metas (importadas do Power BI e distribuídas por peso), desempenho e ranking da equipe, planejamento de tarefas, repositório de mensagens e comparador de preços da concorrência.
 
-### Importação de Metas
-A tela administrativa tem um destino por modalidade (9 no total):
-- BU Presencial: Presencial, Semipresencial, Ao Vivo
-- BU Digital: EAD, Flex
-- Pós-Graduação: Presencial, Ao Vivo, Digital
-- Curso Técnico: Presencial
+Feito com **React 19 + Vite + TypeScript + Tailwind CSS 4**, com banco, login e tempo real no **Supabase**. Publicado na **Vercel**.
 
-Os relatórios do Power BI (.xlsx/.csv) podem ser arrastados todos de uma vez. A modalidade, o período acadêmico e o campus são lidos do texto "Filtros aplicados" da célula A1; o cabeçalho aceito é Data / ANTERIOR (ou AA Dinamico) / META / REALIZADO. Antes de gravar há uma conferência com o "antes x depois" de cada modalidade e alertas (campus diferente, arquivo sem meta, período divergente). Arquivos sem dados são aceitos e registrados como "sem meta".
+## Rodar na sua máquina
 
-A gravação no Supabase (`goal_imports` + `goal_daily_data`) cria a importação nova como `cancelled` (rascunho invisível; o banco só aceita active/replaced/cancelled), insere os dias, ativa e só então arquiva a anterior, então uma falha no meio nunca apaga a importação vigente. As telas usam sempre a importação ativa mais recente de cada (período, modalidade).
+Precisa do Node.js 20 ou mais novo.
 
-## Fase — Conexão da Importação com Configuração de Metas
+```bash
+npm install
+npm run dev        # abre em http://localhost:3000
+```
 
-A página de Configuração de Metas agora lê os arquivos importados na página de Importação de Metas e exibe os dados como apoio operacional, sem alterar automaticamente as metas dos consultores.
+Sem configuração, o app usa o projeto Supabase oficial. Para usar outro banco (por exemplo, um de testes), copie `.env.example` para `.env.local` e preencha.
 
-Para o período selecionado, são calculados a partir das linhas importadas: AA acumulado, Meta oficial, Realizado, Atingimento e Gap, além do detalhamento por grupo de importação.
+| Comando | O que faz |
+|---|---|
+| `npm run dev` | Servidor de desenvolvimento. |
+| `npm run build` | Gera o site final em `dist/`. |
+| `npm run typecheck` | Confere os tipos (TypeScript em modo rígido). |
+| `npm test` | Roda os testes automáticos (`src/**/*.test.ts`). |
+| `npm run check` | Tipos + testes. Rode antes de publicar. |
 
+## Publicar
 
-## Comparador de Preços
+A Vercel publica a partir desta pasta: ela instala as dependências com o `bun.lock` e roda `vite build`. O `vercel.json` faz toda rota cair no `index.html`.
 
-Menu **Comparador de Preços** (todos veem; só admin importa e altera o limite de ofensa).
+Mudanças no banco **não** vão junto: rode o SQL novo no Supabase antes de publicar a versão que depende dele (veja [supabase/README.md](supabase/README.md)).
 
-- **Antes de usar:** rodar `supabase/comparador-precos.sql` no SQL Editor do Supabase (cria `price_imports`, `price_courses`, `price_settings`).
-- **Importação:** a planilha da Análise da Concorrência (aba com "NOME DO CURSO"). As fórmulas costumam vir sem valor salvo, então o sistema recalcula: preço por = preço de × (1 − bolsa); desconto de / % / para da concorrente a partir dos dois que estiverem preenchidos. `x` = concorrente não oferta.
-- **Bolsa composta** (`65% 1ºS + 60% CT`): a comparação usa o preço do 1º semestre; o preço contínuo (CT) aparece abaixo.
-- **Ofensa:** preço final da concorrente X% ou mais abaixo do nosso (padrão 8%, configurável na própria tela).
-- **Histórico:** cada envio é guardado. A tela principal mostra a atualização com a data mais recente; reenviar na mesma semana substitui a anterior (que fica no histórico como "substituída"). Aba Histórico: foto de qualquer semana e evolução de um curso semana a semana.
+### Configuração de login no Supabase
 
-## Controle de acesso
+Em **Authentication → URL Configuration**:
 
-- **Antes de publicar:** rodar `supabase/acesso-autorizacao.sql` no SQL Editor do Supabase.
-- **Cadastro** só com e-mail `@estacio.br` ou `@yduqs.com.br`. A tela avisa, e o banco recusa qualquer outro domínio (trigger em `auth.users`), mesmo se alguém chamar a API direto.
-- **Autorização:** todo cadastro novo entra como `pending` e vê só a tela "Aguardando autorização". O admin autoriza ou recusa em Administração → Gerenciar Equipe. Também dá para bloquear e liberar de novo quem já tem acesso.
-- **No banco:** uma política RLS *restritiva* em todas as tabelas do schema `public` exige usuário autorizado (`active`/`inactive`). Ela se soma às políticas existentes, então nenhuma regra antiga fica mais frouxa. Só um admin consegue mudar o `status` de um perfil.
-- Perfis pendentes ou recusados não aparecem em rankings, metas, lançamento de venda nem no Planner.
+- **Site URL:** o endereço do site publicado (ex.: `https://seu-dominio.com`).
+- **Redirect URLs:** inclua `https://seu-dominio.com/redefinir-senha` (e `http://localhost:3000/redefinir-senha` para testar na sua máquina).
 
-## Planejamento: tarefas e execuções
+Se o domínio mudar, atualize os dois. Sem a página na lista de Redirect URLs, o link do e-mail de senha cai na página inicial (o site ainda reconhece e abre a tela de senha nova, mas o certo é cadastrar).
 
-- **Antes de publicar:** rodar `supabase/tarefas-modelo.sql` no SQL Editor (depois do `acesso-autorizacao.sql`).
-- **Tarefa** (`tarefas_modelo`) é o cadastro: título, responsáveis, formulário e regra de repetição. **Execução** (`tarefas`) é cada dia em que a tarefa roda.
-- O banco grava as execuções das próximas 8 semanas e renova esse prazo todo dia (pg_cron, com o app chamando `gerar_execucoes_tarefas` ao abrir o Planejamento como reserva).
-- Editar a tarefa atualiza as execuções futuras pendentes. As concluídas ficam como histórico. Excluir uma execução não a recria, e mover uma execução de dia não a duplica.
-- **Permissões:** todos criam tarefas, inclusive para colegas, com repetição e formulário. Só quem criou (ou um admin) altera, move ou exclui. Os responsáveis concluem, preenchem o formulário e comentam. As tarefas antigas, migradas, ficam com os admins.
-- **Aba "Tarefas"** (Planejamento → Tarefas): rotina da semana (o que roda em cada dia), mensais, avulsas em aberto e uma lista com regra, responsáveis, próximas datas e conclusão das últimas 4 semanas.
+O texto do e-mail fica em **Authentication → Email Templates → Reset Password** (pode traduzir; mantenha o `{{ .ConfirmationURL }}`).
 
-## Metas por peso
+## Organização do código
 
-- **Antes de publicar:** rodar `supabase/metas-pesos.sql` (cria `metas_pesos` e a coluna `goals.ajuste_manual`).
-- Em Gerenciar Metas → **Pesos por BU**, cada consultor recebe um % por BU, e cada BU precisa somar 100%. Peso 0 = não recebe meta naquela BU.
-- A meta oficial importada de cada semana e mês é distribuída pelos pesos, com arredondamento que mantém a soma igual à oficial, e gravada em `goals`. Início, Desempenho e Rankings continuam lendo de lá.
-- **Quando recalcula:** ao abrir Gerenciar Metas, ao salvar os pesos e depois de cada importação de metas. Só a semana/mês atual e os futuros; períodos encerrados ficam congelados.
-- **Ajuste manual:** editar o valor de uma pessoa e salvar marca o ajuste. O restante da BU vai para os outros pelos pesos. "Voltar ao peso" desfaz o ajuste.
-- BU sem nenhum peso definido não é alterada (mantém o que estava gravado).
+```
+src/
+  main.tsx, App.tsx        entrada; login → aguardando autorização → painel
+  context/                 AuthContext (sessão, perfis, autorização) e SalesContext (vendas)
+  components/
+    dashboard/             R9Dashboard (menu e abas) e Início
+    sales/                 planilha de Vendas, Fechamento Diário, lançar/editar venda
+    performance/           Desempenho e Analytics
+    ranking/               Ranking semanal/mensal
+    admin/                 Gerenciar Equipe, Gerenciar Metas (goalManagement/), Importar Metas (goalImport/)
+    prices/                Comparador de Preços
+    messages/              Repositório de Mensagens
+    auth/                  login, cadastro, aguardando autorização
+    common/                peças usadas em várias telas (tela de erro)
+  planner/                 Planejamento (calendário, rotina da semana, balanço, tags)
+    components/planner/    dados (usePlannerData), ações (usePlannerActions) e blocos da tela
+    components/taskDetail/ janela de uma tarefa: estado, visão do consultor e do admin
+    services/              leitura/gravação de tarefas, cadastros, tags e equipe
+  lib/                     regras sem tela (testáveis):
+    supabase.ts            conexão única com o banco
+    localCache.ts          o que fica guardado no navegador (fila offline, perfis, metas)
+    dates.ts               datas no fuso local
+    saleOptions.ts         produtos, modalidades, turnos, FDI e campos obrigatórios da venda
+    saleStyles.ts          cores das FDI
+    salesQuery.ts          filtros da planilha de Vendas aplicados no banco
+    salesMapper.ts         linha do banco ⇄ venda do app
+    saleValidation.ts      oportunidade duplicada, data da venda
+    goalImport*.ts         leitura e gravação das metas do Power BI
+    goalWeights.ts         distribuição das metas por peso
+    goalProgress.ts, performance.ts, saleCycle.ts   cálculos de metas, desempenho e ciclo
+    priceComparison*.ts    leitura e comparação da planilha da concorrência
+    errors.ts              texto de erro
+    dbTypes.ts             formato das linhas lidas do banco (tarefas, metas, comparador...)
+supabase/                  scripts do banco e a ordem de execução
+scripts/run-tests.mjs      executor dos testes (usa o esbuild que já vem com o Vite)
+```
 
-## Gerenciar Equipe
+### Convenções
 
-Rodar `supabase/equipe-protecoes.sql` no SQL Editor (pode rodar mais de uma vez).
+- **Datas:** use `lib/dates.ts`. Nunca `toISOString().slice(0, 10)` para "hoje": em Brasília, depois das 21h já é o dia seguinte em UTC. Para comparar dias, compare textos `aaaa-mm-dd`.
+- **Opções de venda** (modalidade, turno, FDI) só em `lib/saleOptions.ts`; cores só em `lib/saleStyles.ts`.
+- **Erros:** `catch (err)` + `errorText(err, 'mensagem padrão')`.
+- **Sem `any`:** dado vindo do banco recebe o tipo de `lib/dbTypes.ts` no ponto em que chega (`data as GoalDailyRow[]`).
+- **Telas grandes** seguem o mesmo desenho: um hook com o estado e as ações (`useX`) e blocos da tela que recebem `st` (o resultado do hook).
+- **Banco:** toda regra de segurança fica no Supabase (RLS e gatilhos). A tela só esconde botões; quem bloqueia é o banco.
+- **Telas grandes** são carregadas sob demanda (`lazy` no `R9Dashboard`) e cada aba fica dentro de uma tela de erro.
+- Comentários e textos em português.
 
-- **Situações:** Ativo (acessa e entra no ranking), Fora do ranking (acessa, mas sai de Ranking, Desempenho e distribuição de metas), Bloqueado (sem acesso; histórico mantido) e Aguardando autorização.
-- Ações por pessoa no menu ⋯: editar nome, tornar admin/consultor (com confirmação), tirar/voltar ao ranking, bloquear/autorizar de novo.
-- Não há mais exclusão de usuário pela tela: excluir apagava o histórico de metas. Para quem saiu da equipe, use **Bloquear acesso**.
-- Proteções no banco: só admin muda a função de alguém (antes o próprio usuário conseguia), ninguém bloqueia o próprio acesso e o último administrador não pode ser rebaixado, bloqueado nem excluído.
+## Funcionalidades
 
-## Vendas & Operação
+### Vendas & Operação
+- **Venda sempre completa:** o formulário começa sem nada marcado (produto, FDI, modalidade, turno, parcela leve e bolsa). O turno é marcado sozinho quando só existe uma opção (EAD, Flex e Pós Digital são "Virtual"). O banco recusa venda nova incompleta.
+- **Vendas:** filtros de período, consultor, produto, modalidade, FDI, turno e "Só as minhas" valem para todas as vendas. Exportar leva tudo o que foi filtrado. Venda nova aparece sem recarregar. Vendas antigas sem algum campo aparecem como "Falta preencher" e o filtro **Cadastros incompletos** lista essas vendas.
+- **Fechamento Diário:** totais do dia por modalidade, FDI e consultor; "Copiar Fechamento" gera o texto para o WhatsApp.
+- Uma oportunidade só pode ser lançada uma vez. Consultor pode lançar para colega; só o dono da venda ou um admin edita.
 
-Rodar `supabase/vendas-completas.sql` no SQL Editor (pode rodar mais de uma vez). No fim ele mostra quantas vendas antigas estão incompletas, por campo.
+### Metas
+- **Importar Metas:** os relatórios do Power BI (.xlsx/.csv) são arrastados de uma vez. Modalidade, período acadêmico e campus vêm do texto "Filtros aplicados" (célula A1). Há conferência "antes × depois" e alertas antes de gravar. A importação nova é gravada como rascunho e só substitui a anterior quando termina, então uma falha nunca apaga a vigente.
+- **Metas por peso:** em Gerenciar Metas → Pesos por BU, cada consultor tem um % por BU (cada BU soma 100%; peso 0 = sem meta). A meta oficial de cada semana/mês é dividida pelos pesos com arredondamento que mantém a soma. Recalcula ao abrir a tela, ao salvar os pesos e após cada importação, só da semana/mês atual em diante. Editar o valor de alguém marca ajuste manual ("voltar ao peso" desfaz).
+- Semanas são de segunda a domingo, cortadas no mês.
 
-- **Venda sempre completa:** o formulário de lançar venda começa sem nada marcado (produto, FDI, modalidade, turno, parcela leve e bolsa). O turno é marcado sozinho só quando a modalidade tem uma única opção (EAD, Flex e Pós Digital são sempre Virtual). O banco recusa venda nova sem oportunidade, aluno, data, consultor, produto, modalidade, turno ou FDI.
-- **Vendas antigas incompletas** aparecem como "Falta preencher" na planilha. O filtro **Cadastros incompletos** lista essas vendas, e o botão **Completar** abre a edição com os campos em branco.
-- **Vendas:** os filtros (período, consultor, produto, modalidade, FDI, turno, "Só as minhas") e a busca valem para todas as vendas, não só para a página. Exportar Excel leva todas as vendas do filtro. Uma venda nova aparece sozinha, sem recarregar.
-- **Boletos do Dia** saiu do menu: é Vendas com o período "Hoje".
-- **Fechamento Diário:** bloco "Boletos por Consultor" (clique filtra a tabela) e o texto copiado inclui a lista por consultor.
-- **Campanhas** saiu do menu: os campos criados lá nunca apareciam no formulário de venda. As campanhas cadastradas e o `campaign_id` das vendas continuam no banco. (As campanhas do Repositório de Mensagens são outra tabela e continuam funcionando.)
+### Equipe e acesso
+- Cadastro só com `@estacio.br` ou `@yduqs.com.br`; todo cadastro novo espera autorização de um admin.
+- **Gerenciar Equipe:** Ativo, Fora do ranking (acessa, mas sai de ranking, desempenho e metas), Bloqueado (histórico mantido) e Aguardando autorização. Menu ⋯ por pessoa: editar nome, tornar admin/consultor, tirar/voltar ao ranking, bloquear/autorizar.
+- No banco: só admin muda função ou acesso, ninguém bloqueia a si mesmo e o último admin não pode ser removido.
+- **Esqueci minha senha** (no login): manda um link para o e-mail. O link abre `/redefinir-senha`, onde a pessoa cria a senha nova (mínimo 8 caracteres, com letras e números). Link expirado ou já usado mostra o aviso e deixa pedir outro. A resposta ao pedir o link é sempre a mesma, para não revelar quem tem cadastro.
+
+### Planejamento
+- **Tarefa** (cadastro, `tarefas_modelo`) × **execução** (`tarefas`, cada dia em que roda). O banco grava as execuções das próximas 8 semanas e renova todo dia.
+- Todos criam tarefas (inclusive para colegas), com repetição e formulário; só quem criou ou um admin altera. Os responsáveis concluem e preenchem o formulário.
+- Menu: Calendário (com a Fila de tarefas sem data), Minhas tarefas, Rotina da semana, Balanço da semana e Tags (admin).
+
+### Comparador de Preços
+- Importa a planilha da Análise da Concorrência (aba com "NOME DO CURSO"), recalculando as fórmulas que vêm sem valor. Bolsa composta (`65% 1ºS + 60% CT`) compara pelo 1º semestre.
+- **Ofensa:** concorrente X% ou mais abaixo do nosso preço (padrão 8%, ajustável). Cada envio fica no histórico; reenviar na mesma semana substitui.
+- Todos veem; só admin importa e muda o limite.

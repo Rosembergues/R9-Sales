@@ -1,4 +1,5 @@
 import { supabase } from '../../lib/supabase';
+import type { PlannerProfileDbRow } from '../../lib/dbTypes';
 
 export interface UserProfile {
   id: string;
@@ -31,7 +32,7 @@ export function getInitials(name: string): string {
 /**
  * Converte um registro da tabela 'perfis' do Supabase para o modelo UserProfile
  */
-export function mapDbRowToProfile(row: any, index = 0): UserProfile {
+export function mapDbRowToProfile(row: PlannerProfileDbRow, index = 0): UserProfile {
   const rawFuncao = (row.funcao ?? row.role ?? 'membro').toString().toLowerCase();
   const funcao: 'admin' | 'membro' =
     rawFuncao === 'admin' || rawFuncao === 'administrador' ? 'admin' : 'membro';
@@ -58,7 +59,7 @@ export const userService = {
   /**
    * Busca o perfil real de um usuário específico na tabela 'perfis' por ID ou Email
    */
-  async fetchUserProfile(userId?: string, email?: string): Promise<{ data: UserProfile | null; error: any | null }> {
+  async fetchUserProfile(userId?: string, email?: string): Promise<{ data: UserProfile | null; error: unknown }> {
     try {
       if (!userId && !email) {
         return { data: null, error: null };
@@ -93,7 +94,7 @@ export const userService = {
   /**
    * Busca estritamente todos os perfis reais da tabela 'perfis' no Supabase
    */
-  async fetchProfiles(): Promise<{ data: UserProfile[]; error: any | null }> {
+  async fetchProfiles(): Promise<{ data: UserProfile[]; error: unknown }> {
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -123,7 +124,7 @@ export const userService = {
   async updateUserRole(
     userId: string,
     newRole: 'admin' | 'membro'
-  ): Promise<{ error: any | null }> {
+  ): Promise<{ error: unknown }> {
     try {
       if (!userId) {
         return { error: new Error('ID do usuário não fornecido para atualização.') };

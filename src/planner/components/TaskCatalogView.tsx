@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CalendarClock, ClipboardList, LayoutGrid, List, Plus, Repeat, Search, AlertCircle } from 'lucide-react';
 import { Task, TaskModel, TeamMember, TagBucket } from '../types.ts';
 import { isMonthly, isRecurring, parseIsoDate, ruleLabel, weekdaysOf } from '../services/taskModelService.ts';

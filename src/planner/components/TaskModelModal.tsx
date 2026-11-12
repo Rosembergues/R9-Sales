@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Loader2, Lock, Plus, Repeat, Trash2, X, ClipboardList } from 'lucide-react';
 import { CustomFormField, Priority, Recurrence, TaskModel, TeamMember } from '../types.ts';
 import { TaskModelInput, WEEKDAY_KEYS, ruleLabel } from '../services/taskModelService.ts';
+import { todayLocalIso } from '../../lib/dates';
+import { errorText } from '../../lib/errors';
 
 interface TaskModelModalProps {
   isOpen: boolean;
@@ -31,10 +33,7 @@ const REPEAT_OPTIONS: { value: RepeatOption; label: string }[] = [
 
 const PRIORITIES: Priority[] = ['Urgente', 'Alta', 'Média', 'Baixa'];
 
-const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+const todayIso = todayLocalIso;
 
 const newFieldId = () => `field-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -135,8 +134,8 @@ function TaskModelForm({ model, defaultDate, canEdit, teamMembers, buckets, curr
         model?.id
       );
       onClose();
-    } catch (e: any) {
-      setError(e?.message || 'Não foi possível salvar a tarefa.');
+    } catch (e) {
+      setError(errorText(e, 'Não foi possível salvar a tarefa.'));
     } finally {
       setSaving(false);
     }
@@ -149,8 +148,8 @@ function TaskModelForm({ model, defaultDate, canEdit, teamMembers, buckets, curr
     try {
       await onDelete(model.id);
       onClose();
-    } catch (e: any) {
-      setError(e?.message || 'Não foi possível excluir a tarefa.');
+    } catch (e) {
+      setError(errorText(e, 'Não foi possível excluir a tarefa.'));
       setConfirmDelete(false);
     } finally {
       setDeleting(false);

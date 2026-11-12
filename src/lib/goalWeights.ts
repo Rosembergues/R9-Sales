@@ -1,6 +1,9 @@
 import { supabase } from './supabase';
 import { GoalFilePreview, GoalImportGroup, summarizeImportedGoals } from './goalImport';
 import { latestPerPeriodAndGroup } from './goalImportService';
+import { parseLocalIso, toLocalIso, todayLocalIso } from './dates';
+import type { DatabaseGoalRecord } from '../types';
+import type { GoalDailyRow, GoalImportRow, GoalWeightRow } from './dbTypes';
 
 /**
  * Metas por peso.
@@ -105,14 +108,10 @@ export function weightTotals(weights: WeightsMap, userIds: string[]): BuValues {
 // Períodos (mesma regra da tela de metas: semana seg–dom cortada no mês)
 // ---------------------------------------------------------------------------
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const parse = (s: string) => {
-  const [y, m, d] = s.split('-').map(Number);
-  return new Date(y, m - 1, d, 12);
-};
+const iso = toLocalIso;
+const parse = parseLocalIso;
 
-export const todayIso = () => iso(new Date());
+export const todayIso = todayLocalIso;
 
 /** Semanas (seg–dom, cortadas no mês) e meses que tocam [from, to]. */
 export function periodsBetween(from: string, to: string): GoalPeriod[] {
@@ -151,7 +150,7 @@ export async function loadWeights(): Promise<{ weights: WeightsMap; missingTable
     return { weights: {}, missingTable: /metas_pesos/.test(error.message) };
   }
   const weights: WeightsMap = {};
-  (data || []).forEach((r: any) => {
+  ((data || []) as GoalWeightRow[]).forEach((r) => {
     weights[r.user_id] = { ...(weights[r.user_id] ?? {}), [r.bu]: Number(r.percentual) || 0 };
   });
   return { weights, missingTable: false };
@@ -186,8 +185,8 @@ async function loadOfficialByPeriod(periods: GoalPeriod[]): Promise<{ official: 
     .eq('status', 'active')
     .order('imported_at', { ascending: false });
   if (error) throw error;
-  const ids = (imports || []).map((i: any) => i.id);
-  let rows: any[] = [];
+  const ids = ((imports || []) as GoalImportRow[]).map((i) => i.id);
+  let rows: GoalDailyRow[] = [];
   for (let offset = 0; ids.length; offset += 1000) {
     const { data, error: rowsError } = await supabase
       .from('goal_daily_data')
@@ -204,10 +203,10 @@ async function loadOfficialByPeriod(periods: GoalPeriod[]): Promise<{ official: 
 
   periods.forEach((p) => {
     const inRange = rows.filter((r) => r.reference_date >= p.start && r.reference_date <= p.end);
-    const latest = latestPerPeriodAndGroup(imports || []).filter((item: any) => inRange.some((r) => r.import_id === item.id));
+    const latest = latestPerPeriodAndGroup((imports || []) as GoalImportRow[]).filter((item) => inRange.some((r) => r.import_id === item.id));
     const previews: Record<string, GoalFilePreview> = {};
     const academicCount = new Map<string, number>();
-    latest.forEach((item: any) => {
+    latest.forEach((item) => {
       const daily = inRange.filter((r) => r.import_id === item.id);
       academicCount.set(item.academic_period, (academicCount.get(item.academic_period) ?? 0) + daily.length);
       previews[`${item.academic_period}|${item.goal_group}`] = {
@@ -217,7 +216,7 @@ async function loadOfficialByPeriod(periods: GoalPeriod[]): Promise<{ official: 
         rowCount: daily.length,
         startDate: null,
         endDate: null,
-        rows: daily.map((r: any) => ({
+        rows: daily.map((r) => ({
           date: r.reference_date,
           aa: r.aa === null ? null : Number(r.aa),
           target: r.target === null ? null : Number(r.target),
@@ -245,7 +244,7 @@ async function loadOfficialByPeriod(periods: GoalPeriod[]): Promise<{ official: 
 /** Último dia com meta importada (para saber até onde gerar). */
 async function lastImportedDate(): Promise<string | null> {
   const { data: imports } = await supabase.from('goal_imports').select('id').eq('status', 'active');
-  const ids = (imports || []).map((i: any) => i.id);
+  const ids = ((imports || []) as Pick<GoalImportRow, 'id'>[]).map((i) => i.id);
   if (!ids.length) return null;
   const { data } = await supabase
     .from('goal_daily_data')
@@ -317,8 +316,8 @@ export async function applyWeightedGoals(periods: GoalPeriod[], userIds: string[
       .eq('reference_start', p.start);
     if (goalsError) throw goalsError;
 
-    const byUser = new Map<string, any>();
-    (existingGoals || []).forEach((g: any) => byUser.set(g.user_id, g));
+    const byUser = new Map<string, DatabaseGoalRecord & { ajuste_manual?: boolean }>();
+    ((existingGoals || []) as (DatabaseGoalRecord & { ajuste_manual?: boolean })[]).forEach((g) => byUser.set(g.user_id, g));
     const manual: Record<string, BuValues> = {};
     byUser.forEach((g, uid) => {
       if (g.ajuste_manual && userIds.includes(uid)) {

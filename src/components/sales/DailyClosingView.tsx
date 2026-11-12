@@ -1,0 +1,872 @@
+import React, { useState, useMemo } from 'react';
+import { useSales } from '../../context/SalesContext';
+import { Sale } from '../../types';
+import { CalendarCheck, Calendar, ChevronLeft, ChevronRight, Copy, Check, Receipt, Plus, Search, GraduationCap, BookOpen, Wrench, Layers, Edit3, User, X } from 'lucide-react';
+import { EditSaleModal } from './EditSaleModal';
+import { getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
+import { useAuth } from '../../context/AuthContext';
+import { ALL_FDI, MAIN_PRODUCTS, MODALITIES_BY_PRODUCT, PRODUCT_CATEGORY, normalizeModalityName } from '../../lib/saleOptions';
+import { fdiStyle } from '../../lib/saleStyles';
+import { toBrDate, toLocalIso } from '../../lib/dates';
+
+interface DailyClosingViewProps {
+  onOpenNewSaleModal?: () => void;
+}
+
+interface ModalityDefinition {
+  name: string;
+  category: string;
+}
+
+// Modalidades e FDI vêm da lista única do formulário de venda (lib/saleOptions).
+const STANDARD_MODALITIES: ModalityDefinition[] = MAIN_PRODUCTS.flatMap(product =>
+  MODALITIES_BY_PRODUCT[product].map(m => ({ name: m.name, category: PRODUCT_CATEGORY[product] })),
+);
+
+const STANDARD_FDI_CHANNELS: string[] = ALL_FDI;
+
+export const DailyClosingView: React.FC<DailyClosingViewProps> = ({ onOpenNewSaleModal }) => {
+  const { sales } = useSales();
+  const { profiles } = useAuth();
+  const [selectedSellerFilter, setSelectedSellerFilter] = useState<string | null>(null);
+
+  // Selected date state (defaults to today)
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
+  const [copiedSuccess, setCopiedSuccess] = useState(false);
+  const [selectedModalityFilter, setSelectedModalityFilter] = useState<string | null>(null);
+  const [selectedFdiFilter, setSelectedFdiFilter] = useState<string | null>(null);
+  const [tableSearch, setTableSearch] = useState('');
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+
+  // dd/mm/aaaa
+  const formatToBrDate = toBrDate;
+
+  // aaaa-mm-dd (campo de data do HTML)
+  const formatToIso = toLocalIso;
+
+  const selectedDateFormatted = useMemo(() => formatToBrDate(selectedDate), [selectedDate]);
+  const isToday = useMemo(() => {
+    const today = new Date();
+    return formatToBrDate(today) === selectedDateFormatted;
+  }, [selectedDateFormatted]);
+
+  // Navegação entre dias
+  const handlePrevDay = () => {
+    const prev = new Date(selectedDate);
+    prev.setDate(prev.getDate() - 1);
+    setSelectedDate(prev);
+    setSelectedModalityFilter(null);
+    setSelectedFdiFilter(null);
+    setSelectedSellerFilter(null);
+  };
+
+  const handleNextDay = () => {
+    const next = new Date(selectedDate);
+    next.setDate(next.getDate() + 1);
+    setSelectedDate(next);
+    setSelectedModalityFilter(null);
+    setSelectedFdiFilter(null);
+    setSelectedSellerFilter(null);
+  };
+
+  const handleSetToday = () => {
+    setSelectedDate(new Date());
+    setSelectedModalityFilter(null);
+    setSelectedFdiFilter(null);
+    setSelectedSellerFilter(null);
+  };
+
+  const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.value) return;
+    const [year, month, day] = e.target.value.split('-').map(Number);
+    if (year && month && day) {
+      setSelectedDate(new Date(year, month - 1, day));
+      setSelectedModalityFilter(null);
+      setSelectedFdiFilter(null);
+      setSelectedSellerFilter(null);
+    }
+  };
+
+  const modalityOf = (s: Sale) =>
+    s.missing_fields?.includes('modality') ? 'Falta preencher' : normalizeModalityName(s.custom_data?.modality) || 'Falta preencher';
+
+  // Filter sales for the selected date - strictly based on Data da Venda (never created_at)
+  const daySales = useMemo(() => {
+    return sales.filter((s) => {
+      const saleDate = getSaleDateBr(s);
+      return saleDate === selectedDateFormatted;
+    });
+  }, [sales, selectedDateFormatted]);
+
+  // Total do dia
+  const dayTotalCount = daySales.length;
+  // Breakdown by modality
+  const modalityStats = useMemo(() => {
+    // Counts map
+    const counts: Record<string, { count: number }> = {};
+
+    // Todas as modalidades começam com 0
+    STANDARD_MODALITIES.forEach((mod) => {
+      counts[mod.name] = { count: 0 };
+    });
+
+    // Soma as vendas do dia
+    daySales.forEach((sale) => {
+      const mod = modalityOf(sale);
+      if (!counts[mod]) {
+        counts[mod] = { count: 0 };
+      }
+      counts[mod].count += 1;
+    });
+
+    return counts;
+  }, [daySales]);
+
+  // Modalidades fora da lista padrão (vendas antigas)
+  const extraModalities = useMemo(() => {
+    const standardNames = new Set(STANDARD_MODALITIES.map((m) => m.name));
+    return Object.keys(modalityStats).filter((name) => !standardNames.has(name) && modalityStats[name].count > 0);
+  }, [modalityStats]);
+
+  // Group modalities by category
+  const categories = useMemo(() => {
+    const list = [
+      {
+        title: 'Graduação',
+        icon: GraduationCap,
+        color: 'text-blue-600',
+        bgColor: 'bg-blue-50 border-blue-200',
+        items: STANDARD_MODALITIES.filter((m) => m.category === 'Graduação')
+      },
+      {
+        title: 'Pós-Graduação',
+        icon: BookOpen,
+        color: 'text-purple-600',
+        bgColor: 'bg-purple-50 border-purple-200',
+        items: STANDARD_MODALITIES.filter((m) => m.category === 'Pós-Graduação')
+      },
+      {
+        title: 'Curso Técnico',
+        icon: Wrench,
+        color: 'text-amber-600',
+        bgColor: 'bg-amber-50 border-amber-200',
+        items: STANDARD_MODALITIES.filter((m) => m.category === 'Curso Técnico')
+      }
+    ];
+
+    if (extraModalities.length > 0) {
+      list.push({
+        title: 'Outras Modalidades',
+        icon: Layers,
+        color: 'text-gray-600',
+        bgColor: 'bg-gray-50 border-gray-200',
+        items: extraModalities.map((name) => ({
+          name,
+          category: 'Outras Modalidades',
+        }))
+      });
+    }
+
+    return list;
+  }, [extraModalities]);
+
+  // Boletos por consultor no dia (consultores ativos aparecem mesmo com zero).
+  const sellerStats = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    profiles
+      .filter(p => p.role === 'seller' && p.status !== 'inactive')
+      .forEach(p => map.set(p.id, { id: p.id, name: p.name, count: 0 }));
+    daySales.forEach(s => {
+      const id = s.seller_id || s.seller_name || 'sem-consultor';
+      const entry = map.get(id) || { id, name: s.seller_name || 'Sem consultor', count: 0 };
+      entry.count += 1;
+      map.set(id, entry);
+    });
+    return [...map.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'pt-BR'));
+  }, [profiles, daySales]);
+
+  // Breakdown by FDI channel
+  const fdiStats = useMemo(() => {
+    const counts: Record<string, { count: number }> = {};
+
+    // Todas as FDI começam com 0
+    STANDARD_FDI_CHANNELS.forEach((ch) => {
+      counts[ch] = { count: 0 };
+    });
+
+    // Soma as vendas do dia
+    daySales.forEach((sale) => {
+      const fdi = getSaleFdiDisplay(sale);
+      if (!counts[fdi]) {
+        counts[fdi] = { count: 0 };
+      }
+      counts[fdi].count += 1;
+    });
+
+    return counts;
+  }, [daySales]);
+
+  // Combined list of standard channels + any extra channel that appears in sales
+  const fdiList = useMemo(() => {
+    const standardSet = new Set(STANDARD_FDI_CHANNELS);
+    const extraChannels = Object.keys(fdiStats).filter(
+      (name) => !standardSet.has(name) && fdiStats[name].count > 0
+    );
+
+    const fullNames = [...STANDARD_FDI_CHANNELS, ...extraChannels];
+    return fullNames.map((name) => ({
+      name,
+      count: fdiStats[name]?.count || 0,
+    }));
+  }, [fdiStats]);
+
+  // Vendas da tabela detalhada, com os filtros aplicados
+  const filteredSales = useMemo(() => {
+    let result = daySales;
+
+    if (selectedModalityFilter) {
+      result = result.filter((s) => modalityOf(s) === selectedModalityFilter);
+    }
+
+    if (selectedFdiFilter) {
+      result = result.filter((s) => getSaleFdiDisplay(s) === selectedFdiFilter);
+    }
+
+    if (selectedSellerFilter) {
+      result = result.filter((s) => (s.seller_id || s.seller_name || 'sem-consultor') === selectedSellerFilter);
+    }
+
+    if (tableSearch.trim()) {
+      const q = tableSearch.toLowerCase();
+      result = result.filter((s) => {
+        const candidate = (s.custom_data?.candidate_name || '').toLowerCase();
+        const opp = (s.custom_data?.opportunity_number || '').toLowerCase();
+        const seller = (s.seller_name || '').toLowerCase();
+        const mod = modalityOf(s).toLowerCase();
+        const fdi = getSaleFdiDisplay(s).toLowerCase();
+        return candidate.includes(q) || opp.includes(q) || seller.includes(q) || mod.includes(q) || fdi.includes(q);
+      });
+    }
+
+    return result;
+  }, [daySales, selectedModalityFilter, selectedFdiFilter, selectedSellerFilter, tableSearch]);
+
+  // Copy structured closing summary to clipboard (ready for WhatsApp / Telegram)
+  const handleCopyClosingSummary = async () => {
+    let text = `📊 *FECHAMENTO DIÁRIO - ${selectedDateFormatted}*\n`;
+    text += `🎯 *Total de Boletos:* ${dayTotalCount}\n\n`;
+
+    const sellersWithSales = sellerStats.filter(s => s.count > 0);
+    if (sellersWithSales.length > 0) {
+      text += `*Por consultor:*\n`;
+      sellersWithSales.forEach(s => {
+        text += `• ${s.name}: ${s.count}\n`;
+      });
+      text += `\n`;
+    }
+
+    // Graduação
+    text += `*Graduação:*\n`;
+    const gradItems = STANDARD_MODALITIES.filter((m) => m.category === 'Graduação');
+    gradItems.forEach((m) => {
+      const count = modalityStats[m.name]?.count || 0;
+      text += `• ${m.name}: ${count}\n`;
+    });
+
+    // Pós-Graduação
+    text += `\n*Pós-Graduação:*\n`;
+    const posItems = STANDARD_MODALITIES.filter((m) => m.category === 'Pós-Graduação');
+    posItems.forEach((m) => {
+      const count = modalityStats[m.name]?.count || 0;
+      text += `• ${m.name}: ${count}\n`;
+    });
+
+    // Curso Técnico
+    text += `\n*Curso Técnico:*\n`;
+    const tecItems = STANDARD_MODALITIES.filter((m) => m.category === 'Curso Técnico');
+    tecItems.forEach((m) => {
+      const count = modalityStats[m.name]?.count || 0;
+      text += `• ${m.name}: ${count}\n`;
+    });
+
+    if (extraModalities.length > 0) {
+      text += `\n*Outras Modalidades:*\n`;
+      extraModalities.forEach((m) => {
+        const count = modalityStats[m]?.count || 0;
+        text += `• ${m}: ${count}\n`;
+      });
+    }
+
+    // Canais de Captação (FDI)
+    text += `\n*Canais de Captação (FDI):*\n`;
+    fdiList.forEach((item) => {
+      if (item.count > 0) {
+        text += `• ${item.name}: ${item.count}\n`;
+      }
+    });
+
+    text += `\n_Gerado automaticamente pelo R9 Hub_`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedSuccess(true);
+      setTimeout(() => setCopiedSuccess(false), 3000);
+    } catch (err) {
+      console.error('Falha ao copiar:', err);
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-200">
+      
+      {/* 1. HEADER SECTION & DATE CONTROLS */}
+      <div className="bg-white rounded-2xl border border-gray-200/80 p-5 shadow-2xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          
+          {/* Title & Subtitle */}
+          <div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 flex items-center justify-center">
+                <CalendarCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  Fechamento Diário
+                  {isToday ? (
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Hoje
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+                      Histórico
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Somatória consolidada dos boletos do dia discriminados por modalidade
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Controls: Date Picker, Day Nav & Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            
+            {/* Date Navigation group */}
+            <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl p-1 text-xs font-semibold text-gray-700">
+              <button
+                onClick={handlePrevDay}
+                className="p-1.5 hover:bg-white hover:text-gray-900 rounded-lg transition-colors cursor-pointer"
+                title="Dia anterior"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="relative flex items-center gap-1.5 px-3">
+                <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                <span>{selectedDateFormatted}</span>
+                <input
+                  type="date"
+                  value={formatToIso(selectedDate)}
+                  onChange={handleDateInputChange}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  title="Clique para escolher a data" name="src_components_dashboard_dailyclosingview_tsx_input_1"
+                />
+              </div>
+
+              <button
+                onClick={handleNextDay}
+                className="p-1.5 hover:bg-white hover:text-gray-900 rounded-lg transition-colors cursor-pointer"
+                title="Próximo dia"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {!isToday && (
+              <button
+                onClick={handleSetToday}
+                className="px-3 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Voltar p/ Hoje
+              </button>
+            )}
+
+            {/* Botão Copiar Fechamento */}
+            <button
+              id="copy-closing-summary-btn"
+              onClick={handleCopyClosingSummary}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer ${
+                copiedSuccess
+                  ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                  : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'
+              }`}
+              title="Copiar fechamento formatado para enviar no WhatsApp ou chat da equipe"
+            >
+              {copiedSuccess ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>Copiado!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4 text-indigo-600" />
+                  <span>Copiar Fechamento</span>
+                </>
+              )}
+            </button>
+
+            {/* Botão Lançar Venda */}
+            {onOpenNewSaleModal && (
+              <button
+                onClick={onOpenNewSaleModal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-[#0052cc] hover:bg-[#00478f] rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Lançar Venda</span>
+              </button>
+            )}
+
+          </div>
+
+        </div>
+
+        {/* Highlight KPI: Total Boletos do Dia */}
+        <div className="pt-4 mt-4 border-t border-gray-100">
+          <div className="inline-flex items-center gap-3.5 p-3 px-4 rounded-xl bg-gradient-to-r from-indigo-50/70 to-blue-50/40 border border-indigo-100/80">
+            <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+              <Receipt className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider block">
+                Total de Boletos do Dia
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-gray-900 font-['Space_Grotesk']">
+                  {dayTotalCount}
+                </span>
+                <span className="text-xs text-gray-500 font-medium">
+                  {dayTotalCount === 1 ? 'boleto gerado' : 'boletos gerados'} ({selectedDateFormatted})
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* 2. MAIN BREAKDOWN BY MODALITY (O NÚCLEO DA SOLICITAÇÃO) */}
+      <div className="space-y-4">
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-bold text-gray-900">
+              Boletos por Modalidade
+            </h3>
+            <p className="text-xs text-gray-500">
+              Clique em qualquer modalidade para filtrar os lançamentos detalhados na tabela abaixo
+            </p>
+          </div>
+
+          {selectedModalityFilter && (
+            <button
+              onClick={() => setSelectedModalityFilter(null)}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+            >
+              Limpar filtro ({selectedModalityFilter})
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {categories.map((category) => {
+            const CatIcon = category.icon;
+            
+            // Subtotal of this category
+            const categorySubtotal = category.items.reduce(
+              (acc, item) => acc + (modalityStats[item.name]?.count || 0),
+              0
+            );
+
+            return (
+              <div
+                key={category.title}
+                className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden flex flex-col justify-between"
+              >
+                {/* Cabeçalho da categoria */}
+                <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg ${category.bgColor} ${category.color}`}>
+                      <CatIcon className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                      {category.title}
+                    </h4>
+                  </div>
+                  <span className="text-xs font-black text-gray-900 px-2 py-0.5 bg-white border border-gray-200 rounded-md">
+                    {categorySubtotal} {categorySubtotal === 1 ? 'boleto' : 'boletos'}
+                  </span>
+                </div>
+
+                {/* Modality Items List */}
+                <div className="p-3 divide-y divide-gray-100 flex-1">
+                  {category.items.map((mod) => {
+                    const count = modalityStats[mod.name]?.count || 0;
+                    const isSelected = selectedModalityFilter === mod.name;
+
+                    return (
+                      <div
+                        key={mod.name}
+                        onClick={() => setSelectedModalityFilter(isSelected ? null : mod.name)}
+                        className={`py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-between group ${
+                          isSelected
+                            ? 'bg-blue-50 border border-blue-200'
+                            : 'hover:bg-gray-50 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              count > 0 ? 'bg-emerald-500' : 'bg-gray-300'
+                            }`}
+                          />
+                          <span className={`text-xs font-bold ${count > 0 ? 'text-gray-900' : 'text-gray-600'}`}>
+                            {mod.name}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center justify-center min-w-[28px] h-7 px-2 text-xs font-black rounded-lg transition-colors ${
+                              count > 0
+                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                : 'bg-gray-100 text-gray-400'
+                            }`}
+                          >
+                            {count}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+              </div>
+            );
+          })}
+        </div>
+
+      </div>
+
+      {/* Boletos por consultor */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-bold text-gray-900">Boletos por Consultor</h3>
+            <p className="text-xs text-gray-500">Clique em um consultor para ver só as vendas dele na tabela abaixo</p>
+          </div>
+          {selectedSellerFilter && (
+            <button
+              onClick={() => setSelectedSellerFilter(null)}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              Limpar filtro ({sellerStats.find(s => s.id === selectedSellerFilter)?.name})
+            </button>
+          )}
+        </div>
+        {sellerStats.length === 0 ? (
+          <p className="text-xs text-gray-400">Nenhum consultor cadastrado.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {sellerStats.map(seller => {
+              const isSelected = selectedSellerFilter === seller.id;
+              return (
+                <button
+                  key={seller.id}
+                  type="button"
+                  disabled={seller.count === 0}
+                  onClick={() => setSelectedSellerFilter(isSelected ? null : seller.id)}
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left transition-all ${
+                    isSelected
+                      ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500/20'
+                      : seller.count > 0
+                        ? 'bg-white border-gray-200 hover:border-blue-300 cursor-pointer'
+                        : 'bg-gray-50 border-gray-100 cursor-default'
+                  }`}
+                >
+                  <span className={`text-xs font-semibold truncate ${seller.count > 0 ? 'text-gray-900' : 'text-gray-400'}`}>{seller.name}</span>
+                  <span className={`shrink-0 min-w-[26px] h-6 px-1.5 inline-flex items-center justify-center rounded-lg text-xs font-black ${
+                    seller.count > 0 ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-gray-100 text-gray-400'
+                  }`}>
+                    {seller.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 2.5. BREAKDOWN BY CHANNEL (FDI) */}
+      <div className="space-y-4">
+        
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+              <span>Boletos por Canal (FDI)</span>
+            </h3>
+            <p className="text-xs text-gray-500">
+              Distribuição por canal de captação • Clique em qualquer canal para filtrar os lançamentos detalhados abaixo
+            </p>
+          </div>
+
+          {selectedFdiFilter && (
+            <button
+              onClick={() => setSelectedFdiFilter(null)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Limpar canal ({selectedFdiFilter})</span>
+            </button>
+          )}
+        </div>
+
+        {/* Responsive Grid of FDI Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
+          {fdiList.map((item) => {
+            const isSelected = selectedFdiFilter === item.name;
+            const count = item.count;
+            const percent = dayTotalCount > 0 ? Math.round((count / dayTotalCount) * 100) : 0;
+            const config = fdiStyle(item.name);
+
+            return (
+              <button
+                key={item.name}
+                type="button"
+                onClick={() => setSelectedFdiFilter(isSelected ? null : item.name)}
+                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between group ${
+                  isSelected
+                    ? 'bg-blue-50/70 border-blue-400 ring-2 ring-blue-400/20 shadow-xs'
+                    : count > 0
+                    ? 'bg-white border-gray-200/80 hover:border-gray-300 hover:shadow-2xs'
+                    : 'bg-white/70 border-gray-100 hover:border-gray-200 hover:bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${config.bg} ${config.text} border ${config.border}`}
+                  >
+                    {item.name}
+                  </span>
+                  <span
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      isSelected
+                        ? 'bg-blue-600 ring-4 ring-blue-100'
+                        : count > 0
+                        ? 'bg-emerald-500'
+                        : 'bg-gray-300'
+                    }`}
+                  />
+                </div>
+
+                <div className="flex items-baseline justify-between pt-1">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className={`text-2xl font-black font-['Space_Grotesk'] ${count > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                      {count}
+                    </span>
+                    <span className="text-xs text-gray-400 font-medium">
+                      {count === 1 ? 'boleto' : 'boletos'}
+                    </span>
+                  </div>
+
+                  {count > 0 && dayTotalCount > 0 && (
+                    <span className="text-[11px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+                      {percent}%
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+      </div>
+
+      {/* 3. DETAILED TABLE OF THE DAY'S SALES */}
+      <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
+        
+        {/* Busca e filtros da tabela */}
+        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <span>Detalhamento dos Boletos do Dia</span>
+              <span className="text-xs font-normal text-gray-400">
+                ({filteredSales.length} {filteredSales.length === 1 ? 'registro' : 'registros'})
+              </span>
+            </h4>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <p className="text-xs text-gray-500">
+                {selectedModalityFilter && selectedFdiFilter ? (
+                  <>
+                    Filtrando por modalidade <strong className="text-gray-800 font-semibold">{selectedModalityFilter}</strong> e canal <strong className="text-gray-800 font-semibold">{selectedFdiFilter}</strong>
+                  </>
+                ) : selectedModalityFilter ? (
+                  <>
+                    Exibindo apenas boletos da modalidade <strong className="text-gray-800 font-semibold">{selectedModalityFilter}</strong>
+                  </>
+                ) : selectedFdiFilter ? (
+                  <>
+                    Exibindo apenas boletos do canal FDI <strong className="text-gray-800 font-semibold">{selectedFdiFilter}</strong>
+                  </>
+                ) : (
+                  `Exibindo todas as modalidades e canais na data ${selectedDateFormatted}`
+                )}
+              </p>
+
+              {(selectedModalityFilter || selectedFdiFilter) && (
+                <div className="flex items-center gap-1.5 ml-1">
+                  {selectedModalityFilter && (
+                    <button
+                      onClick={() => setSelectedModalityFilter(null)}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-md hover:bg-blue-100 transition-colors cursor-pointer"
+                      title="Remover filtro de modalidade"
+                    >
+                      <span>Modalidade: {selectedModalityFilter}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  {selectedFdiFilter && (
+                    <button
+                      onClick={() => setSelectedFdiFilter(null)}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-md hover:bg-purple-100 transition-colors cursor-pointer"
+                      title="Remover filtro de canal FDI"
+                    >
+                      <span>Canal: {selectedFdiFilter}</span>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSelectedModalityFilter(null);
+                      setSelectedFdiFilter(null);
+                    }}
+                    className="text-[11px] text-gray-500 hover:text-gray-700 underline underline-offset-2 ml-0.5 cursor-pointer"
+                  >
+                    Limpar todos
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Search input in table */}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar aluno, consultor, canal..."
+              value={tableSearch}
+              onChange={(e) => setTableSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 bg-gray-50 hover:bg-gray-100/70 focus:bg-white text-xs border border-gray-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors" name="src_components_dashboard_dailyclosingview_tsx_input_2"
+            />
+          </div>
+        </div>
+
+        {/* Table Body */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-gray-50 text-gray-500 font-semibold border-b border-gray-200/80 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th className="py-3 px-4">Aluno / Candidato</th>
+                <th className="py-3 px-3">Oportunidade</th>
+                <th className="py-3 px-3">Consultor</th>
+                <th className="py-3 px-3">Modalidade</th>
+                <th className="py-3 px-3">Turno</th>
+                <th className="py-3 px-3">Canal (FDI)</th>
+                <th className="py-3 px-4 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredSales.length > 0 ? (
+                filteredSales.map((sale) => {
+                  const candidate = sale.custom_data?.candidate_name || sale.product_name || 'Sem nome';
+                  const opp = sale.custom_data?.opportunity_number || sale.id.slice(0, 8);
+                  const seller = sale.seller_name || 'Consultor';
+                  const mod = modalityOf(sale);
+                  const shift = sale.missing_fields?.includes('shift') ? 'Falta preencher' : (sale.custom_data?.shift || '—');
+                  const fdi = getSaleFdiDisplay(sale);
+                  const fdiConfig = fdiStyle(fdi);
+
+                  return (
+                    <tr key={sale.id} className="hover:bg-blue-50/30 transition-colors">
+                      <td className="py-3 px-4 font-semibold text-gray-900">
+                        {candidate}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-[11px] text-gray-600">
+                        {opp}
+                      </td>
+                      <td className="py-3 px-3 text-gray-700">
+                        <div className="flex items-center gap-1.5">
+                          <User className="w-3 h-3 text-gray-400" />
+                          <span>{seller}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {mod}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-gray-600">
+                        {shift}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${fdiConfig.bg} ${fdiConfig.text} border ${fdiConfig.border}`}>
+                          {fdi}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => setEditingSale(sale)}
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                          title="Editar lançamento"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-gray-400">
+                    <Receipt className="w-8 h-8 mx-auto text-gray-300 mb-2" />
+                    <p className="font-semibold text-sm text-gray-600">Nenhum boleto encontrado nesta data</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {selectedModalityFilter && selectedFdiFilter
+                        ? `Não há registros com a modalidade "${selectedModalityFilter}" e canal "${selectedFdiFilter}" no dia ${selectedDateFormatted}.`
+                        : selectedModalityFilter
+                        ? `Não há registros com a modalidade "${selectedModalityFilter}" no dia ${selectedDateFormatted}.`
+                        : selectedFdiFilter
+                        ? `Não há registros com o canal FDI "${selectedFdiFilter}" no dia ${selectedDateFormatted}.`
+                        : `Não foram registrados boletos na data ${selectedDateFormatted}.`}
+                    </p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      {/* MODAL DE EDIÇÃO PONTUAL DE VENDA */}
+      <EditSaleModal
+        isOpen={!!editingSale}
+        sale={editingSale}
+        onClose={() => setEditingSale(null)}
+        onSuccess={() => setEditingSale(null)}
+      />
+
+    </div>
+  );
+};

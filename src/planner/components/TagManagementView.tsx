@@ -3,6 +3,7 @@ import { Tag, Plus, Search, RefreshCw, ArrowLeft, CheckCircle2, AlertCircle, Edi
 import { supabase } from '../../lib/supabase';
 import { tagService, PRESET_TAG_COLORS } from '../services/tagService.ts';
 import { TagBucket, Task } from '../types.ts';
+import { errorText } from '../../lib/errors';
 
 interface TagManagementViewProps {
   isAdmin: boolean;
@@ -80,9 +81,7 @@ export default function TagManagementView({
       const { data, error } = await tagService.fetchTags();
 
       if (error) {
-        const errMsg =
-          error.message ||
-          (typeof error === 'string' ? error : 'Falha ao consultar a tabela tags_bucket.');
+        const errMsg = errorText(error, 'Falha ao consultar a tabela tags_bucket.');
         setFetchError(errMsg);
         showNotification(`Erro ao consultar tags_bucket: ${errMsg}`, 'error');
         setTags([]);
@@ -92,8 +91,8 @@ export default function TagManagementView({
         setTags(data || []);
         onTagsUpdatedRef.current?.(data || []);
       }
-    } catch (err: any) {
-      const errMsg = err?.message || 'Erro de rede ao conectar ao Supabase.';
+    } catch (err) {
+      const errMsg = errorText(err, 'Erro de rede ao conectar ao Supabase.');
       setFetchError(errMsg);
       showNotification(errMsg, 'error');
       setTags([]);
@@ -189,7 +188,7 @@ export default function TagManagementView({
       });
 
       if (error) {
-        showNotification(`Erro ao criar no Supabase: ${error.message || 'Falha na inserção.'}`, 'error');
+        showNotification(`Erro ao criar no Supabase: ${errorText(error, 'Falha na inserção.')}`, 'error');
       } else {
         showNotification(`Categoria "${cleanName}" cadastrada com sucesso!`, 'success');
         setNewTagName('');
@@ -255,7 +254,7 @@ export default function TagManagementView({
       });
 
       if (error) {
-        showNotification(`Erro ao atualizar no Supabase: ${error.message}`, 'error');
+        showNotification(`Erro ao atualizar no Supabase: ${errorText(error, 'falha ao salvar.')}`, 'error');
       } else {
         // Se renomeou e há tarefas usando o nome antigo, atualiza as tarefas para refletir nos cards
         if (isNameChanged) {
@@ -308,7 +307,7 @@ export default function TagManagementView({
       const { error } = await tagService.deleteTag(tagId);
 
       if (error) {
-        showNotification(`Erro ao excluir no Supabase: ${error.message}`, 'error');
+        showNotification(`Erro ao excluir no Supabase: ${errorText(error, 'falha ao excluir.')}`, 'error');
       } else {
         // Se houver tarefas com essa tag/bucket, reatribui para 'Geral' ou limpa nos cards
         if (associatedTaskCount > 0) {

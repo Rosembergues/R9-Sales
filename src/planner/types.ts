@@ -113,3 +113,19 @@ export interface TaskModel {
   updatedAt?: string;
 }
 
+/** Usuário logado como o Planejamento recebe (sessão do Supabase Auth). */
+export interface PlannerAuthUser {
+  id?: string;
+  email?: string;
+  user_metadata?: { full_name?: string; nome?: string; name?: string };
+}
+
+/** Aviso de mudança numa tarefa, enviado entre abas/pessoas pelo canal de tempo real. */
+export interface TaskMutationEvent {
+  payload?: {
+    action: 'created' | 'updated' | 'deleted' | 'form_submitted';
+    taskId?: string;
+    task?: Task | null;
+    timestamp?: number;
+  };
+}

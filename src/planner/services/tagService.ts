@@ -1,5 +1,6 @@
 import { supabase } from '../../lib/supabase';
 import { TagBucket } from '../types.ts';
+import type { TagDbRow } from '../../lib/dbTypes';
 
 // Cores predefinidas para categorias/tags no padrão R9 Precision System
 export const PRESET_TAG_COLORS = [
@@ -18,7 +19,7 @@ export const PRESET_TAG_COLORS = [
 /**
  * Normaliza uma linha retornada pelo Supabase para o tipo TagBucket
  */
-export function mapDbRowToTag(row: any): TagBucket {
+export function mapDbRowToTag(row: TagDbRow): TagBucket {
   const resolvedColor = row.color ?? row.cor ?? row.tag_color ?? '#004691';
   const resolvedDesc = row.description ?? row.descricao ?? '';
   return {
@@ -36,30 +37,29 @@ export const tagService = {
   /**
    * Busca todas as tags/categorias da tabela 'tags_bucket' no Supabase
    */
-  async fetchTags(): Promise<{ data: TagBucket[]; error: any | null }> {
+  async fetchTags(): Promise<{ data: TagBucket[]; error: unknown }> {
     try {
       // Timeout de 8 segundos para evitar travamento em caso de indisponibilidade de rede/RLS
       const queryPromise = supabase
         .from('tags_bucket')
         .select('*');
 
-      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) => {
+      const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Tempo limite excedido ao consultar tags_bucket no Supabase.')), 8000);
       });
 
-      const result = (await Promise.race([queryPromise, timeoutPromise])) as any;
-      const { data, error } = result;
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
       if (error) {
         console.warn('Aviso ao consultar tabela tags_bucket:', error);
         return { data: [], error };
       }
 
-      const tags = (data || []).map(mapDbRowToTag);
+      const tags = ((data || []) as TagDbRow[]).map(mapDbRowToTag);
       // Ordenação alfabética
-      tags.sort((a, b) => a.nome.localeCompare(b.nome));
+      tags.sort((a: TagBucket, b: TagBucket) => a.nome.localeCompare(b.nome));
       return { data: tags, error: null };
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro de conexão ao buscar tags_bucket:', err);
       return { data: [], error: err };
     }
@@ -74,7 +74,7 @@ export const tagService = {
     color?: string;
     descricao?: string;
     description?: string;
-  }): Promise<{ data: TagBucket | null; error: any | null }> {
+  }): Promise<{ data: TagBucket | null; error: unknown }> {
     try {
       const cleanNome = payload.nome?.trim();
       if (!cleanNome) {
@@ -137,7 +137,7 @@ export const tagService = {
         },
         error: null,
       };
-    } catch (err: any) {
+    } catch (err) {
       console.error('Exceção ao criar tag:', err);
       return { data: null, error: err };
     }
@@ -149,9 +149,9 @@ export const tagService = {
   async updateTag(
     id: string,
     updates: { nome?: string; cor?: string; descricao?: string }
-  ): Promise<{ data: TagBucket | null; error: any | null }> {
+  ): Promise<{ data: TagBucket | null; error: unknown }> {
     try {
-      const payload: Record<string, any> = {};
+      const payload: Record<string, string> = {};
       if (updates.nome !== undefined) payload.nome = updates.nome.trim();
       if (updates.cor !== undefined) payload.color = updates.cor;
       if (updates.descricao !== undefined) payload.description = updates.descricao.trim();
@@ -163,7 +163,7 @@ export const tagService = {
         .select('*');
 
       if (error && (error.code === 'PGRST204' || error.message?.includes('column'))) {
-        const altPayload: Record<string, any> = {};
+        const altPayload: Record<string, string> = {};
         if (updates.nome !== undefined) altPayload.nome = updates.nome.trim();
         if (updates.cor !== undefined) altPayload.cor = updates.cor;
         if (updates.descricao !== undefined) altPayload.descricao = updates.descricao.trim();
@@ -194,7 +194,7 @@ export const tagService = {
   /**
    * Exclui uma tag da tabela 'tags_bucket'
    */
-  async deleteTag(id: string): Promise<{ error: any | null }> {
+  async deleteTag(id: string): Promise<{ error: unknown }> {
     try {
       const { error } = await supabase
         .from('tags_bucket')
@@ -213,7 +213,7 @@ export const tagService = {
   /**
    * Verifica quantas tarefas utilizam o nome desta tag/bucket no sistema
    */
-  async countTasksWithTag(tagName: string): Promise<{ count: number; error: any | null }> {
+  async countTasksWithTag(tagName: string): Promise<{ count: number; error: unknown }> {
     try {
       // 1. Busca por bucket
       const { count: bucketCount, error: bError } = await supabase
@@ -234,7 +234,7 @@ export const tagService = {
   /**
    * Atualiza as tarefas que utilizavam a tag antiga para o novo nome renomeado
    */
-  async renameTagInTasks(oldName: string, newName: string): Promise<{ updatedCount: number; error: any | null }> {
+  async renameTagInTasks(oldName: string, newName: string): Promise<{ updatedCount: number; error: unknown }> {
     try {
       const { data, error } = await supabase
         .from('tarefas')
@@ -255,7 +255,7 @@ export const tagService = {
   /**
    * Remove ou reatribui a tag de tarefas quando a tag é deletada
    */
-  async removeTagFromTasks(tagName: string, fallbackBucket = 'Geral'): Promise<{ error: any | null }> {
+  async removeTagFromTasks(tagName: string, fallbackBucket = 'Geral'): Promise<{ error: unknown }> {
     try {
       const { error } = await supabase
         .from('tarefas')

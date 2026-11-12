@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Profile, UserRole, SupabaseConfig, ProfileStatus, hasApprovedAccess, isAllowedEmailDomain } from '../types';
-import { supabase, setSupabaseCredentials, LocalSyncEngine } from '../lib/supabase';
+import { Profile, UserRole, ProfileStatus, hasApprovedAccess, isAllowedEmailDomain } from '../types';
+import { RESET_PASSWORD_PATH, authRedirectAtStartup, supabase } from '../lib/supabase';
+import { LocalSyncEngine } from '../lib/localCache';
+import { errorText } from '../lib/errors';
 
 interface AuthContextType {
   currentUser: Profile | null;
@@ -11,8 +13,6 @@ interface AuthContextType {
   /** Usuários aguardando autorização. */
   pendingProfiles: Profile[];
   loading: boolean;
-  isSupabaseConnected: boolean;
-  supabaseConfig: SupabaseConfig;
   signUp: (data: { name: string; email: string; password: string }) => Promise<{ success: boolean; error?: string }>;
   signIn: (data: { email: string; password?: string }) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
@@ -21,9 +21,15 @@ interface AuthContextType {
   updateUserName: (userId: string, name: string) => Promise<{ success: boolean; error?: string }>;
   /** Relê o perfil do usuário logado (ex.: conferir se já foi autorizado). */
   reloadCurrentUser: () => Promise<void>;
-  deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>;
-  updateSupabaseCredentials: (url: string, key: string) => Promise<{ success: boolean; error?: string }>;
   refreshProfiles: () => Promise<void>;
+  /** Aberto pelo link de "Esqueci minha senha": mostrar a página de nova senha. */
+  isPasswordRecovery: boolean;
+  /** Envia o e-mail com o link para criar uma senha nova. */
+  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string }>;
+  /** Grava a senha nova de quem está logado (inclusive pelo link de recuperação). */
+  updatePassword: (password: string) => Promise<{ success: boolean; error?: string }>;
+  /** Sai da página de nova senha e volta ao fluxo normal do site. */
+  endPasswordRecovery: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,13 +40,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profiles = React.useMemo(() => allProfiles.filter(hasApprovedAccess), [allProfiles]);
   const pendingProfiles = React.useMemo(() => allProfiles.filter(p => p.status === 'pending'), [allProfiles]);
   const [loading, setLoading] = useState(true);
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState(true);
-  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>({
-    url: import.meta.env.VITE_SUPABASE_URL || 'https://wqdrybpjfvuzrnozomxa.supabase.co',
-    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-    isCustom: false,
-    connected: true,
-  });
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(authRedirectAtStartup.isRecovery);
+
 
   /**
    * Recupera o perfil do usuário logado fazendo um select na tabela profiles
@@ -145,8 +146,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (session?.user) {
-        setIsSupabaseConnected(true);
-        setSupabaseConfig(prev => ({ ...prev, connected: true }));
         await fetchAndSetUserProfile(session.user.id, {
           name: session.user.user_metadata?.name,
           email: session.user.email,
@@ -158,7 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Carregar lista de perfis do banco
       await refreshProfiles();
-    } catch (err: any) {
+    } catch (err) {
       console.error('💥 [Supabase Auth] Exceção durante inicialização de sessão:', err);
     } finally {
       setLoading(false);
@@ -174,6 +173,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // a mudança de sessão; consultar profiles dentro dele pode causar
     // "Failed to fetch"/deadlocks intermitentes.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+        return;
+      }
+
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         LocalSyncEngine.setCurrentUser(null);
@@ -181,8 +185,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-        setIsSupabaseConnected(true);
-        setSupabaseConfig(prev => ({ ...prev, connected: true }));
 
         // Sai do callback do Auth antes de consultar profiles.
         setTimeout(() => {
@@ -247,10 +249,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setLoading(false);
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       console.error('💥 [Supabase Auth] Exceção inesperada durante o cadastro:', err);
       setLoading(false);
-      return { success: false, error: err?.message || 'Erro inesperado durante o cadastro.' };
+      return { success: false, error: errorText(err, 'Erro inesperado durante o cadastro.') };
     }
   };
 
@@ -293,10 +295,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setLoading(false);
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       console.error('💥 [Supabase Auth] Exceção inesperada no login:', err);
       setLoading(false);
-      return { success: false, error: err?.message || 'Erro ao realizar login.' };
+      return { success: false, error: errorText(err, 'Erro ao realizar login.') };
     }
   };
 
@@ -344,8 +346,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updated = data[0] as Profile;
       setProfiles(prev => prev.map(p => (p.id === userId ? { ...p, ...updated } : p)));
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || 'Erro ao alterar o acesso do usuário.' };
+    } catch (err) {
+      return { success: false, error: errorText(err, 'Erro ao alterar o acesso do usuário.') };
     }
   };
 
@@ -372,9 +374,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       console.error('💥 [Supabase DB] Exceção ao atualizar papel:', err);
-      return { success: false, error: err?.message || 'Erro ao alterar perfil do usuário.' };
+      return { success: false, error: errorText(err, 'Erro ao alterar perfil do usuário.') };
     }
   };
 
@@ -395,48 +397,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfiles(prev => prev.map(p => (p.id === userId ? { ...p, name: clean } : p)));
       if (currentUser?.id === userId) setCurrentUser(prev => (prev ? { ...prev, name: clean } : null));
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || 'Erro ao alterar o nome.' };
+    } catch (err) {
+      return { success: false, error: errorText(err, 'Erro ao alterar o nome.') };
     }
   };
 
-  // Exclusão de perfil da tabela profiles
-  const deleteUser = async (userId: string) => {
-    if (currentUser?.id === userId) {
-      return { success: false, error: 'Você não pode excluir sua própria conta conectada.' };
+  const requestPasswordReset = async (email: string) => {
+    const clean = email.trim().toLowerCase();
+    if (!isAllowedEmailDomain(clean)) {
+      return { success: false, error: 'Use o seu e-mail @estacio.br ou @yduqs.com.br.' };
     }
-    try {
-      const { data, error } = await supabase.from('profiles').delete().eq('id', userId).select('id');
-      if (error) {
-        console.error('❌ [Supabase DB] Erro ao excluir perfil:', error.message);
-        return { success: false, error: error.message };
-      }
-      if (!data || data.length === 0) {
-        return { success: false, error: 'Nenhum perfil foi excluído. Verifique suas permissões de administrador (RLS).' };
-      }
-      setProfiles(prev => prev.filter(p => p.id !== userId));
-      return { success: true };
-    } catch (err: any) {
-      console.error('💥 [Supabase DB] Exceção ao excluir perfil:', err);
-      return { success: false, error: err?.message || 'Erro ao excluir usuário.' };
+    const { error } = await supabase.auth.resetPasswordForEmail(clean, {
+      redirectTo: `${window.location.origin}${RESET_PASSWORD_PATH}`,
+    });
+    if (!error) return { success: true };
+    const msg = error.message || '';
+    if (/only request this after|rate limit|too many/i.test(msg)) {
+      return { success: false, error: 'Muitos pedidos seguidos. Espere um minuto e tente de novo.' };
     }
+    return { success: false, error: errorText(error, 'Não foi possível enviar o e-mail agora. Tente de novo.') };
   };
 
-  const updateSupabaseCredentials = async (url: string, key: string) => {
-    try {
-      localStorage.setItem('salesflow_supabase_config', JSON.stringify({ url, anonKey: key }));
-      setSupabaseCredentials(url, key);
-      setSupabaseConfig({
-        url,
-        anonKey: key,
-        isCustom: true,
-        connected: true,
-      });
-      await initializeAuth();
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || 'Erro ao atualizar credenciais do Supabase.' };
+  const updatePassword = async (password: string) => {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (!error) return { success: true };
+    const msg = error.message || '';
+    if (/different from the old password/i.test(msg)) {
+      return { success: false, error: 'A senha nova precisa ser diferente da atual.' };
     }
+    if (/at least|weak|characters/i.test(msg)) {
+      return { success: false, error: 'Senha fraca. Use pelo menos 8 caracteres, com letras e números.' };
+    }
+    if (/session|jwt|expired|not authenticated/i.test(msg)) {
+      return { success: false, error: 'O link expirou. Peça um link novo.' };
+    }
+    return { success: false, error: errorText(error, 'Não foi possível salvar a senha. Tente de novo.') };
+  };
+
+  const endPasswordRecovery = () => {
+    setIsPasswordRecovery(false);
+    if (window.location.pathname === RESET_PASSWORD_PATH) window.history.replaceState(null, '', '/');
   };
 
   return (
@@ -447,8 +447,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         allProfiles,
         pendingProfiles,
         loading,
-        isSupabaseConnected,
-        supabaseConfig,
         signUp,
         signIn,
         signOut,
@@ -456,9 +454,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateUserStatus,
         updateUserName,
         reloadCurrentUser,
-        deleteUser,
-        updateSupabaseCredentials,
         refreshProfiles,
+        isPasswordRecovery,
+        requestPasswordReset,
+        updatePassword,
+        endPasswordRecovery,
       }}
     >
       {children}

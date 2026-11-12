@@ -1,8 +1,4 @@
 {
   "name": "R9 Hub",
-  "description": "Central da operação comercial (R9 Hub): vendas, metas, comparador de preços da concorrência com autenticação Supabase, perfis de Administrador e Vendedor, gerenciamento de campanhas, lançamentos ágeis e rankings ao vivo.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "description": "Central da operação comercial do R9: vendas, metas, rankings, planejamento da equipe, repositório de mensagens e comparador de preços da concorrência."
 }

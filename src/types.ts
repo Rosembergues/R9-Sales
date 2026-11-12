@@ -41,7 +41,18 @@ export interface SaleCustomData {
   parcela_leve?: ParcelaLeveOption;
   has_bolsa_convenio?: boolean;
   empresa_convenio?: string;
-  [key: string]: any;
+  /** Ciclo acadêmico da venda (ex.: 2026.3). */
+  academic_period?: string;
+  /** Quem lançou (pode ser diferente do dono da venda). */
+  registered_by?: string;
+  seller_id?: string;
+  seller_name?: string;
+  seller_email?: string;
+  collaborator_id?: string;
+  collaborator_name?: string;
+  channel?: string;
+  canal?: string;
+  [key: string]: unknown;
 }
 
 export type ProfileStatus = 'pending' | 'active' | 'inactive' | 'rejected';
@@ -71,29 +82,6 @@ export interface Profile {
   target_monthly?: number; // meta mensal em quantidade de lançamentos
 }
 
-export interface CampaignField {
-  id: string;
-  label: string;
-  type: 'text' | 'number' | 'select' | 'date';
-  required: boolean;
-  options?: string[];
-  placeholder?: string;
-  default_value?: string;
-}
-
-export interface Campaign {
-  id: string;
-  title: string;
-  description: string;
-  code: string;
-  active: boolean;
-  start_date: string;
-  end_date: string;
-  fields: CampaignField[];
-  created_by: string | null;
-  created_at: string;
-}
-
 export interface Sale {
   id: string;
   campaign_id: string;
@@ -117,33 +105,6 @@ export interface Sale {
   missing_fields?: Array<'opportunity' | 'candidate' | 'date' | 'seller' | 'product' | 'modality' | 'shift' | 'fdi'>;
 }
 
-export interface LeaderboardEntry {
-  seller_id: string;
-  name: string;
-  email: string;
-  avatar_url?: string;
-  total_sales: number;
-  target: number;
-  target_graduacao?: number;
-  target_pos?: number;
-  target_tecnico?: number;
-  target_total?: number;
-  percentage_reached: number;
-  position: number;
-  rank_tier: 'Bronze' | 'Prata' | 'Ouro' | 'Diamante';
-  recent_trend?: 'up' | 'down' | 'same';
-  graduacao_count?: number;
-  pos_count?: number;
-  tecnico_count?: number;
-}
-
-export interface SupabaseConfig {
-  url: string;
-  anonKey: string;
-  isCustom: boolean;
-  connected: boolean;
-}
-
 export type GoalType = 'semanal' | 'mensal' | 'week' | 'month';
 
 export interface Goal {
@@ -163,6 +124,8 @@ export interface Goal {
   month?: number;
   year?: number;
   goal_period_id?: string | null;
+  /** Ciclo acadêmico (ex.: 2026.3), quando a meta é de um ciclo específico. */
+  academic_period?: string | null;
 }
 
 export interface DatabaseGoalRecord {
@@ -182,6 +145,7 @@ export interface DatabaseGoalRecord {
   month?: number;
   year?: number;
   goal_period_id?: string | null;
+  academic_period?: string | null;
 }
 
 export interface UserGoalData {

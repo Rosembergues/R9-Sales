@@ -1,26 +1,37 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, Receipt, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, Inbox, CheckSquare, MessageSquareText, Scale, ListChecks } from 'lucide-react';
-import { UsersProfilesTable } from '../admin/UsersProfilesTable';
-import { PerformancePage } from '../performance/PerformancePage';
-import { GoalManagementPage } from '../admin/GoalManagementPage';
-import { GoalImportPage } from '../admin/GoalImportPage';
-import { MessageRepository } from '../messages/MessageRepository';
-import { LiveTeamLeaderboard } from '../seller/LiveTeamLeaderboard';
-import { SalesSpreadsheetTable } from './SalesSpreadsheetTable';
-import { DailyClosingView } from './DailyClosingView';
+import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, CheckSquare, MessageSquareText, Scale, ListChecks } from 'lucide-react';
 import { HomeDashboard } from './HomeDashboard';
 import { NewSaleModal } from '../sales/NewSaleModal';
-import { getTodayBrDate, getSaleDateBr, getSaleFdiDisplay } from '../../lib/salesMapper';
-import Planner from '../../planner/components/Planner';
-import { PriceComparatorPage } from '../prices/PriceComparatorPage';
+import { getTodayBrDate, getSaleDateBr } from '../../lib/salesMapper';
+import { ErrorBoundary } from '../common/ErrorBoundary';
+
+// Telas carregadas só quando abertas: o primeiro acesso ao site fica mais leve
+// (Excel, Planejamento e Comparador não entram no carregamento inicial).
+const UsersProfilesTable = lazy(() => import('../admin/UsersProfilesTable').then(m => ({ default: m.UsersProfilesTable })));
+const PerformancePage = lazy(() => import('../performance/PerformancePage').then(m => ({ default: m.PerformancePage })));
+const GoalManagementPage = lazy(() => import('../admin/GoalManagementPage').then(m => ({ default: m.GoalManagementPage })));
+const GoalImportPage = lazy(() => import('../admin/GoalImportPage').then(m => ({ default: m.GoalImportPage })));
+const MessageRepository = lazy(() => import('../messages/MessageRepository').then(m => ({ default: m.MessageRepository })));
+const LiveTeamLeaderboard = lazy(() => import('../ranking/LiveTeamLeaderboard').then(m => ({ default: m.LiveTeamLeaderboard })));
+const SalesSpreadsheetTable = lazy(() => import('../sales/SalesSpreadsheetTable').then(m => ({ default: m.SalesSpreadsheetTable })));
+const DailyClosingView = lazy(() => import('../sales/DailyClosingView').then(m => ({ default: m.DailyClosingView })));
+const Planner = lazy(() => import('../../planner/components/Planner'));
+const PriceComparatorPage = lazy(() => import('../prices/PriceComparatorPage').then(m => ({ default: m.PriceComparatorPage })));
+
+const TabLoading = () => (
+  <div className="py-20 flex items-center justify-center gap-2 text-xs text-slate-400">
+    <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-[#0052cc] animate-spin" />
+    Carregando...
+  </div>
+);
 
 export const R9Dashboard: React.FC = () => {
   const { currentUser, signOut, pendingProfiles } = useAuth();
   const { sales } = useSales();
 
-  // Role check
+  // Papel de quem está logado
   const isActualAdmin = currentUser?.role === 'admin';
 
   // Navigation & View States
@@ -83,7 +94,7 @@ export const R9Dashboard: React.FC = () => {
     return saleDate === todayFormatted;
   }).length;
 
-  // Format initials and username
+  // Nome e iniciais exibidos no menu
   const userName = currentUser?.name || currentUser?.email?.split('@')[0] || 'daniel.marques';
   const userInitials = userName
     .split(/[\s._]+/)
@@ -128,7 +139,7 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
             
-            {/* User Profile Header */}
+            {/* Perfil de quem está logado */}
             {!isSidebarCollapsed ? (
               <div className="flex items-center justify-between p-1">
                 <div className="flex items-center gap-2.5 overflow-hidden">
@@ -162,7 +173,7 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* Lançar Venda CTA Button */}
+            {/* Botão Lançar Venda */}
             <div className={isSidebarCollapsed ? 'flex justify-center' : ''}>
               <button
                 id="btn-lancar-venda"
@@ -523,6 +534,8 @@ export const R9Dashboard: React.FC = () => {
         {/* MAIN WORKSPACE CANVAS */}
         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-[#f6f8fc]">
           <div className="w-full max-w-[1680px] mx-auto p-4 sm:p-6 lg:p-7 min-h-full">
+           <ErrorBoundary key={activeTab}>
+           <Suspense fallback={<TabLoading />}>
             
             {/* Planner integrado — compartilha a sessão autenticada do R9 Hub */}
             {(activeTab === 'planner' || activeTab === 'planner_summary') && currentUser && (
@@ -534,7 +547,7 @@ export const R9Dashboard: React.FC = () => {
                     user_metadata: { full_name: currentUser.name, nome: currentUser.name },
                   }}
                   viewRole={viewRole}
-                  externalNavigation
+
                   section={activeTab === 'planner_summary' ? 'summary' : plannerSection}
                   onSectionChange={handlePlannerSectionChange}
                 />
@@ -657,6 +670,8 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
+           </Suspense>
+           </ErrorBoundary>
           </div>
 
         </main>

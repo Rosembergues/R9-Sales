@@ -7,8 +7,9 @@
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs",
+    "check": "tsc --noEmit && node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",

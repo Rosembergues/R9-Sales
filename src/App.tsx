@@ -3,20 +3,23 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SalesProvider } from './context/SalesContext';
 import { AuthPage } from './components/auth/AuthPage';
 import { PendingApprovalPage } from './components/auth/PendingApprovalPage';
+import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
 import { hasApprovedAccess } from './types';
 import { R9Dashboard } from './components/dashboard/R9Dashboard';
 import { useIdleTimeout, THREE_HOURS_MS } from './hooks/useIdleTimeout';
-import { LocalSyncEngine } from './lib/supabase';
+import { LocalSyncEngine } from './lib/localCache';
 
 const MainLayout: React.FC = () => {
-  const { currentUser, loading, signOut } = useAuth();
+  const { currentUser, loading, signOut, isPasswordRecovery } = useAuth();
 
   // Normaliza rota caso haja caminho residual (/login, hash, etc.) e garante a raiz do app
+  // (exceto a página de nova senha, que precisa do próprio endereço)
   useEffect(() => {
+    if (isPasswordRecovery) return;
     if (window.location.pathname !== '/' && window.location.pathname !== '') {
       window.history.replaceState(null, '', '/');
     }
-  }, [currentUser]);
+  }, [currentUser, isPasswordRecovery]);
 
   // Callback de encerramento por inatividade de 3 horas
   const handleIdleLogout = useCallback(async () => {
@@ -54,6 +57,11 @@ const MainLayout: React.FC = () => {
         </p>
       </div>
     );
+  }
+
+  // Veio pelo link do e-mail de "Esqueci minha senha"
+  if (isPasswordRecovery) {
+    return <ResetPasswordPage />;
   }
 
   // Se não autenticado, exibe a tela de login/cadastro

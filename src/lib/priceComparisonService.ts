@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { CompetitorOffer, DEFAULT_OFFENSE_THRESHOLD_PCT, ParsedPriceRow, weekStartOf } from './priceComparison';
+import type { PriceCourseRow } from './dbTypes';
+import { errorText } from './errors';
 
 const ROWS_CHUNK = 200;
 const IMPORT_COLUMNS = 'id, reference_date, reference_week, campus, file_name, row_count, imported_by, imported_by_name, imported_at, status';
@@ -132,7 +134,7 @@ export async function loadPriceRows(importId: string): Promise<StoredPriceRow[]>
     .eq('import_id', importId)
     .order('sort_order', { ascending: true });
   if (error) throw error;
-  return ((data || []) as any[]).map(normalizeStoredRow);
+  return ((data || []) as PriceCourseRow[]).map(normalizeStoredRow);
 }
 
 /** Linhas de várias importações de uma vez (histórico de um curso). */
@@ -140,20 +142,21 @@ export async function loadPriceRowsForImports(importIds: string[]): Promise<Stor
   if (!importIds.length) return [];
   const { data, error } = await supabase.from('price_courses').select('*').in('import_id', importIds);
   if (error) throw error;
-  return ((data || []) as any[]).map(normalizeStoredRow);
+  return ((data || []) as PriceCourseRow[]).map(normalizeStoredRow);
 }
 
 const num = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(v));
 
-const normalizeStoredRow = (r: any): StoredPriceRow => ({
+const normalizeStoredRow = (r: PriceCourseRow): StoredPriceRow => ({
   ...r,
+  id: String(r.id ?? ''),
   list_price: num(r.list_price),
   scholarship_first_pct: num(r.scholarship_first_pct),
   scholarship_ct_pct: num(r.scholarship_ct_pct),
   price_first: num(r.price_first),
   price_ct: num(r.price_ct),
   our_price: num(r.our_price),
-  competitors: Array.isArray(r.competitors) ? r.competitors : [],
+  competitors: Array.isArray(r.competitors) ? (r.competitors as CompetitorOffer[]) : [],
 });
 
 export async function loadOffenseThreshold(): Promise<number> {
@@ -174,8 +177,8 @@ export async function saveOffenseThreshold(value: number, userId?: string | null
 }
 
 /** Mensagem amigável quando as tabelas ainda não foram criadas no Supabase. */
-export const describePriceError = (err: any): string => {
-  const msg = String(err?.message || err || '');
+export const describePriceError = (err: unknown): string => {
+  const msg = errorText(err, '');
   if (/price_(imports|courses|settings)/.test(msg) && /(does not exist|schema cache|not find)/i.test(msg)) {
     return 'As tabelas do Comparador de Preços ainda não existem no Supabase. Rode o arquivo supabase/comparador-precos.sql no SQL Editor.';
   }

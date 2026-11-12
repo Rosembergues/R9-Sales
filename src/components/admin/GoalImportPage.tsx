@@ -1,84 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, FileSpreadsheet, Upload, X, AlertCircle, AlertTriangle, Calendar, Trash2, Eye, Loader2, ArrowRight } from 'lucide-react';
+import { FileSpreadsheet, Upload, X, AlertCircle, Calendar, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
-import {
-  GoalFilePreview,
-  GoalImportGroup,
-  GoalImportTotals,
-  ParsedGoalFile,
-  ParsedGoalRow,
-  parseGoalFile,
-  totalsOf,
-  TEACHING_MODELS,
-  ModelMetadata,
-  getModelMetadata,
-} from '../../lib/goalImport';
+import { GoalImportGroup, parseGoalFile, totalsOf, TEACHING_MODELS, ModelMetadata, getModelMetadata } from '../../lib/goalImport';
 import { latestPerPeriodAndGroup, saveGoalImport } from '../../lib/goalImportService';
 import { invalidateOfficialGoals } from '../../hooks/useOfficialGoals';
 import { syncCurrentAndFutureGoals } from '../../lib/goalWeights';
+import { errorText } from '../../lib/errors';
+import { StoredPreview, COMMON_PERIODS, formatNumber, buildPreview, ReviewItem, itemBlockingErrors } from './goalImport/shared';
+import { ReviewModal } from './goalImport/ReviewModal';
+import { TeachingModelCard } from './goalImport/TeachingModelCard';
+import { PreviewModal } from './goalImport/PreviewModal';
+import type { GoalDailyRow, GoalImportRow } from '../../lib/dbTypes';
 
 interface GoalImportPageProps {
   onBackToPlanner?: () => void;
 }
 
-type StoredPreview = GoalFilePreview & { importId?: string };
-
-const COMMON_PERIODS = ['2026.3', '2026.4', '2027.1'];
-
-const formatDate = (value: string | null) =>
-  value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR') : '—';
-
-const formatNumber = (value: number | null) =>
-  value === null ? '—' : value.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
-
-const buildPreview = (
-  meta: ModelMetadata,
-  fileName: string,
-  academicPeriod: string | null,
-  rows: ParsedGoalRow[],
-  filters: string[],
-  warnings: string[],
-  importId?: string
-): StoredPreview => {
-  const dates = rows.map(r => r.date).filter(Boolean).sort();
-  return {
-    fileName,
-    group: meta.id,
-    academicPeriod,
-    rowCount: rows.length,
-    startDate: dates[0] ?? null,
-    endDate: dates[dates.length - 1] ?? null,
-    rows,
-    filters,
-    warnings,
-    importId,
-  };
-};
-
-/** Um arquivo na tela de conferência, antes de gravar. */
-interface ReviewItem {
-  key: string;
-  parsed: ParsedGoalFile;
-  group: GoalImportGroup | null;
-  period: string;
-  /** Avisos adicionais gerados na conferência (ex.: card diferente do arquivo). */
-  notes: string[];
-  previous?: { fileName: string; importedAt: string; totals: GoalImportTotals } | null;
-  status: 'ready' | 'saving' | 'saved' | 'error';
-  message?: string;
-}
-
-const itemBlockingErrors = (item: ReviewItem, all: ReviewItem[]) => {
-  const errors = [...item.parsed.errors.filter(e => !(item.group && e.startsWith('Não consegui identificar a modalidade')))];
-  if (!item.group) errors.push('Escolha a modalidade deste arquivo.');
-  if (!/^\d{4}\.\d+$/.test(item.period)) errors.push('Período acadêmico inválido.');
-  const dup = all.find(o => o.key !== item.key && o.group === item.group && o.period === item.period);
-  if (item.group && dup && all.indexOf(dup) < all.indexOf(item)) {
-    errors.push(`Outro arquivo (${dup.parsed.fileName}) já está indo para ${getModelMetadata(item.group).title} ${item.period}.`);
-  }
-  return errors;
-};
 
 export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner }) => {
   const { currentUser, profiles } = useAuth();
@@ -105,7 +43,7 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
 
   const loadCurrentImports = useCallback(async (period: string) => {
     try {
-      // 1. Fetch available distinct periods
+      // 1. Períodos que têm importação
       const { data: allPeriodsData } = await supabase
         .from('goal_imports')
         .select('academic_period')
@@ -121,7 +59,7 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
         setAvailablePeriods(distinct);
       }
 
-      // 2. Fetch active imports for the selected period
+      // 2. Importações ativas do período escolhido
       const { data: imports, error } = await supabase
         .from('goal_imports')
         .select('id, academic_period, product, goal_group, file_name, imported_at, status')
@@ -132,7 +70,7 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       if (error) throw error;
 
       const latest = latestPerPeriodAndGroup(imports || []);
-      const ids = latest.map((i: any) => i.id);
+      const ids = latest.map((i) => i.id);
       if (!ids.length) {
         setPreviews({});
         return;
@@ -147,10 +85,10 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       if (dailyError) throw dailyError;
 
       const next: Record<string, StoredPreview> = {};
-      latest.forEach((item: any) => {
+      latest.forEach((item) => {
         const rows = (daily || [])
-          .filter((r: any) => r.import_id === item.id)
-          .map((r: any) => ({
+          .filter((r) => r.import_id === item.id)
+          .map((r) => ({
             date: r.reference_date,
             aa: r.aa === null ? null : Number(r.aa),
             target: r.target === null ? null : Number(r.target),
@@ -170,11 +108,11 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       });
 
       setPreviews(next);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Erro ao carregar importações de metas:', error);
       setToast({
         type: 'error',
-        message: error?.message || 'Não foi possível carregar as importações do Supabase.',
+        message: errorText(error, 'Não foi possível carregar as importações do Supabase.'),
       });
     }
   }, []);
@@ -212,16 +150,16 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       .in('academic_period', periods)
       .eq('status', 'active')
       .order('imported_at', { ascending: false });
-    const latest = latestPerPeriodAndGroup(imports || []);
-    const ids = latest.map((i: any) => i.id);
+    const latest = latestPerPeriodAndGroup((imports || []) as GoalImportRow[]);
+    const ids = latest.map((i) => i.id);
     const { data: daily } = ids.length
       ? await supabase.from('goal_daily_data').select('import_id, reference_date, aa, target, actual').in('import_id', ids)
-      : { data: [] as any[] };
+      : { data: [] as GoalDailyRow[] };
 
     return items.map(item => {
-      const prev = latest.find((i: any) => i.academic_period === item.period && i.goal_group === item.group);
+      const prev = latest.find((i) => i.academic_period === item.period && i.goal_group === item.group);
       if (!prev) return { ...item, previous: null };
-      const rows = (daily || []).filter((r: any) => r.import_id === prev.id).map((r: any) => ({
+      const rows = ((daily || []) as GoalDailyRow[]).filter((r) => r.import_id === prev.id).map((r) => ({
         date: r.reference_date,
         aa: r.aa === null ? null : Number(r.aa),
         target: r.target === null ? null : Number(r.target),
@@ -253,8 +191,8 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       });
       items = await loadPreviousFor(items);
       setReviewItems(items);
-    } catch (error: any) {
-      setToast({ type: 'error', message: error?.message || 'Não foi possível ler os arquivos.' });
+    } catch (error) {
+      setToast({ type: 'error', message: errorText(error, 'Não foi possível ler os arquivos.') });
     } finally {
       setLoadingGroup(null);
     }
@@ -286,9 +224,9 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
         });
         items[idx] = { ...item, status: 'saved' };
         saved += 1;
-      } catch (error: any) {
+      } catch (error) {
         console.error('Erro ao importar metas:', error);
-        items[idx] = { ...item, status: 'error', message: error?.message || 'Falha ao gravar.' };
+        items[idx] = { ...item, status: 'error', message: errorText(error, 'Falha ao gravar.') };
         failed += 1;
       }
       setReviewItems([...items]);
@@ -346,15 +284,15 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
       });
 
       setToast({ type: 'success', message: `Importação de ${meta.title} removida.` });
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: 'error',
-        message: error?.message || 'Não foi possível remover a importação.',
+        message: errorText(error, 'Não foi possível remover a importação.'),
       });
     }
   };
 
-  // Overall totals for the active period
+  // Totais do período escolhido
   const totalStats = useMemo(() => {
     let target = 0;
     let actual = 0;
@@ -404,7 +342,7 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
         </div>
       )}
 
-      {/* Header with period switcher */}
+      {/* Cabeçalho com troca de período */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
           {onBackToPlanner && (
@@ -617,7 +555,7 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
         </div>
       </section>
 
-      {/* Preview Modal */}
+      {/* Conferência antes de gravar */}
       {selectedPreview && (
         <PreviewModal
           preview={selectedPreview}
@@ -638,392 +576,6 @@ export const GoalImportPage: React.FC<GoalImportPageProps> = ({ onBackToPlanner 
           onClose={() => setReviewItems(null)}
         />
       )}
-    </div>
-  );
-};
-
-interface ReviewModalProps {
-  items: ReviewItem[];
-  periods: string[];
-  onChange: (key: string, patch: Partial<ReviewItem>) => void;
-  onRemove: (key: string) => void;
-  onConfirm: () => void;
-  onClose: () => void;
-}
-
-const DeltaValue: React.FC<{ label: string; now: number; before?: number | null; tone: string }> = ({ label, now, before, tone }) => {
-  const diff = before === undefined || before === null ? null : now - before;
-  return (
-    <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-1.5 text-center">
-      <span className="text-[9px] uppercase font-bold text-gray-400 block">{label}</span>
-      <span className={`text-xs font-bold ${tone}`}>{formatNumber(now)}</span>
-      {diff !== null && Math.abs(diff) >= 0.05 && (
-        <span className={`block text-[10px] font-bold ${diff > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-          {diff > 0 ? '+' : ''}{formatNumber(diff)}
-        </span>
-      )}
-    </div>
-  );
-};
-
-const ReviewModal: React.FC<ReviewModalProps> = ({ items, periods, onChange, onRemove, onConfirm, onClose }) => {
-  const saving = items.some(i => i.status === 'saving');
-  const pending = items.filter(i => i.status !== 'saved');
-  const blocked = pending.filter(i => itemBlockingErrors(i, items).length > 0);
-  const ready = pending.length - blocked.length;
-
-  return (
-    <div className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-slate-50">
-          <div>
-            <h3 className="text-sm font-bold text-gray-900">Conferência da importação</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Confira modalidade, período e o que muda em relação à importação atual antes de gravar.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            disabled={saving}
-            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer disabled:opacity-40"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-5 overflow-auto flex-1 space-y-3">
-          {items.map(item => {
-            const errors = item.status === 'saved' ? [] : itemBlockingErrors(item, items);
-            const totals = totalsOf(item.parsed.rows);
-            const prev = item.previous?.totals;
-            const warnings = [...item.notes, ...item.parsed.warnings];
-            const periodOptions = Array.from(new Set([...periods, item.period, item.parsed.academicPeriod].filter(Boolean) as string[])).sort();
-            return (
-              <div
-                key={item.key}
-                className={`rounded-xl border p-4 ${
-                  item.status === 'saved'
-                    ? 'border-emerald-300 bg-emerald-50/40'
-                    : errors.length || item.status === 'error'
-                    ? 'border-rose-200 bg-rose-50/30'
-                    : 'border-gray-200'
-                }`}
-              >
-                <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                  <div className="min-w-0 lg:w-72 shrink-0 space-y-2">
-                    <div className="flex items-center gap-2">
-                      {item.status === 'saving' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />}
-                      {item.status === 'saved' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-                      {item.status === 'ready' && <FileSpreadsheet className="w-4 h-4 text-gray-400 shrink-0" />}
-                      {item.status === 'error' && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-                      <span className="text-xs font-bold text-gray-900 truncate" title={item.parsed.fileName}>{item.parsed.fileName}</span>
-                    </div>
-                    <select
-                      value={item.group ?? ''}
-                      disabled={item.status === 'saved' || saving}
-                      onChange={e => onChange(item.key, { group: (e.target.value || null) as GoalImportGroup | null })}
-                      className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
-                      name={`review_group_${item.key}`}
-                    >
-                      <option value="">— escolha a modalidade —</option>
-                      {TEACHING_MODELS.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
-                    </select>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-gray-500">Período</span>
-                      <select
-                        value={item.period}
-                        disabled={item.status === 'saved' || saving}
-                        onChange={e => onChange(item.key, { period: e.target.value })}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white"
-                        name={`review_period_${item.key}`}
-                      >
-                        {periodOptions.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
-                      {item.parsed.academicPeriod && item.period !== item.parsed.academicPeriod && (
-                        <span className="text-[10px] font-bold text-amber-700">arquivo diz {item.parsed.academicPeriod}</span>
-                      )}
-                    </div>
-                    {item.parsed.campus && <p className="text-[11px] text-gray-500 truncate">Campus: {item.parsed.campus}</p>}
-                  </div>
-
-                  <div className="flex-1 min-w-0 space-y-2">
-                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                      {item.previous ? (
-                        <>
-                          <span className="truncate">Substitui <b>{item.previous.fileName}</b> ({new Date(item.previous.importedAt).toLocaleDateString('pt-BR')})</span>
-                          <ArrowRight className="w-3 h-3 shrink-0" />
-                        </>
-                      ) : (
-                        <span>Primeira importação desta modalidade neste período.</span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-4 gap-2">
-                      <DeltaValue label="Dias" now={totals.days} before={prev?.days} tone="text-slate-700" />
-                      <DeltaValue label="Ano Ant." now={totals.aa} before={prev?.aa} tone="text-slate-600" />
-                      <DeltaValue label="Meta" now={totals.target} before={prev?.target} tone="text-blue-700" />
-                      <DeltaValue label="Realizado" now={totals.actual} before={prev?.actual} tone="text-emerald-700" />
-                    </div>
-                    <p className="text-[11px] text-gray-500">
-                      {item.parsed.rowCount ? `${formatDate(item.parsed.startDate)} → ${formatDate(item.parsed.endDate)}` : 'Sem dias com dados'}
-                    </p>
-                    {warnings.map(w => (
-                      <p key={w} className="text-[11px] text-amber-700 flex items-start gap-1.5">
-                        <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" /> {w}
-                      </p>
-                    ))}
-                    {errors.map(er => (
-                      <p key={er} className="text-[11px] font-semibold text-rose-700 flex items-start gap-1.5">
-                        <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" /> {er}
-                      </p>
-                    ))}
-                    {item.status === 'error' && item.message && (
-                      <p className="text-[11px] font-semibold text-rose-700">Erro ao gravar: {item.message}</p>
-                    )}
-                  </div>
-
-                  {item.status !== 'saved' && (
-                    <button
-                      onClick={() => onRemove(item.key)}
-                      disabled={saving}
-                      className="self-start p-1.5 text-gray-400 hover:text-rose-600 hover:bg-white rounded-lg cursor-pointer disabled:opacity-40"
-                      title="Tirar este arquivo da importação"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="px-5 py-4 border-t border-gray-100 bg-slate-50 flex items-center justify-between gap-3">
-          <p className="text-xs text-gray-500">
-            {ready} pronto(s) para gravar{blocked.length ? ` · ${blocked.length} com pendência (não serão gravados)` : ''}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              disabled={saving}
-              className="px-4 py-2 text-xs font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-white cursor-pointer disabled:opacity-40"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={onConfirm}
-              disabled={saving || ready === 0}
-              className="px-4 py-2 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 cursor-pointer disabled:opacity-40 inline-flex items-center gap-2"
-            >
-              {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              Gravar {ready} arquivo(s)
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-interface TeachingModelCardProps {
-  model: ModelMetadata;
-  preview?: StoredPreview;
-  loading: boolean;
-  inputRef: (el: HTMLInputElement | null) => void;
-  onSelect: () => void;
-  onFile: (file: File) => void;
-  onRemove: () => void;
-  onPreview: () => void;
-}
-
-const TeachingModelCard: React.FC<TeachingModelCardProps> = ({
-  model,
-  preview,
-  loading,
-  inputRef,
-  onSelect,
-  onFile,
-  onRemove,
-  onPreview,
-}) => {
-  const isLoaded = !!preview;
-
-  return (
-    <div
-      className={`rounded-2xl border p-5 shadow-2xs transition-all flex flex-col justify-between ${
-        isLoaded ? 'bg-white border-emerald-300 ring-1 ring-emerald-100' : 'bg-white border-gray-200'
-      }`}
-    >
-      <div>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
-              {model.bu}
-            </span>
-            <h3 className="text-sm font-bold text-gray-900 mt-0.5">{model.title}</h3>
-            <p className="text-xs text-gray-500 mt-1">{model.subtitle}</p>
-          </div>
-          <div
-            className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-              isLoaded ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'
-            }`}
-          >
-            {isLoaded ? <CheckCircle2 className="w-4 h-4" /> : <FileSpreadsheet className="w-4 h-4" />}
-          </div>
-        </div>
-
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.csv"
-          className="hidden"
-          onChange={e => {
-            const f = e.target.files?.[0];
-            if (f) onFile(f);
-            e.currentTarget.value = '';
-          }} name="src_components_admin_goalimportpage_tsx_input_2"
-        />
-
-        {isLoaded ? (
-          <div className="mt-4 space-y-3">
-            <div className="flex items-center justify-between gap-2 bg-emerald-50/70 border border-emerald-100 rounded-xl p-3">
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-emerald-900 truncate">{preview.fileName}</p>
-                <p className="text-[11px] text-emerald-700 mt-0.5">
-                  {preview.rowCount
-                    ? `${preview.rowCount} dias · ${formatDate(preview.startDate)} → ${formatDate(preview.endDate)}`
-                    : 'Importado sem dados · sem meta neste período'}
-                </p>
-              </div>
-              <button
-                onClick={onRemove}
-                className="p-1.5 text-emerald-700 hover:bg-white rounded-lg transition-colors cursor-pointer"
-                title="Remover arquivo"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <div className="rounded-xl bg-gray-50 p-2 border border-gray-100">
-                <span className="text-[10px] uppercase font-bold text-gray-400 block">Meta Total</span>
-                <span className="text-sm font-bold text-blue-700">
-                  {formatNumber(preview.rows.reduce((s, r) => s + (r.target || 0), 0))}
-                </span>
-              </div>
-              <div className="rounded-xl bg-gray-50 p-2 border border-gray-100">
-                <span className="text-[10px] uppercase font-bold text-gray-400 block">Realizado</span>
-                <span className="text-sm font-bold text-emerald-700">
-                  {formatNumber(preview.rows.reduce((s, r) => s + (r.actual ?? 0), 0))}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={onPreview}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold text-blue-700 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer"
-              >
-                <Eye className="w-3.5 h-3.5" /> Ver dados
-              </button>
-              <button
-                onClick={onSelect}
-                disabled={loading}
-                className="px-3 py-2 text-xs font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                Trocar
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={onSelect}
-            disabled={loading}
-            className="mt-4 w-full border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 rounded-xl p-5 text-center transition-all disabled:opacity-50 cursor-pointer group"
-          >
-            <Upload className="w-5 h-5 mx-auto text-gray-400 group-hover:text-blue-600 transition-colors" />
-            <div className="text-xs font-bold text-gray-700 mt-2">
-              {loading ? 'Importando...' : 'Selecionar arquivo'}
-            </div>
-            <div className="text-[11px] text-gray-400 mt-1">Planilha diária (.xlsx ou .csv)</div>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-interface PreviewModalProps {
-  preview: StoredPreview;
-  onClose: () => void;
-}
-
-const PreviewModal: React.FC<PreviewModalProps> = ({ preview, onClose }) => {
-  const meta = getModelMetadata(preview.group);
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
-      onMouseDown={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col"
-        onMouseDown={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-slate-50">
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">
-              {meta.bu} · {meta.title}
-            </span>
-            <h3 className="text-sm font-bold text-gray-900 mt-0.5">
-              Prévia: {preview.fileName}
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {preview.rowCount} registros · Período Acadêmico {preview.academicPeriod || '—'}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-5 overflow-auto flex-1">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-white border-b border-gray-200">
-              <tr>
-                <th className="text-left p-2.5 font-bold text-gray-600">Data</th>
-                <th className="text-right p-2.5 font-bold text-gray-600">AA (Ano Anterior)</th>
-                <th className="text-right p-2.5 font-bold text-gray-600">Meta Oficial</th>
-                <th className="text-right p-2.5 font-bold text-gray-600">Realizado</th>
-                <th className="text-right p-2.5 font-bold text-gray-600">Atingimento</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {preview.rows.slice(0, 150).map((r, i) => {
-                const dayPct = r.target && r.target > 0 && r.actual != null ? Math.round((r.actual / r.target) * 100) : null;
-                return (
-                  <tr key={`${r.date}-${i}`} className="hover:bg-slate-50/70">
-                    <td className="p-2.5 font-semibold text-gray-800">{formatDate(r.date)}</td>
-                    <td className="p-2.5 text-right text-gray-500">{formatNumber(r.aa)}</td>
-                    <td className="p-2.5 text-right font-bold text-blue-700">{formatNumber(r.target)}</td>
-                    <td className="p-2.5 text-right font-bold text-emerald-700">{formatNumber(r.actual)}</td>
-                    <td className="p-2.5 text-right font-semibold text-slate-700">
-                      {dayPct !== null ? `${dayPct}%` : '—'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {preview.rows.length > 150 && (
-            <p className="text-[11px] text-gray-400 mt-3 text-center">
-              Mostrando os primeiros 150 dias da planilha importada.
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   );
 };

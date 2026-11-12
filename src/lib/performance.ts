@@ -1,6 +1,6 @@
 import { GoalDailyPoint } from './goalProgress';
 import { buildCycleWindows, saleGoalGroup } from './saleCycle';
-import type { RankingOperation } from '../components/seller/rankingUtils';
+import type { RankingOperation } from '../components/ranking/rankingUtils';
 
 /** Filtros de metodologia da página de Desempenho. */
 export interface MethodFilter {
@@ -31,10 +31,9 @@ export const METHOD_FILTERS: MethodFilter[] = [
 
 const DAY = 86400000;
 const toTime = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+// Datas como instantes UTC (Date.UTC): aqui toISOString é seguro, ida e volta no mesmo fuso.
 export const isoFromTime = (t: number) => new Date(t).toISOString().slice(0, 10);
 export const addDays = (iso: string, n: number) => isoFromTime(toTime(iso) + n * DAY);
-export const dayCount = (from: string, to: string) => Math.round((toTime(to) - toTime(from)) / DAY) + 1;
-
 /** Segunda-feira da semana de uma data (aaaa-mm-dd). */
 export const mondayOf = (iso: string) => {
   const dow = new Date(toTime(iso)).getUTCDay(); // 0 = domingo

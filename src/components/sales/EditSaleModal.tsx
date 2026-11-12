@@ -38,6 +38,7 @@ import {
   modalitiesFor,
   shiftsFor,
 } from '../../lib/saleOptions';
+import { errorText } from '../../lib/errors';
 
 interface EditSaleModalProps {
   sale: Sale | null;
@@ -92,12 +93,12 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     return list;
   }, [profiles, sale?.seller_name, sale?.seller_id, sale?.seller_email]);
 
-  // Load sale data when opened
+  // Carrega a venda ao abrir
   useEffect(() => {
     if (sale) {
       const matchedProfile = profiles.find(p => p.id === sale.seller_id) ||
                             profiles.find(p => p.name.toLowerCase() === (sale.seller_name || '').toLowerCase()) ||
-                            profiles.find(p => p.name.toLowerCase() === ((sale as any).collaborator_name || '').toLowerCase());
+                            profiles.find(p => p.name.toLowerCase() === (sale.collaborator_name || '').toLowerCase());
 
       setSellerId(matchedProfile?.id || sale.seller_id || '');
       setOpportunityNumber(sale.custom_data?.opportunity_number || '');
@@ -290,9 +291,9 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
       } else {
         setErrorMessage(result.error || 'Erro ao salvar alterações.');
       }
-    } catch (err: any) {
+    } catch (err) {
       setIsSaving(false);
-      setErrorMessage(err?.message || 'Erro inesperado ao salvar alterações.');
+      setErrorMessage(errorText(err, 'Erro inesperado ao salvar alterações.'));
     }
   };
 
@@ -323,7 +324,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
     <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-150 space-y-5 my-8">
         
-        {/* Header */}
+        {/* Cabeçalho */}
         <div className="flex items-center justify-between pb-3.5 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">
@@ -382,7 +383,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
         {/* Form */}
         <form onSubmit={handleSave} className="space-y-4 text-xs">
           
-          {/* Row 1: Colaborador (Vendedor) & Data */}
+          {/* Consultor e data */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
@@ -457,7 +458,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
             </div>
           </div>
 
-          {/* Row 3: Produto Principal & Canal (FDI) */}
+          {/* Produto e FDI */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
@@ -503,7 +504,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
             </div>
           </div>
 
-          {/* Row 4: Modalidade & Turno */}
+          {/* Modalidade e turno */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Modalidade</label>
@@ -589,7 +590,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
           </div>
 
 
-          {/* Row 7: Observações */}
+          {/* Observações */}
           <div>
             <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
               <FileText className="w-3.5 h-3.5 text-blue-600" />
@@ -604,7 +605,7 @@ export const EditSaleModal: React.FC<EditSaleModalProps> = ({
             />
           </div>
 
-          {/* Footer Actions */}
+          {/* Ações */}
           <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
             
             {/* Exclusão exclusiva para administradores */}

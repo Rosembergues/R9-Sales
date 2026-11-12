@@ -1,4 +1,6 @@
 import type { Sale } from '../types';
+import { todayLocalIso } from './dates';
+import { errorText } from './errors';
 
 /**
  * Número da oportunidade normalizado: sem espaços e em maiúsculas.
@@ -61,13 +63,8 @@ export function parseSaleDate(value: string): string | null {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
-const localTodayIso = () => {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-};
-
 /** Mensagem de erro para a data da venda, ou null se estiver ok. Não aceita data futura. */
-export function validateSaleDate(value: string, todayIso: string = localTodayIso()): string | null {
+export function validateSaleDate(value: string, todayIso: string = todayLocalIso()): string | null {
   const iso = parseSaleDate(value);
   if (!iso) return 'Data da venda inválida. Use o formato dd/mm/aaaa.';
   if (iso > todayIso) return 'A data da venda não pode ser no futuro.';
@@ -89,6 +86,6 @@ export const isUniqueViolation = (error: { code?: string; message?: string } | n
 
 /** Erro de rede (sem resposta do servidor): só nesse caso a venda vai para a fila offline. */
 export const isNetworkError = (error: unknown) => {
-  const msg = String((error as any)?.message ?? error ?? '');
+  const msg = errorText(error, '');
   return /failed to fetch|networkerror|network request failed|load failed|fetch failed|timeout/i.test(msg);
 };

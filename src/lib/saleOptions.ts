@@ -23,6 +23,32 @@ export const MODALITIES_BY_PRODUCT: Record<MainProductType, Array<{ name: Modali
 export const ALL_MODALITIES: ModalityType[] = MAIN_PRODUCTS.flatMap(p => MODALITIES_BY_PRODUCT[p].map(m => m.name));
 export const ALL_SHIFTS: ShiftType[] = ['Manhã', 'Noite', 'Virtual'];
 
+/** Categoria exibida para cada produto (Fechamento Diário, relatórios). */
+export const PRODUCT_CATEGORY: Record<MainProductType, string> = {
+  'Graduação': 'Graduação',
+  'Pós Graduação': 'Pós-Graduação',
+  'Curso Técnico': 'Curso Técnico',
+};
+
+const MODALITY_ALIASES: Record<string, ModalityType> = {
+  'semi-presencial': 'Semipresencial',
+  aovivo: 'Ao Vivo',
+  'pos presencial': 'Pós Presencial',
+  'pos digital': 'Pós Digital',
+  'pos ao vivo': 'Pós Ao Vivo',
+  'tecnico presencial': 'Técnico Presencial',
+  'técnico': 'Técnico Presencial',
+  tecnico: 'Técnico Presencial',
+};
+
+/** Escreve a modalidade como no formulário ("flex" → "FLEX", "tecnico" → "Técnico Presencial"). */
+export function normalizeModalityName(raw: string | null | undefined): string {
+  const trimmed = (raw || '').trim();
+  const lower = trimmed.toLowerCase();
+  if (!lower) return '';
+  return ALL_MODALITIES.find(m => m.toLowerCase() === lower) || MODALITY_ALIASES[lower] || trimmed;
+}
+
 const BASE_FDI: ProductChannelFDI[] = ['Simplificada', 'MSV', 'Transferência Externa', 'Reabertura', 'Vestibular', 'ENEM'];
 export const ALL_FDI: ProductChannelFDI[] = [...BASE_FDI, 'Técnico', 'Pós Graduação'];
 
@@ -73,8 +99,8 @@ const validFdi = (v: unknown) => typeof v === 'string' && v.trim() !== '' && !LE
  * Quais campos obrigatórios a venda gravada no banco NÃO tem.
  * Olha o dado bruto (antes de qualquer valor padrão de exibição).
  */
-export function findMissingSaleFields(row: Record<string, any>): RequiredSaleField[] {
-  const c = row.custom_data && typeof row.custom_data === 'object' ? row.custom_data : {};
+export function findMissingSaleFields(row: Record<string, unknown>): RequiredSaleField[] {
+  const c = (row.custom_data && typeof row.custom_data === 'object' ? row.custom_data : {}) as Record<string, unknown>;
   const missing: RequiredSaleField[] = [];
   if (!filled(row.opportunity) && !filled(row.opportunity_number) && !filled(c.opportunity_number)) missing.push('opportunity');
   if (!filled(row.candidate_name) && !filled(row.client_name) && !filled(c.candidate_name)) missing.push('candidate');

@@ -1,5 +1,8 @@
 import { supabase } from '../../lib/supabase';
+import { todayLocalIso } from '../../lib/dates';
 import { CustomFormField, Priority, Recurrence, TaskModel } from '../types.ts';
+import type { TaskModelDbRow } from '../../lib/dbTypes';
+import { errorText } from '../../lib/errors';
 
 /**
  * Cadastro de tarefas (tabela tarefas_modelo).
@@ -22,7 +25,7 @@ const toArray = (value: unknown): string[] => {
   return [];
 };
 
-export const mapRowToTaskModel = (row: any): TaskModel => ({
+export const mapRowToTaskModel = (row: TaskModelDbRow): TaskModel => ({
   id: String(row.id),
   title: row.titulo ?? 'Sem título',
   description: row.descricao ?? '',
@@ -58,8 +61,8 @@ const toRow = (m: TaskModelInput) => ({
   ...(m.active !== undefined ? { ativa: m.active } : {}),
 });
 
-const friendlyError = (error: any): Error => {
-  const msg = String(error?.message || error || '');
+const friendlyError = (error: unknown): Error => {
+  const msg = errorText(error, '');
   if (/tarefas_modelo/.test(msg) && /(does not exist|schema cache|not find)/i.test(msg)) {
     return new Error('O cadastro de tarefas ainda não existe no banco. Rode supabase/tarefas-modelo.sql no Supabase.');
   }
@@ -133,11 +136,11 @@ export function weekdaysOf(model: TaskModel): number[] {
   if (rec.includes('personaliz')) {
     return Array.from(new Set(model.recurrenceDays.map((d) => DAY_INDEX[norm(d).slice(0, 3)]).filter((n) => n !== undefined)));
   }
-  if (rec.includes('seman')) return [parseIsoDate(model.startDate || new Date().toISOString().slice(0, 10)).getDay()];
+  if (rec.includes('seman')) return [parseIsoDate(model.startDate || todayLocalIso()).getDay()];
   return [];
 }
 
-export const isRecurring = (model: Pick<TaskModel, 'recurrence'>) => norm(model.recurrence) !== 'nenhuma' && model.recurrence !== ('' as any);
+export const isRecurring = (model: Pick<TaskModel, 'recurrence'>) => norm(model.recurrence) !== 'nenhuma' && String(model.recurrence) !== '';
 export const isMonthly = (model: Pick<TaskModel, 'recurrence'>) => norm(model.recurrence).includes('mensa');
 
 export function ruleLabel(model: TaskModel): string {

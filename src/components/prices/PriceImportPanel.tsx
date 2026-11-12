@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import { ParsedPriceFile, courseKey, formatIsoDate, parsePriceFile, weekStartOf } from '../../lib/priceComparison';
 import { PriceImport, StoredPriceRow, describePriceError, savePriceImport } from '../../lib/priceComparisonService';
 import { PriceSnapshotTable } from './PriceSnapshotTable';
+import { todayLocalIso } from '../../lib/dates';
+import { errorText } from '../../lib/errors';
 
 interface PriceImportPanelProps {
   threshold: number;
@@ -32,9 +34,9 @@ export const PriceImportPanel: React.FC<PriceImportPanelProps> = ({ threshold, l
     try {
       const result = await parsePriceFile(file);
       setParsed(result);
-      setReferenceDate(result.referenceDate || new Date().toISOString().slice(0, 10));
-    } catch (e: any) {
-      setError(e?.message || 'Não consegui ler a planilha.');
+      setReferenceDate(result.referenceDate || todayLocalIso());
+    } catch (e) {
+      setError(errorText(e, 'Não consegui ler a planilha.'));
     } finally {
       setParsing(false);
     }

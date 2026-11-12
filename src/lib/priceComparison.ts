@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx';
+import { excelSerialToIso } from './dates';
+import { toLocalIso } from './dates';
 
 /**
  * Comparador de Preços — leitura da planilha "Análise da Concorrência" e regras de comparação.
@@ -85,14 +86,14 @@ const toFraction = (value: unknown): number | null => {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const pad = (n: number) => String(n).padStart(2, '0');
-const toIso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const toIso = toLocalIso;
 
 /** Data da célula de atualização: serial do Excel, Date ou "dd/mm/aaaa". */
 const toIsoDate = (value: unknown): string | null => {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return toIso(value);
   if (typeof value === 'number' && value > 20000 && value < 80000) {
-    const d = XLSX.SSF.parse_date_code(value);
-    if (d) return `${d.y}-${pad(d.m)}-${pad(d.d)}`;
+    const fromSerial = excelSerialToIso(value);
+    if (fromSerial) return fromSerial;
   }
   if (typeof value === 'string') {
     const br = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
@@ -199,7 +200,9 @@ const cellText = (value: unknown) => {
   return s === '' ? null : s;
 };
 
+// A biblioteca de Excel (pesada) só é baixada quando alguém importa um arquivo.
 const readSheetRows = async (file: File): Promise<{ sheetName: string; rows: unknown[][] }[]> => {
+  const XLSX = await import('xlsx');
   const buffer = await file.arrayBuffer();
   const wb = XLSX.read(buffer, { type: 'array', raw: true, cellDates: true, cellNF: false });
   return wb.SheetNames.map(name => ({

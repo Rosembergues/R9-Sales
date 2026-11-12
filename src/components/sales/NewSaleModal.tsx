@@ -24,6 +24,8 @@ import {
   validateSaleDate,
 } from '../../lib/saleValidation';
 import { FDI_LABEL, PARCELA_OPTIONS, fdiOptionsFor, modalitiesFor, shiftsFor } from '../../lib/saleOptions';
+import { isoToBr, todayLocalIso } from '../../lib/dates';
+import { errorText } from '../../lib/errors';
 
 interface NewSaleModalProps {
   isOpen: boolean;
@@ -32,15 +34,8 @@ interface NewSaleModalProps {
   initialProduct?: MainProductType;
 }
 
-const getTodayDateStr = () => {
-  const today = new Date();
-  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-};
-
-const formatIsoToBrDate = (iso: string) => {
-  const [year, month, day] = iso.split('-');
-  return year && month && day ? `${day}/${month}/${year}` : '';
-};
+const getTodayDateStr = todayLocalIso;
+const formatIsoToBrDate = isoToBr;
 
 type MissingKey = 'product' | 'fdi' | 'modality' | 'shift' | 'parcela' | 'bolsa' | 'empresa';
 
@@ -51,7 +46,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
   initialProduct
 }) => {
   const { currentUser, profiles } = useAuth();
-  const { sales, activeCampaigns, addSale, findSaleByOpportunity } = useSales();
+  const { sales, addSale, findSaleByOpportunity } = useSales();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedSellerId, setSelectedSellerId] = useState(currentUser?.id || '');
@@ -272,7 +267,6 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
 
     try {
       const response = await addSale({
-        campaign_id: activeCampaigns[0]?.id || 'camp-1',
         client_name: candidateName.trim(),
         product_name: mainProduct as MainProductType,
         seller_id: chosenSellerId,
@@ -288,14 +282,14 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
           seller_id: chosenSellerId,
           seller_email: chosenSellerEmail,
           sale_date: formattedDateBr,
-          main_product: mainProduct,
+          main_product: mainProduct as MainProductType,
           business_unit: getSaleBusinessUnit(mainProduct as MainProductType, modality as ModalityType),
           fdi: fdiChannel,
-          fdi_channel: fdiChannel,
-          modality,
-          shift,
+          fdi_channel: fdiChannel as ProductChannelFDI,
+          modality: modality as ModalityType,
+          shift: shift as ShiftType,
           ...(effectiveCycle ? { academic_period: effectiveCycle } : {}),
-          parcela_leve: parcelaLeve,
+          parcela_leve: parcelaLeve as ParcelaLeveOption,
           has_bolsa_convenio: Boolean(hasBolsaConvenio),
           empresa_convenio: hasBolsaConvenio ? empresaConvenio.trim() : ''
         },
@@ -320,10 +314,10 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
       onSuccess?.();
       submittingRef.current = false;
       setIsSubmitting(false);
-    } catch (err: any) {
+    } catch (err) {
       submittingRef.current = false;
       setIsSubmitting(false);
-      setErrorMessage(err?.message || 'Erro inesperado ao registrar venda.');
+      setErrorMessage(errorText(err, 'Erro inesperado ao registrar venda.'));
     }
   };
 

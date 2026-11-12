@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import { excelSerialToIso } from './dates';
 
 export type GoalTeachingModel =
   | 'graduacao_presencial'
@@ -168,8 +168,6 @@ export interface ParsedGoalFile extends Omit<GoalFilePreview, 'group'> {
   errors: string[];
 }
 
-export const GOAL_IMPORT_STORAGE_KEY = 'r9-goal-imports-preview-v2';
-
 export interface ImportedGoalSummary {
   aa: number;
   target: number;
@@ -259,8 +257,8 @@ const toIsoDate = (value: unknown): string | null => {
     return `${y}-${m}-${d}`;
   }
   if (typeof value === 'number' && Number.isFinite(value)) {
-    const d = XLSX.SSF.parse_date_code(value);
-    if (d?.y && d?.m && d?.d) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+    const fromSerial = excelSerialToIso(value);
+    if (fromSerial) return fromSerial;
   }
   const s = String(value ?? '').trim();
   if (!s) return null;
@@ -367,17 +365,13 @@ export const detectGroupFromFilters = (text: string): { group: GoalImportGroup |
 /** Campus esperado nos relatórios. Arquivos de outro campus geram alerta. */
 export const EXPECTED_CAMPUS_KEYWORD = 'taquara';
 
-const parseCsv = (text: string): unknown[][] => {
-  const wb = XLSX.read(text, { type: 'string', raw: true, cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as unknown[][];
-};
-
+// A biblioteca de Excel (pesada) só é baixada quando alguém importa um arquivo.
 const parseWorkbook = async (file: File): Promise<unknown[][]> => {
+  const XLSX = await import('xlsx');
   const isCsv = /\.csv$/i.test(file.name);
-  if (isCsv) return parseCsv(await file.text());
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', raw: true, cellDates: true, cellNF: false });
+  const workbook = isCsv
+    ? XLSX.read(await file.text(), { type: 'string', raw: true, cellDates: true })
+    : XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true, cellDates: true, cellNF: false });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][];
 };

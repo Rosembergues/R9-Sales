@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { errorText } from '../lib/errors';
 import { latestPerPeriodAndGroup } from '../lib/goalImportService';
 import { GoalDailyPoint } from '../lib/goalProgress';
+import type { GoalDailyRow, GoalImportRow } from '../lib/dbTypes';
 
 const PAGE = 1000;
 
@@ -46,9 +48,9 @@ export function useOfficialGoals(): OfficialGoalsState {
     let alive = true;
     loadOfficialGoals()
       .then(loaded => { if (alive) setState({ ...loaded, loading: false, error: null }); })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         console.warn('Erro ao carregar metas oficiais:', err);
-        if (alive) setState(s => ({ ...s, loading: false, error: err?.message || 'Erro ao carregar metas.' }));
+        if (alive) setState(s => ({ ...s, loading: false, error: errorText(err, 'Erro ao carregar metas.') }));
       });
     return () => { alive = false; };
   }, []);
@@ -64,8 +66,8 @@ async function fetchOfficialGoals(): Promise<Loaded> {
     .order('imported_at', { ascending: false });
   if (error) throw error;
 
-  const latest = latestPerPeriodAndGroup(imports || []);
-  const byId = new Map(latest.map((i: any) => [i.id, i]));
+  const latest = latestPerPeriodAndGroup((imports || []) as GoalImportRow[]);
+  const byId = new Map(latest.map((i) => [i.id, i]));
   const points: GoalDailyPoint[] = [];
 
   if (latest.length) {
@@ -78,8 +80,9 @@ async function fetchOfficialGoals(): Promise<Loaded> {
         .order('id', { ascending: true })
         .range(from, from + PAGE - 1);
       if (rowsError) throw rowsError;
-      (data || []).forEach((r: any) => {
-        const imp: any = byId.get(r.import_id);
+      ((data || []) as GoalDailyRow[]).forEach((r) => {
+        const imp = byId.get(r.import_id);
+        if (!imp) return; // linha de uma importação que não é a vigente
         points.push({
           period: imp.academic_period,
           group: imp.goal_group,

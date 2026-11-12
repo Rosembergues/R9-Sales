@@ -15,10 +15,12 @@ import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { Sale, Goal } from '../../types';
 import { getSaleDateBr, getTodayBrDate, getRealSaleDate } from '../../lib/salesMapper';
-import { supabase, LocalSyncEngine } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
+import { LocalSyncEngine } from '../../lib/localCache';
 import { useOfficialGoals } from '../../hooks/useOfficialGoals';
 import { computeCycleProgress, resolveDataDate, sumTarget } from '../../lib/goalProgress';
 import { OfficialGoalsPanel } from './OfficialGoalsPanel';
+import { toLocalIso } from '../../lib/dates';
 
 interface HomeDashboardProps {
   onOpenNewSaleModal: () => void;
@@ -42,12 +44,7 @@ const startOfDay = (date: Date) => {
   return d;
 };
 
-const dateKey = (date: Date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
+const dateKey = toLocalIso;
 
 const saleDateObject = (sale: Sale) => getRealSaleDate(sale) || new Date(sale.created_at);
 
@@ -111,7 +108,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
         let resolvedWeekly = Number(weekPeriod?.target_total) || 0;
         if (!resolvedWeekly && weeklyGoals && weeklyGoals.length > 0) {
-          resolvedWeekly = weeklyGoals.reduce((s: number, g: any) => s + (Number(g.target_total) || 0), 0);
+          resolvedWeekly = weeklyGoals.reduce((s: number, g: { target_total?: number | null }) => s + (Number(g.target_total) || 0), 0);
         }
 
         if (!resolvedWeekly) {
@@ -270,8 +267,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const comparisonWeek = percentDelta(weekSales.length, previousWeekSales.length);
   const comparisonMonth = percentDelta(monthSales.length, previousMonthSales.length);
 
-  // Keep these values intentionally local to the dashboard. The Home redesign will later
-  // move them to dedicated aggregate queries, without changing the visual contract.
+  // Valores calculados aqui mesmo, a partir das vendas carregadas.
   return (
     <div className="space-y-5 animate-in fade-in duration-300">
       <section className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">

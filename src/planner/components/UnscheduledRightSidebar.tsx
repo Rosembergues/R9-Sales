@@ -47,7 +47,6 @@ export default function UnscheduledRightSidebar({
     return matchTitle || matchBucket || matchTags;
   });
 
-  const isAdmin = userRole === 'admin';
 
   if (isCollapsed) {
     return (

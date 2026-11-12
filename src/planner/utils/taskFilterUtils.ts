@@ -1,4 +1,5 @@
 import { Task, TeamMember } from '../types.ts';
+import type { PlannerAuthUser } from '../types.ts';
 
 /**
  * Verifica com precisão estrita se um determinado usuário (autenticado/membro) está explicitamente
@@ -13,7 +14,7 @@ import { Task, TeamMember } from '../types.ts';
 export function isUserAssignedToTask(
   task: Task | null | undefined,
   currentUser: TeamMember | null | undefined,
-  authUser?: any,
+  authUser?: PlannerAuthUser | null,
   teamMembers: TeamMember[] = []
 ): boolean {
   if (!task) return false;

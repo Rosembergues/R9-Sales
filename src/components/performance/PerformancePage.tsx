@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { getRealSaleDate, getSaleFdiDisplay } from '../../lib/salesMapper';
 import { getModelMetadata } from '../../lib/goalImport';
 import { resolveDataDate } from '../../lib/goalProgress';
-import { getRankingOperationTarget } from '../seller/rankingUtils';
+import { getRankingOperationTarget } from '../ranking/rankingUtils';
 import {
   METHOD_FILTERS,
   IndividualGoal,
@@ -25,6 +25,7 @@ import {
   weeklyRows,
 } from '../../lib/performance';
 import { CumulativeChart, STATUS_STYLE, StatusChip, VsAA, statusOf } from '../dashboard/OfficialGoalsPanel';
+import { toLocalIso } from '../../lib/dates';
 
 type PeriodMode = 'ciclo' | 'mes' | 'semana' | 'livre';
 type Tab = 'geral' | 'semanas' | 'dias' | 'consultores' | 'perfil';
@@ -35,7 +36,7 @@ const fmtPct = (v: number | null) => (v === null ? '—' : `${fmt(v)}%`);
 const pct = (a: number, b: number) => (b > 0 ? (a / b) * 100 : null);
 const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const brFull = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
-const localIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const localIso = toLocalIso;
 const monthLabel = (iso: string) => { // ex.: "Novembro de 2026"
   const s = new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -148,7 +149,7 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
     const targetOf = filter.operation
       ? (userId: string) => validGoals
           .filter(g => g.user_id === userId)
-          .reduce((sum, g) => sum + getRankingOperationTarget(g as any, filter.operation!), 0)
+          .reduce((sum, g) => sum + getRankingOperationTarget(g, filter.operation!), 0)
       : null;
     return consultantRows(perfSales, filter.groups, range.start, range.end, profiles, targetOf);
   }, [goals, range, mode, filter, perfSales, profiles]);

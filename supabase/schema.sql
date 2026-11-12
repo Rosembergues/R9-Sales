@@ -1,0 +1,695 @@
+-- ============================================================
+-- R9 Hub · Esquema base do banco (Supabase)
+--
+-- Cria as tabelas principais (perfis, metas, importações, vendas,
+-- mensagens, tarefas) com RLS. Os recursos mais novos ficam nos outros
+-- arquivos desta pasta; a ordem de execução está em supabase/README.md.
+--
+-- No banco em produção, profiles.id é TEXT (guarda o id do auth.users).
+-- Toda coluna que aponta para um perfil também é TEXT, e comparações com
+-- auth.uid() usam auth.uid()::text.
+--
+-- Pode rodar mais de uma vez (usa "if not exists" e "drop ... if exists").
+-- ============================================================
+
+-- 1. Habilitar extensões
+create extension if not exists "uuid-ossp";
+create extension if not exists "pgcrypto";
+
+-- 2. Tabela de Perfis de Usuários (Profiles)
+create table if not exists public.profiles (
+  id text primary key, -- = auth.users.id (gravado como texto no banco em produção)
+  name text not null,
+  email text not null,
+  role text not null check (role in ('admin', 'seller')),
+  avatar_url text,
+  phone text,
+  status text default 'active' check (status in ('active', 'inactive')),
+  target_monthly numeric default 30,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 3. Tabela de Metas por Produto e BU (Goals)
+create table if not exists public.goals (
+  id uuid primary key default gen_random_uuid(),
+  user_id text references public.profiles(id) on delete cascade not null,
+  type text not null check (type in ('month', 'week', 'mensal', 'semanal')),
+  reference_start date not null,
+  reference_end date not null,
+  target_bu_presencial integer default 0 check (target_bu_presencial >= 0),
+  target_bu_digital integer default 0 check (target_bu_digital >= 0),
+  target_graduacao integer default 0 check (target_graduacao >= 0),
+  target_pos integer default 0 check (target_pos >= 0),
+  target_tecnico integer default 0 check (target_tecnico >= 0),
+  target_total integer default 0 check (target_total >= 0),
+  goal_period_id uuid,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint goals_user_type_ref_unique unique (user_id, type, reference_start)
+);
+
+-- Garantir colunas de BU na tabela goals caso a tabela já exista
+alter table public.goals add column if not exists target_bu_presencial integer default 0;
+alter table public.goals add column if not exists target_bu_digital integer default 0;
+alter table public.goals add column if not exists goal_period_id uuid;
+
+-- 3.1. Tabela de Períodos Operacionais de Metas (Goal Periods)
+create table if not exists public.goal_periods (
+  id uuid primary key default gen_random_uuid(),
+  academic_period text not null default '2026.3',
+  period_type text not null check (period_type in ('month', 'week')),
+  reference_start date not null,
+  reference_end date not null,
+  target_total integer default 0,
+  gap_total integer default 0,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint goal_periods_type_dates_unique unique (period_type, reference_start, reference_end)
+);
+
+-- 3.2. Tabela de Importações de Metas por Modelo de Ensino (Goal Imports)
+create table if not exists public.goal_imports (
+  id uuid primary key default gen_random_uuid(),
+  academic_period text not null,
+  product text not null,
+  goal_group text not null,
+  file_name text not null,
+  imported_by text references public.profiles(id),
+  status text not null default 'active',
+  imported_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 3.3. Tabela de Dados Diários Importados de Metas (Goal Daily Data)
+create table if not exists public.goal_daily_data (
+  id uuid primary key default gen_random_uuid(),
+  import_id uuid references public.goal_imports(id) on delete cascade not null,
+  academic_period text not null,
+  product text not null,
+  goal_group text not null,
+  reference_date date not null,
+  aa numeric,
+  target numeric,
+  actual numeric,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 4. Tabela de Campanhas e Formulários Dinâmicos (Campaigns)
+create table if not exists public.campaigns (
+  id text primary key default ('camp-' || substr(md5(random()::text), 1, 10)),
+  title text not null,
+  description text,
+  code text unique not null,
+  active boolean default true,
+  start_date date not null,
+  end_date date not null,
+  fields jsonb default '[]'::jsonb,
+  created_by text references public.profiles(id),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null default timezone('utc'::text, now())
+);
+
+-- 5. Tabela de Vendas e Lançamentos (Sales)
+create table if not exists public.sales (
+  id text primary key,
+  collaborator_name text,
+  candidate_name text,
+  opportunity text,
+  product text,
+  turn text,
+  modality text,
+  fdi text default 'Simplificada', -- Canal de captação FDI gravado como TEXT ('Simplificada', 'Vestibular', 'MSV', 'ENEM', etc.)
+  light_installment boolean default false,
+  partner_scholarship boolean default false,
+  notes text,
+  sale_date timestamp with time zone default timezone('utc'::text, now()),
+  campaign_id text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null default timezone('utc'::text, now()),
+  -- Colunas complementares opcionais para compatibilidade total
+  seller_id text,
+  collaborator_id text,
+  seller_name text,
+  seller_email text,
+  client_name text,
+  client_document text,
+  client_phone text,
+  client_email text,
+  product_name text,
+  custom_data jsonb default '{}'::jsonb
+);
+
+-- Campos canônicos usados pelo aplicativo:
+-- seller_id = identificador do responsável; seller_name/email são snapshots históricos.
+-- client_name/product_name são os campos canônicos da venda.
+-- custom_data permanece reservado para dados específicos de campanhas/compatibilidade.
+
+
+-- 6. Habilitar Row Level Security (RLS) nas Tabelas Críticas
+alter table public.profiles enable row level security;
+alter table public.goals enable row level security;
+alter table public.sales enable row level security;
+alter table public.campaigns enable row level security;
+alter table public.goal_periods enable row level security;
+alter table public.goal_imports enable row level security;
+alter table public.goal_daily_data enable row level security;
+
+-- Políticas para Goal Periods, Imports e Daily Data
+drop policy if exists "Períodos de metas visíveis por autenticados" on public.goal_periods;
+create policy "Períodos de metas visíveis por autenticados" on public.goal_periods for select using (auth.role() = 'authenticated');
+drop policy if exists "Admins gerenciam períodos de metas" on public.goal_periods;
+create policy "Admins gerenciam períodos de metas" on public.goal_periods for all using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+
+drop policy if exists "Importações visíveis por autenticados" on public.goal_imports;
+create policy "Importações visíveis por autenticados" on public.goal_imports for select using (auth.role() = 'authenticated');
+drop policy if exists "Admins gerenciam importações" on public.goal_imports;
+create policy "Admins gerenciam importações" on public.goal_imports for all using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+
+drop policy if exists "Dados diários visíveis por autenticados" on public.goal_daily_data;
+create policy "Dados diários visíveis por autenticados" on public.goal_daily_data for select using (auth.role() = 'authenticated');
+drop policy if exists "Admins gerenciam dados diários" on public.goal_daily_data;
+create policy "Admins gerenciam dados diários" on public.goal_daily_data for all using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+
+-- ============================================================
+-- POLÍTICAS RLS (Row Level Security)
+-- ============================================================
+
+-- Impede escalada de privilégio por alteração direta do próprio perfil.
+-- O RLS é por linha; este trigger restringe especificamente a mudança de role.
+create or replace function public.protect_profile_role_changes()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.role is distinct from old.role
+     and auth.uid() is not null
+     and not exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin') then
+    raise exception 'Apenas administradores podem alterar o papel do usuário';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_profile_role_changes on public.profiles;
+create trigger protect_profile_role_changes
+  before update on public.profiles
+  for each row execute function public.protect_profile_role_changes();
+
+-- Políticas para Profiles
+drop policy if exists "Perfis são visíveis por todos os autenticados" on public.profiles;
+create policy "Perfis são visíveis por todos os autenticados" 
+  on public.profiles for select 
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "Usuários podem atualizar seus próprios perfis ou admins podem atualizar qualquer perfil" on public.profiles;
+create policy "Usuários podem atualizar seus próprios perfis ou admins podem atualizar qualquer perfil" 
+  on public.profiles for update 
+  using (
+    auth.uid()::text = id or 
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  );
+
+-- Perfis são criados exclusivamente pelo trigger handle_new_user (SECURITY DEFINER)
+-- ou por uma operação administrativa autenticada. Não permitir INSERT público.
+drop policy if exists "Admins ou registro público podem inserir perfis" on public.profiles;
+drop policy if exists "Admins podem inserir perfis" on public.profiles;
+create policy "Admins podem inserir perfis"
+  on public.profiles for insert
+  with check (
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  );
+
+drop policy if exists "Apenas admins podem excluir perfis" on public.profiles;
+create policy "Apenas admins podem excluir perfis" 
+  on public.profiles for delete 
+  using (
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  );
+
+-- Políticas para Goals (Metas)
+-- Leitura pública para autenticados (consultores e admins visualizam metas e ranking)
+-- Escrita EXCLUSIVA para Administradores
+drop policy if exists "Metas visíveis por todos os autenticados" on public.goals;
+create policy "Metas visíveis por todos os autenticados" 
+  on public.goals for select 
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "Apenas administradores podem gerenciar metas" on public.goals;
+create policy "Apenas administradores podem gerenciar metas" 
+  on public.goals for all 
+  using (
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  )
+  with check (
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  );
+
+-- Políticas para Sales (Vendas)
+-- Leitura para todos os autenticados
+-- Inserção para consultores e admins
+-- Atualização/Exclusão restrita a administradores ou autor da venda
+drop policy if exists "Leitura de vendas permitida" on public.sales;
+create policy "Leitura de vendas permitida" 
+  on public.sales for select 
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "Usuários autenticados podem inserir vendas" on public.sales;
+drop policy if exists "Usuários podem inserir vendas próprias ou admins" on public.sales;
+-- Consultor pode lançar venda para outro consultor; editar/excluir continua só para o dono ou admin.
+drop policy if exists "Autenticados podem inserir vendas" on public.sales;
+create policy "Autenticados podem inserir vendas"
+  on public.sales for insert
+  with check (auth.role() = 'authenticated');
+
+drop policy if exists "Admins ou autor podem atualizar vendas" on public.sales;
+create policy "Admins ou autor podem atualizar vendas" 
+  on public.sales for update 
+  using (
+    seller_id = auth.uid()::text or
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  )
+  with check (
+    seller_id = auth.uid()::text or
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  );
+
+-- Proteção adicional: consultores podem lançar para outro consultor cadastrado, mas não
+-- podem transferir uma venda já gravada. Admins podem fazer essa transferência.
+create or replace function public.protect_sale_owner_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_profile_name text;
+  v_profile_email text;
+begin
+  -- Chamadas autenticadas feitas por consultores só podem criar/editar vendas próprias.
+  -- service_role/SQL administrativo (auth.uid() nulo) permanece no contexto confiável do servidor.
+  if auth.uid() is not null
+     and not exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin') then
+    if tg_op = 'INSERT' then
+      -- O dono da venda precisa ser um consultor cadastrado; nome e e-mail vêm do cadastro dele.
+      select name, email into v_profile_name, v_profile_email
+      from public.profiles where id::text = new.seller_id;
+      if v_profile_name is null then
+        raise exception 'Consultor da venda não encontrado no cadastro';
+      end if;
+      new.seller_name := v_profile_name;
+      new.collaborator_name := v_profile_name;
+      new.seller_email := v_profile_email;
+      -- Registra quem lançou (pode ser diferente do dono).
+      new.custom_data := coalesce(new.custom_data, '{}'::jsonb)
+        || jsonb_build_object('registered_by', auth.uid()::text);
+    else
+      if new.seller_id is distinct from old.seller_id
+         or new.seller_name is distinct from old.seller_name
+         or new.collaborator_name is distinct from old.collaborator_name
+         or new.seller_email is distinct from old.seller_email then
+        raise exception 'Apenas administradores podem alterar o vendedor da venda';
+      end if;
+      -- Quem lançou nunca muda.
+      new.custom_data := coalesce(new.custom_data, '{}'::jsonb)
+        || jsonb_build_object('registered_by', old.custom_data->>'registered_by');
+    end if;
+
+    -- Os campos espelhados no JSON também são normalizados para não permitir
+    -- transferência indireta de autoria via custom_data.
+    new.custom_data := coalesce(new.custom_data, '{}'::jsonb) || jsonb_build_object(
+      'seller_id', new.seller_id,
+      'collaborator_id', new.seller_id,
+      'seller_name', new.seller_name,
+      'collaborator_name', new.collaborator_name,
+      'seller_email', new.seller_email
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_sale_owner_fields on public.sales;
+create trigger protect_sale_owner_fields
+  before insert or update on public.sales
+  for each row execute function public.protect_sale_owner_fields();
+drop policy if exists "Apenas administradores podem excluir vendas" on public.sales;
+drop policy if exists "Admins ou autor podem excluir vendas" on public.sales;
+create policy "Admins ou autor podem excluir vendas" 
+  on public.sales for delete 
+  using (
+    seller_id = auth.uid()::text or
+    collaborator_id = auth.uid()::text or
+    exists (
+      select 1 from public.profiles 
+      where id::text = auth.uid()::text 
+        and lower(role) in ('admin', 'administrador')
+    )
+  );
+
+-- Políticas para Campaigns
+drop policy if exists "Campanhas visíveis por todos os autenticados" on public.campaigns;
+create policy "Campanhas visíveis por todos os autenticados" 
+  on public.campaigns for select 
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "Admins podem criar, editar ou excluir campanhas" on public.campaigns;
+create policy "Admins podem criar, editar ou excluir campanhas" 
+  on public.campaigns for all 
+  using (
+    exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin')
+  );
+
+-- Repositório de mensagens (independente das campanhas de vendas)
+create table if not exists public.message_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (length(trim(title)) > 0),
+  description text not null default '',
+  kind text not null default 'folder',
+  audience text,
+  product text,
+  starts_on date,
+  valid_until date,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+alter table public.message_campaigns add column if not exists kind text not null default 'folder';
+alter table public.message_campaigns add column if not exists audience text;
+alter table public.message_campaigns add column if not exists product text;
+alter table public.message_campaigns add column if not exists starts_on date;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'message_campaigns_kind_check' and conrelid = 'public.message_campaigns'::regclass) then
+    alter table public.message_campaigns add constraint message_campaigns_kind_check check (kind in ('folder', 'action'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'message_campaigns_action_details' and conrelid = 'public.message_campaigns'::regclass) then
+    alter table public.message_campaigns add constraint message_campaigns_action_details
+      check (kind <> 'action' or (nullif(trim(audience), '') is not null and nullif(trim(product), '') is not null and starts_on is not null and valid_until is not null and valid_until >= starts_on));
+  end if;
+end $$;
+
+create table if not exists public.repository_messages (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (length(trim(title)) > 0),
+  content text not null check (length(trim(content)) > 0),
+  stage text not null default 'Geral',
+  created_by text,
+  created_by_name text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.repository_messages add column if not exists stage text not null default 'Geral';
+
+create table if not exists public.repository_message_campaigns (
+  campaign_id uuid not null references public.message_campaigns(id) on delete cascade,
+  message_id uuid not null references public.repository_messages(id) on delete cascade,
+  created_by text,
+  created_at timestamptz not null default now(),
+  primary key (campaign_id, message_id)
+);
+
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'repository_messages' and column_name = 'campaign_id') then
+    execute 'insert into public.repository_message_campaigns (campaign_id, message_id, created_by) select campaign_id, id, created_by from public.repository_messages on conflict do nothing';
+    execute 'alter table public.repository_messages drop column campaign_id';
+  end if;
+end $$;
+
+alter table public.message_campaigns enable row level security;
+alter table public.repository_messages enable row level security;
+alter table public.repository_message_campaigns enable row level security;
+
+drop policy if exists "Campanhas de mensagens visíveis a autenticados" on public.message_campaigns;
+create policy "Campanhas de mensagens visíveis a autenticados" on public.message_campaigns
+  for select to authenticated using (true);
+drop policy if exists "Autenticados criam campanhas de mensagens" on public.message_campaigns;
+create policy "Autenticados criam campanhas de mensagens" on public.message_campaigns
+  for insert to authenticated with check (created_by = auth.uid()::text);
+drop policy if exists "Admins excluem campanhas de mensagens" on public.message_campaigns;
+create policy "Admins excluem campanhas de mensagens" on public.message_campaigns
+  for delete to authenticated using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+drop policy if exists "Criador ou admin edita campanha de mensagens" on public.message_campaigns;
+create policy "Criador ou admin edita campanha de mensagens" on public.message_campaigns
+  for update to authenticated
+  using (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'))
+  with check (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+
+drop policy if exists "Mensagens visíveis a autenticados" on public.repository_messages;
+create policy "Mensagens visíveis a autenticados" on public.repository_messages
+  for select to authenticated using (true);
+drop policy if exists "Autenticados criam mensagens" on public.repository_messages;
+create policy "Autenticados criam mensagens" on public.repository_messages
+  for insert to authenticated with check (created_by = auth.uid()::text);
+drop policy if exists "Autores ou admins editam mensagens" on public.repository_messages;
+create policy "Autores ou admins editam mensagens" on public.repository_messages
+  for update to authenticated
+  using (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'))
+  with check (created_by = auth.uid()::text or exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+drop policy if exists "Admins excluem mensagens" on public.repository_messages;
+create policy "Admins excluem mensagens" on public.repository_messages
+  for delete to authenticated using (exists (select 1 from public.profiles where id::text = auth.uid()::text and role = 'admin'));
+
+drop policy if exists "Vínculos de mensagens visíveis a autenticados" on public.repository_message_campaigns;
+create policy "Vínculos de mensagens visíveis a autenticados" on public.repository_message_campaigns
+  for select to authenticated using (true);
+drop policy if exists "Criadores ou admins vinculam mensagens" on public.repository_message_campaigns;
+create policy "Criadores ou admins vinculam mensagens" on public.repository_message_campaigns
+  for insert to authenticated with check (
+    exists (select 1 from public.message_campaigns c where c.id = campaign_id and (c.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+    or exists (select 1 from public.repository_messages m where m.id = message_id and (m.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+  );
+drop policy if exists "Criadores ou admins removem vínculos" on public.repository_message_campaigns;
+create policy "Criadores ou admins removem vínculos" on public.repository_message_campaigns
+  for delete to authenticated using (
+    exists (select 1 from public.message_campaigns c where c.id = campaign_id and (c.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+    or exists (select 1 from public.repository_messages m where m.id = message_id and (m.created_by = auth.uid()::text or exists (select 1 from public.profiles p where p.id::text = auth.uid()::text and p.role = 'admin')))
+  );
+
+grant select, insert, update, delete on public.message_campaigns, public.repository_messages, public.repository_message_campaigns to authenticated;
+create index if not exists idx_repository_message_campaigns_message on public.repository_message_campaigns (message_id, campaign_id);
+
+-- ============================================================
+-- 6.1 Índices para consultas operacionais e paginação
+-- Mantém filtros/ordenação rápidos sem alterar o contrato atual da aplicação.
+create index if not exists idx_sales_created_at_desc on public.sales (created_at desc);
+create index if not exists idx_sales_sale_date_desc on public.sales (sale_date desc);
+create index if not exists idx_sales_seller_id on public.sales (seller_id);
+-- A tabela usa seller_id; collaborator_id é espelhado apenas em custom_data.
+create index if not exists idx_sales_campaign_id on public.sales (campaign_id);
+create index if not exists idx_sales_product_name on public.sales (product_name);
+create index if not exists idx_sales_fdi on public.sales (fdi);
+
+-- 6.2 Oportunidade única (impede vendas duplicadas). Só é criada se não houver
+-- duplicados; para listar e limpar os existentes use supabase/vendas-duplicadas.sql.
+do $$
+begin
+  if not exists (
+    select 1 from public.sales
+    where coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') is not null
+      and coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') <> ''
+    group by upper(regexp_replace(coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number'), '[[:space:]]', '', 'g'))
+    having count(*) > 1
+  ) then
+    create unique index if not exists sales_opportunity_unique
+      on public.sales (upper(regexp_replace(coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number'), '[[:space:]]', '', 'g')))
+      where coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') is not null
+        and coalesce(nullif(opportunity, ''), custom_data->>'opportunity_number') <> '';
+  end if;
+end $$;
+
+-- 7. Função e Triggers de auditoria updated_at
+-- ============================================================
+create or replace function public.handle_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = timezone('utc'::text, now());
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists set_profiles_updated_at on public.profiles;
+create trigger set_profiles_updated_at
+  before update on public.profiles
+  for each row execute procedure public.handle_updated_at();
+
+drop trigger if exists set_goals_updated_at on public.goals;
+create trigger set_goals_updated_at
+  before update on public.goals
+  for each row execute procedure public.handle_updated_at();
+
+drop trigger if exists set_sales_updated_at on public.sales;
+create trigger set_sales_updated_at
+  before update on public.sales
+  for each row execute procedure public.handle_updated_at();
+
+-- ============================================================
+-- 8. Trigger automático de criação de perfil ao cadastrar no Supabase Auth
+-- ============================================================
+create or replace function public.handle_new_user() 
+returns trigger as $$
+begin
+  insert into public.profiles (id, name, email, role, avatar_url)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+    new.email,
+    'seller',
+    'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- ============================================================
+-- Categorias customizadas do Planner
+create table if not exists public.tags_bucket (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null unique,
+  color text default '#004691',
+  description text default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.tags_bucket enable row level security;
+drop policy if exists "Authenticated users can read tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can read tags_bucket" on public.tags_bucket for select to authenticated using (true);
+drop policy if exists "Authenticated users can insert tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can insert tags_bucket" on public.tags_bucket for insert to authenticated with check (true);
+drop policy if exists "Authenticated users can update tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can update tags_bucket" on public.tags_bucket for update to authenticated using (true) with check (true);
+drop policy if exists "Authenticated users can delete tags_bucket" on public.tags_bucket;
+create policy "Authenticated users can delete tags_bucket" on public.tags_bucket for delete to authenticated using (true);
+
+-- 8. Planner: tabela principal de tarefas
+create table if not exists public.tarefas (
+  id text primary key,
+  titulo text not null,
+  descricao text default '',
+  prioridade text default 'Alta',
+  recorrencia text,
+  bucket text default 'Operacional',
+  responsavel_id text,
+  data_inicio date,
+  data_fim date,
+  data_agendada date,
+  status text default 'pendente',
+  tags jsonb not null default '[]'::jsonb,
+  campos_customizados jsonb not null default '{}'::jsonb,
+  comentarios jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.tarefas enable row level security;
+drop policy if exists "Authenticated users can read tarefas" on public.tarefas;
+create policy "Authenticated users can read tarefas" on public.tarefas
+  for select to authenticated using (true);
+drop policy if exists "Authenticated users can insert tarefas" on public.tarefas;
+create policy "Authenticated users can insert tarefas" on public.tarefas
+  for insert to authenticated with check (true);
+drop policy if exists "Authenticated users can update tarefas" on public.tarefas;
+create policy "Authenticated users can update tarefas" on public.tarefas
+  for update to authenticated using (true) with check (true);
+drop policy if exists "Authenticated users can delete tarefas" on public.tarefas;
+create policy "Authenticated users can delete tarefas" on public.tarefas
+  for delete to authenticated using (true);
+
+-- 9. Habilitar Supabase Realtime para tabelas críticas
+-- ============================================================
+do $$
+begin
+  alter publication supabase_realtime add table public.profiles;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.goals;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.campaigns;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.message_campaigns;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.repository_messages;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.repository_message_campaigns;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.sales;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.tarefas;
+exception when others then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.tags_bucket;
+exception when others then null;
+end $$;
+
+-- 10. Migração de Dados Históricos (Garante responsável preenchido em registros legados)
+update public.sales s
+set 
+  collaborator_name = coalesce(
+    nullif(s.collaborator_name, ''),
+    nullif(s.seller_name, ''),
+    p.name,
+    'Consultor R9'
+  ),
+  seller_name = coalesce(
+    nullif(s.seller_name, ''),
+    nullif(s.collaborator_name, ''),
+    p.name,
+    'Consultor R9'
+  )
+from public.profiles p
+where (s.seller_id = p.id::text or s.seller_id = cast(p.id as text))
+  and (s.collaborator_name is null or s.collaborator_name = '' or s.seller_name is null or s.seller_name = '');
+
+update public.sales
+set 
+  collaborator_name = coalesce(nullif(collaborator_name, ''), nullif(seller_name, ''), 'Consultor R9'),
+  seller_name = coalesce(nullif(seller_name, ''), nullif(collaborator_name, ''), 'Consultor R9')
+where collaborator_name is null or collaborator_name = '' or seller_name is null or seller_name = '';
+
+-- Sincroniza a coluna canônica sale_date com a data real armazenada em custom_data
+-- em registros históricos criados antes da persistência correta de sale_date.
+update public.sales
+set sale_date = case
+  when custom_data->>'sale_date' ~ '^\d{1,2}/\d{1,2}/\d{4}$'
+    then to_date(custom_data->>'sale_date', 'DD/MM/YYYY')::timestamp with time zone
+  when custom_data->>'sale_date' ~ '^\d{4}-\d{2}-\d{2}$'
+    then (custom_data->>'sale_date')::date::timestamp with time zone
+  else sale_date
+end
+where custom_data ? 'sale_date'
+  and nullif(custom_data->>'sale_date', '') is not null;

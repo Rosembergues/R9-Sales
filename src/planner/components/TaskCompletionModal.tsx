@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle2, RotateCcw, Check, Loader2 } from 'lucide-react';
 import { Task, CustomFieldValue } from '../types.ts';
+import { errorText } from '../../lib/errors';
 
 interface TaskCompletionModalProps {
   isOpen: boolean;
@@ -14,7 +15,7 @@ function TaskCompletionModalContent({
   task,
   onClose,
   onConfirmComplete,
-}: TaskCompletionModalProps) {
+}: TaskCompletionModalProps & { task: Task }) {
   // Inicialização limpa: campos inicializados como '' (vazio), sem herdar valores fantasmas (como 5322) nem cache
   const [formValues, setFormValues] = useState<Record<string, string | number>>(() => {
     const initial: Record<string, string | number> = {};
@@ -118,23 +119,15 @@ function TaskCompletionModalContent({
     }
 
     // Auditoria e log de rastreabilidade de payload antes do envio
-    console.log('[SUPABASE AUDIT - TASK COMPLETION MODAL PAYLOAD]', {
-      taskId: task.id,
-      taskTitle: task.title,
-      capturedValues: formValues, // inclui o 0 explicitamente
-      sanitizedFilledValues: filledValues,
-      timestamp: new Date().toISOString(),
-    });
 
     try {
       setIsSubmitting(true);
       await onConfirmComplete(task.id, filledValues);
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro ao salvar respostas no Supabase:', err);
       setValidationError(
-        err?.message ||
-          'Falha ao salvar respostas no Supabase. O formulário permanece aberto para você não perder os dados. Verifique a conexão e tente novamente.'
+        errorText(err, 'Falha ao salvar respostas no Supabase. O formulário permanece aberto para você não perder os dados. Verifique a conexão e tente novamente.')
       );
     } finally {
       setIsSubmitting(false);
@@ -283,5 +276,5 @@ function TaskCompletionModalContent({
 // Evita alteração da ordem de hooks ao abrir/fechar o modal.
 export default function TaskCompletionModal(props: TaskCompletionModalProps) {
   if (!props.isOpen || !props.task) return null;
-  return <TaskCompletionModalContent key={props.task.id} {...props} />;
+  return <TaskCompletionModalContent key={props.task.id} {...props} task={props.task} />;
 }

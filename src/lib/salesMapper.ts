@@ -9,15 +9,7 @@ import {
   ShiftType
 } from '../types';
 import { getSaleBusinessUnit } from './saleCycle';
-
-/**
- * Valida se uma string é um UUID v4 válido
- */
-export function isValidUuid(str?: string | null): boolean {
-  if (!str) return false;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(str);
-}
+import { toBrDate } from './dates';
 
 /**
  * Converte data em formato DD/MM/YYYY ou ISO para string ISO 8601 segura para PostgreSQL TIMESTAMPTZ
@@ -75,11 +67,7 @@ export function formatIsoToBr(isoStr?: string | null): string {
  * Retorna a data atual de hoje no formato estrito DD/MM/YYYY
  */
 export function getTodayBrDate(): string {
-  const today = new Date();
-  const day = String(today.getDate()).padStart(2, '0');
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const year = today.getFullYear();
-  return `${day}/${month}/${year}`;
+  return toBrDate(new Date());
 }
 
 /**
@@ -343,7 +331,7 @@ export function normalizeRemoteSale(row: RemoteSaleRow): Sale {
     sale_date: dateBr,
     notes: row.notes || '',
     created_at: row.created_at || new Date().toISOString(),
-    missing_fields: findMissingSaleFields(row as Record<string, any>),
+    missing_fields: findMissingSaleFields(row as unknown as Record<string, unknown>),
     custom_data: {
       ...custom,
       candidate_name: candidate,

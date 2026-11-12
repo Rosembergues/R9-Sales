@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, CalendarDays, Check, Copy, Link2, MessageSquareText, Plus, Search, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { todayLocalIso } from '../../lib/dates';
 
 type MessageCampaign = { id: string; title: string; description: string; kind: 'folder' | 'action'; audience: string | null; product: string | null; starts_on: string | null; valid_until: string | null; created_by: string; };
 type RepositoryMessage = { id: string; title: string; content: string; stage: string; created_by: string; created_by_name: string; created_at: string; };
@@ -196,7 +197,7 @@ export const MessageRepository: React.FC = () => {
     {showAllMessages ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{matchingMessages.map(message => messageCard(message, true))}{!matchingMessages.length && <p className="col-span-full rounded-xl border border-dashed p-10 text-center text-sm text-slate-500">Nenhuma mensagem encontrada.</p>}</div>
       : selected && selectedCampaign ? <>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{selectedCampaign.kind === 'folder' ? 'Pasta permanente' : 'Ação'}</span>{selectedCampaign.kind === 'action' && <><span>Público: {selectedCampaign.audience}</span><span>Produto: {selectedCampaign.product}</span><span className="flex items-center gap-1"><CalendarDays size={15} />{new Date(`${selectedCampaign.starts_on}T00:00:00`).toLocaleDateString('pt-BR')} – {new Date(`${selectedCampaign.valid_until}T00:00:00`).toLocaleDateString('pt-BR')}</span></>}</div>
-        {selectedCampaign.kind === 'action' && selectedCampaign.valid_until && selectedCampaign.valid_until < new Date().toISOString().slice(0, 10) && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Esta ação passou do prazo. O histórico e as mensagens continuam disponíveis.</p>}
+        {selectedCampaign.kind === 'action' && selectedCampaign.valid_until && selectedCampaign.valid_until < todayLocalIso() && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Esta ação passou do prazo. O histórico e as mensagens continuam disponíveis.</p>}
         {canManageCampaign(selectedCampaign) && <button onClick={() => openCampaign(selectedCampaign)} className="text-sm font-semibold text-blue-700">Editar detalhes da campanha</button>}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{selectedMessages.filter(message => !search || `${message.title} ${message.content}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(message => messageCard(message))}{!selectedMessages.length && <div className="col-span-full rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500"><MessageSquareText className="mx-auto mb-2" />Nenhuma mensagem nesta campanha.</div>}</div>
       </> : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{matchingCampaigns.map(campaign => <article key={campaign.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:border-blue-300 hover:shadow-md">

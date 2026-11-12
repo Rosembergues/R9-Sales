@@ -1,6 +1,8 @@
 import { supabase } from '../../lib/supabase';
 import { Task, Priority, Recurrence, TaskStatus, CustomFormField, CustomFieldValue, TaskComment, UserTaskSubmission } from '../types.ts';
-import { getNextRecurrenceDate, formatISO } from '../utils/dateUtils.ts';
+import type { TaskCustomJson, TaskDbRow } from '../../lib/dbTypes';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import type { TaskMutationEvent } from '../types.ts';
 
 function normalizeDateOnly(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null;
@@ -17,16 +19,12 @@ function isValidUUID(val?: string | null): boolean {
 
 // Canal global de broadcast e assinantes da tela ativa do planejador.
 // O canal é compartilhado para envio, mas cada componente pode registrar/remover seu listener.
-let realtimeSyncChannel: any = null;
-const taskMutationListeners = new Set<(eventPayload: any) => void>();
+let realtimeSyncChannel: RealtimeChannel | null = null;
+const taskMutationListeners = new Set<(eventPayload: TaskMutationEvent) => void>();
 
 // A coluna completed_by_admin não existe em public.tarefas no banco atual.
 // A rastreabilidade fica somente em campos_customizados para evitar consultas/escritas
 // a uma coluna física inexistente.
-
-// Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
-const recurrenceLocks = new Set<string>();
-const recurrenceHorizonChecked = new Map<string, string>();
 
 type SubmissionChanges = Record<string, UserTaskSubmission | null>;
 
@@ -35,7 +33,7 @@ async function persistTaskUpdate(
   submissionChanges: SubmissionChanges = {},
   replaceAggregateValues = false,
   replaceCompletionMetadata = false
-): Promise<{ data: Task | null; error: any | null }> {
+): Promise<{ data: Task | null; error: unknown }> {
   const payload = mapTaskToDbPayload(task);
   if (payload.campos_customizados) {
     delete payload.campos_customizados.userSubmissions;
@@ -62,147 +60,6 @@ async function persistTaskUpdate(
   return { data: updatedTask, error: null };
 }
 
-
-/** Insere uma ocorrência e lets the database unique index arbitrate concurrent attempts. */
-export async function createNextRecurrentTaskSafely(
-  task: Task,
-  nextDate: string
-): Promise<Task | null> {
-  // Execuções ligadas a um cadastro são geradas pelo banco (gerar_execucoes_tarefas).
-  if (task.modeloId) return null;
-  if (!nextDate || !task.title || !task.title.trim()) {
-    return null;
-  }
-
-  const normalizedTitle = task.title.trim();
-  const seriesId = task.recurrenceSeriesId || task.id;
-  const lockKey = `${seriesId}::${nextDate}`;
-
-  // 1. Trava atômica em memória: se já houver uma requisição em processamento para esse título e data, abortar
-  if (recurrenceLocks.has(lockKey)) {
-    console.warn(
-      `[Recorrência] Criação já em andamento para "${normalizedTitle}" na data ${nextDate}. Disparo duplicado ignorado com sucesso.`
-    );
-    return null;
-  }
-
-  recurrenceLocks.add(lockKey);
-
-  try {
-    // 2. Extrair a lista completa de múltiplos responsáveis para herança total
-    const allAssigneeIds =
-      task.assignedToIds && task.assignedToIds.length > 0
-        ? [...task.assignedToIds]
-        : task.assignedTo
-        ? [task.assignedTo]
-        : [];
-
-    // 3. Preparar payload da nova ocorrência limpa
-    const recurrentPayload = mapTaskToDbPayload({
-      title: normalizedTitle,
-      description: task.description ?? '',
-      priority: task.priority ?? 'Alta',
-      recurrence: task.recurrence,
-      recurrenceDays: task.recurrenceDays ?? [],
-      bucket: task.bucket ?? 'Operacional',
-      assignedTo: allAssigneeIds[0] ?? null,
-      assignedToIds: allAssigneeIds,
-      startDate: nextDate,
-      endDate: nextDate,
-      scheduledDate: nextDate,
-      status: 'pendente',
-      tags: task.tags ?? [],
-      customFields: task.customFields ?? [],
-      customFieldValues: [], // Resetar valores preenchidos para a nova ocorrência
-      userSubmissions: {}, // Iniciar submissões limpas para os responsáveis
-      recurrenceSeriesId: seriesId,
-      comments: [], // Iniciar sem comentários históricos
-    });
-
-    // 4. Inserir; a constraint única transforma uma corrida em no-op.
-    const { data: recurrentData, error: recurrentError } = await supabase
-      .from('tarefas')
-      .insert([recurrentPayload])
-      .select();
-
-    if (recurrentError?.code === '23505') return null;
-    if (recurrentError) {
-      console.error(
-        'Erro ao criar próxima instância recorrente no Supabase:',
-        recurrentError
-      );
-      return null;
-    }
-
-    if (recurrentData && recurrentData.length > 0) {
-      const createdTask = mapDbRowToTask(recurrentData[0]);
-      broadcastTaskMutation('created', createdTask);
-      return createdTask;
-    }
-
-    return null;
-  } catch (err) {
-    console.error('Erro inesperado na rotina de criação recorrente:', err);
-    return null;
-  } finally {
-    // Manter a trava por 2.5s para blindar contra múltiplos cliques rápidos ou loops
-    setTimeout(() => {
-      recurrenceLocks.delete(lockKey);
-    }, 2500);
-  }
-}
-
-function getNextOccurrenceAfterToday(task: Task, baseDate: string): string | null {
-  const today = formatISO(new Date());
-  let nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
-  // Advance stale series dates until their next occurrence is in the future.
-  for (let i = 0; nextDate && nextDate <= today && i < 10000; i += 1) {
-    nextDate = getNextRecurrenceDate(nextDate, task.recurrence, task.recurrenceDays);
-  }
-  return nextDate && nextDate > today ? nextDate : null;
-}
-
-async function ensureFutureRecurringOccurrences(tasks: Task[], perSeries = 2): Promise<Task[]> {
-  const today = formatISO(new Date());
-  const groups = new Map<string, Task[]>();
-  tasks.forEach((task) => {
-    if (task.modeloId) return; // gerada pelo banco
-    if (!task.recurrence || task.recurrence === 'Nenhuma') return;
-    const seriesId = task.recurrenceSeriesId || task.id;
-    groups.set(seriesId, [...(groups.get(seriesId) ?? []), task]);
-  });
-
-  const created: Task[] = [];
-  for (const [seriesId, occurrences] of groups) {
-    const current = occurrences.find((task) => task.status !== 'concluida');
-    if (!current || recurrenceHorizonChecked.get(seriesId) === today) continue;
-    recurrenceHorizonChecked.set(seriesId, today);
-
-    const root = occurrences.find((task) => task.id === seriesId) ?? occurrences[0];
-    if (!root) continue;
-    const futureDates = new Set(occurrences
-      .filter((task) => task.status !== 'concluida')
-      .map((task) => task.scheduledDate)
-      .filter((date): date is string => Boolean(date && date > today)));
-    let baseDate = occurrences
-      .map((task) => task.scheduledDate || task.startDate)
-      .filter((date): date is string => Boolean(date))
-      .sort()
-      .at(-1) ?? today;
-
-    for (let step = 0; futureDates.size < perSeries && step < 10000; step += 1) {
-      const nextDate = getNextRecurrenceDate(baseDate, root.recurrence, root.recurrenceDays);
-      if (!nextDate) break;
-      baseDate = nextDate;
-      if (nextDate <= today || futureDates.has(nextDate)) continue;
-      const nextTask = await createNextRecurrentTaskSafely(root, nextDate);
-      if (nextTask) created.push(nextTask);
-      futureDates.add(nextDate);
-    }
-  }
-  return created;
-}
-
 export function getTaskSyncChannel() {
   if (!realtimeSyncChannel) {
     realtimeSyncChannel = supabase.channel('tarefas-planner-sync-hub', {
@@ -210,10 +67,10 @@ export function getTaskSyncChannel() {
         broadcast: { ack: false, self: false },
       },
     });
-    realtimeSyncChannel.on('broadcast', { event: 'task_mutation' }, (eventPayload: any) => {
+    realtimeSyncChannel.on('broadcast', { event: 'task_mutation' }, (eventPayload: unknown) => {
       taskMutationListeners.forEach((listener) => {
         try {
-          listener(eventPayload);
+          listener(eventPayload as TaskMutationEvent);
         } catch (err) {
           console.error('Erro ao processar broadcast do planejador:', err);
         }
@@ -225,7 +82,7 @@ export function getTaskSyncChannel() {
 }
 
 /** Registra um listener da tela ativa sem deixar callbacks presos após desmontagem. */
-export function subscribeTaskMutations(listener: (eventPayload: any) => void): () => void {
+export function subscribeTaskMutations(listener: (eventPayload: TaskMutationEvent) => void): () => void {
   taskMutationListeners.add(listener);
   getTaskSyncChannel();
   return () => {
@@ -259,26 +116,27 @@ export function broadcastTaskMutation(
  * Converte um registro do banco de dados Supabase (tabela 'tarefas')
  * para o modelo de dados Task utilizado no Planner.
  */
-export function mapDbRowToTask(row: any): Task {
+export function mapDbRowToTask(row: TaskDbRow): Task {
   // Extrair campos customizados e seus valores salvos no JSONB
   let customFields: CustomFormField[] = [];
   let customFieldValues: CustomFieldValue[] = [];
 
   const rawCustom = row.campos_customizados ?? row.custom_fields;
-  if (rawCustom) {
-    if (Array.isArray(rawCustom)) {
-      customFields = rawCustom;
-    } else if (typeof rawCustom === 'object') {
-      if (Array.isArray(rawCustom.fields)) {
-        customFields = rawCustom.fields;
-      } else if (Array.isArray(rawCustom.customFields)) {
-        customFields = rawCustom.customFields;
-      }
-      if (Array.isArray(rawCustom.values)) {
-        customFieldValues = rawCustom.values;
-      } else if (Array.isArray(rawCustom.customFieldValues)) {
-        customFieldValues = rawCustom.customFieldValues;
-      }
+  // Formato atual: objeto { fields, values, ... }. Registros muito antigos guardavam só a lista de campos.
+  const customObj: TaskCustomJson | null =
+    rawCustom && typeof rawCustom === 'object' && !Array.isArray(rawCustom) ? rawCustom : null;
+  if (Array.isArray(rawCustom)) {
+    customFields = rawCustom as CustomFormField[];
+  } else if (customObj) {
+    if (Array.isArray(customObj.fields)) {
+      customFields = customObj.fields as CustomFormField[];
+    } else if (Array.isArray(customObj.customFields)) {
+      customFields = customObj.customFields as CustomFormField[];
+    }
+    if (Array.isArray(customObj.values)) {
+      customFieldValues = customObj.values as CustomFieldValue[];
+    } else if (Array.isArray(customObj.customFieldValues)) {
+      customFieldValues = customObj.customFieldValues as CustomFieldValue[];
     }
   }
 
@@ -310,7 +168,7 @@ export function mapDbRowToTask(row: any): Task {
     row.responsaveis_ids ??
     row.assigned_to_ids ??
     row.assignees ??
-    (rawCustom && typeof rawCustom === 'object' && rawCustom.assigneeIds);
+    customObj?.assigneeIds;
 
   if (Array.isArray(rawAssignees)) {
     assignedToIds = rawAssignees.map(String).filter(Boolean);
@@ -340,7 +198,7 @@ export function mapDbRowToTask(row: any): Task {
     row.dias_recorrencia ??
     row.recurrence_days ??
     row.recurrenceDays ??
-    (rawCustom && typeof rawCustom === 'object' && rawCustom.recurrenceDays);
+    customObj?.recurrenceDays;
 
   if (Array.isArray(rawRecurrenceDays)) {
     recurrenceDays = rawRecurrenceDays.map(String).filter(Boolean);
@@ -363,12 +221,12 @@ export function mapDbRowToTask(row: any): Task {
     row.submissoes_usuarios ??
     row.user_submissions ??
     row.userSubmissions ??
-    (rawCustom && typeof rawCustom === 'object' && (rawCustom.userSubmissions || rawCustom.user_submissions));
+    (customObj?.userSubmissions || customObj?.user_submissions);
 
   if (rawSubmissions && typeof rawSubmissions === 'object' && !Array.isArray(rawSubmissions)) {
-    userSubmissions = rawSubmissions;
+    userSubmissions = rawSubmissions as Record<string, UserTaskSubmission>;
   } else if (Array.isArray(rawSubmissions)) {
-    rawSubmissions.forEach((sub: any) => {
+    rawSubmissions.forEach((sub: UserTaskSubmission) => {
       if (sub && sub.userId) {
         userSubmissions[sub.userId] = sub;
       }
@@ -377,7 +235,7 @@ export function mapDbRowToTask(row: any): Task {
 
   // Normalização explícita de submissões para garantir propagação de completedByAdmin / completed_by_admin
   const normalizedSubmissions: Record<string, UserTaskSubmission> = {};
-  Object.entries(userSubmissions).forEach(([uid, sub]: [string, any]) => {
+  Object.entries(userSubmissions).forEach(([uid, sub]: [string, UserTaskSubmission & { completed_by_admin?: boolean; finalizada_por_admin?: boolean }]) => {
     if (!sub) return;
     const isSubAdmin = Boolean(
       sub.completedByAdmin === true ||
@@ -407,11 +265,9 @@ export function mapDbRowToTask(row: any): Task {
     row.completed_by_admin === true ||
     row.finalizada_por_admin === true ||
     row.completedByAdmin === true ||
-    (rawCustom &&
-      typeof rawCustom === 'object' &&
-      (rawCustom.completed_by_admin === true ||
-        rawCustom.completedByAdmin === true ||
-        rawCustom.finalizada_por_admin === true)) ||
+    customObj?.completed_by_admin === true ||
+    customObj?.completedByAdmin === true ||
+    customObj?.finalizada_por_admin === true ||
     (row.status === 'concluida' && allSubmissionsCompletedByAdmin)
   );
 
@@ -428,7 +284,7 @@ export function mapDbRowToTask(row: any): Task {
     bucket: row.bucket ?? row.categoria ?? 'Operacional',
     startDate: row.data_inicio ?? row.start_date ?? row.startDate ?? undefined,
     endDate: row.data_fim ?? row.end_date ?? row.endDate ?? undefined,
-    recurrenceSeriesId: rawCustom && typeof rawCustom === 'object' && rawCustom.recurrenceSeriesId ? String(rawCustom.recurrenceSeriesId) : undefined,
+    recurrenceSeriesId: customObj?.recurrenceSeriesId ? String(customObj.recurrenceSeriesId) : undefined,
     scheduledDate: normalizeDateOnly(
       row.data_agendada !== undefined
         ? row.data_agendada
@@ -452,10 +308,13 @@ export function mapDbRowToTask(row: any): Task {
 /**
  * Converte um objeto Task do frontend para a estrutura de colunas do Supabase
  */
+/** Colunas gravadas em public.tarefas (campos_customizados é um objeto JSON). */
+type TaskDbPayload = Record<string, unknown> & { campos_customizados?: Record<string, unknown> };
+
 export function mapTaskToDbPayload(
   task: Partial<Task> | Omit<Task, 'id' | 'comments'>
-): Record<string, any> {
-  const payload: Record<string, any> = {};
+): TaskDbPayload {
+  const payload: TaskDbPayload = {};
 
   if (task.title !== undefined) {
     payload.titulo = typeof task.title === 'string' ? task.title.trim() : task.title;
@@ -619,16 +478,12 @@ export function mapTaskToDbPayload(
 }
 
 export const taskService = {
-  async ensureFutureRecurringOccurrences(tasks: Task[]): Promise<Task[]> {
-    return ensureFutureRecurringOccurrences(tasks);
-  },
-
   /**
    * Busca estritamente todas as tarefas reais da tabela 'tarefas' no Supabase
    */
-  async fetchTasks(): Promise<{ data: Task[]; error: any | null }> {
+  async fetchTasks(): Promise<{ data: Task[]; error: unknown }> {
     try {
-      const data: any[] = [];
+      const data: TaskDbRow[] = [];
       const pageSize = 1000;
       for (let offset = 0; ; offset += pageSize) {
         const { data: page, error } = await supabase
@@ -650,44 +505,12 @@ export const taskService = {
   },
 
   /**
-   * Salva uma nova tarefa no Supabase (respeitando se vai para a Fila ou Calendário)
-   */
-  async createTask(
-    newTaskData: Omit<Task, 'id' | 'comments'>
-  ): Promise<{ data: Task | null; error: any | null }> {
-    try {
-      const payload = mapTaskToDbPayload(newTaskData);
-
-      const { data, error } = await supabase
-        .from('tarefas')
-        .insert([payload])
-        .select();
-
-      if (error) {
-        console.error('[SUPABASE AUDIT - INSERT ERROR]', error);
-        return { data: null, error };
-      }
-
-      if (data && data.length > 0) {
-        const created = mapDbRowToTask(data[0]);
-        broadcastTaskMutation('created', created);
-        return { data: created, error: null };
-      }
-
-      return { data: null, error: null };
-    } catch (err) {
-      console.error('[SUPABASE AUDIT - INSERT EXCEPTION]', err);
-      return { data: null, error: err };
-    }
-  },
-
-  /**
    * Atualiza a data agendada (Drag & Drop de/para Fila ou entre dias)
    */
   async updateScheduledDate(
     taskId: string,
     scheduledDate: string | null
-  ): Promise<{ error: any | null }> {
+  ): Promise<{ error: unknown }> {
     try {
       const { error } = await supabase
         .from('tarefas')
@@ -719,8 +542,7 @@ export const taskService = {
     submissionChanges: SubmissionChanges = {}
   ): Promise<{
     updatedTask: Task;
-    nextRecurrentTask: Task | null;
-    error: any | null;
+    error: unknown;
   }> {
     const updatedValues =
       filledValues !== undefined ? filledValues : (task.customFieldValues ?? []);
@@ -743,268 +565,25 @@ export const taskService = {
       finalizada_por_admin: isByAdmin,
     };
 
-    let nextRecurrentTask: Task | null = null;
-    let updateError: any = null;
+    let updateError: unknown = null;
 
     try {
       // 1. Atualizar registro atual no Supabase para o novo status usando mapTaskToDbPayload para sanitização rigorosa
       const { data: savedTask, error } = await persistTaskUpdate(updatedTask, submissionChanges, Boolean(filledValues), true);
 
       if (error || !savedTask) {
-        console.error('[SUPABASE AUDIT - UPDATE STATUS ERROR]', error);
+        console.error('[Planejamento] update status error', error);
         updateError = error ?? new Error('O Supabase não retornou a tarefa atualizada.');
       } else {
         Object.assign(updatedTask, savedTask);
         broadcastTaskMutation('updated', updatedTask);
       }
 
-      // 2. Só gerar recorrência após confirmar a gravação da conclusão.
-      // Isso evita criar uma próxima ocorrência quando a política RLS bloqueia o update.
-      if (!updateError) {
-      const hasRecurrence =
-        task.recurrence &&
-        String(task.recurrence).trim().toLowerCase() !== 'nenhuma' &&
-        String(task.recurrence).trim() !== '';
-
-      if (newStatus === 'concluida' && hasRecurrence) {
-        // Base de cálculo: data_agendada atual (ou data_inicio / hoje)
-        const baseDate = normalizeDateOnly(task.scheduledDate) ?? normalizeDateOnly(task.startDate) ?? formatISO(new Date());
-        const nextDate = getNextOccurrenceAfterToday(task, baseDate);
-
-        if (nextDate) {
-          // Criação da próxima ocorrência após a conclusão ser persistida.
-          nextRecurrentTask = await createNextRecurrentTaskSafely(task, nextDate);
-          if (!nextRecurrentTask) {
-            console.warn('[Recorrência] Nenhuma nova ocorrência foi criada.', {
-              taskId: task.id,
-              recurrence: task.recurrence,
-              recurrenceDays: task.recurrenceDays,
-              baseDate,
-              nextDate,
-            });
-          }
-        } else {
-          console.warn('[Recorrência] Não foi possível calcular a próxima data.', {
-            taskId: task.id,
-            recurrence: task.recurrence,
-            recurrenceDays: task.recurrenceDays,
-            baseDate,
-          });
-        }
-      }
-      }
-
-      return {
-        updatedTask,
-        nextRecurrentTask,
-        error: updateError,
-      };
+      return { updatedTask, error: updateError };
     } catch (err) {
       console.error('Erro ao atualizar status da tarefa:', err);
-      return {
-        updatedTask,
-        nextRecurrentTask: null,
-        error: err,
-      };
+      return { updatedTask, error: err };
     }
-  },
-
-  /**
-   * Conclui ou reabre a parte de um responsável específico em uma tarefa (Conclusão Parcial).
-   * Atualiza a submissão no Supabase sem afetar os dados ou status dos outros membros atribuídos.
-   * Se todos os membros atribuídos completarem, atualiza o status geral da tarefa para 'concluida'
-   * e dispara a recorrência automática quando configurada.
-   */
-  async updateAssigneeCompletion(
-    task: Task,
-    memberId: string,
-    completed: boolean,
-    values?: Record<string, string | number>,
-    memberName?: string,
-    observacao?: string,
-    isAdmin?: boolean
-  ): Promise<{
-    updatedTask: Task;
-    nextRecurrentTask: Task | null;
-    error: any | null;
-  }> {
-    const assigneeIds =
-      task.assignedToIds && task.assignedToIds.length > 0
-        ? task.assignedToIds
-        : task.assignedTo
-        ? [task.assignedTo]
-        : [memberId];
-
-    const existingSub = task.userSubmissions?.[memberId] ?? {
-      userId: memberId,
-      userName: memberName ?? 'Usuário',
-      completed: false,
-      values: {},
-    };
-
-    const finalObservacao =
-      observacao !== undefined
-        ? observacao
-        : existingSub.observacao !== undefined
-        ? existingSub.observacao
-        : existingSub.observation;
-
-    const isMemberAdmin = completed
-      ? (isAdmin !== undefined ? Boolean(isAdmin) : Boolean(existingSub.completedByAdmin || existingSub.completed_by_admin))
-      : false;
-
-    const updatedSubmissions: Record<string, UserTaskSubmission> = {
-      ...(task.userSubmissions ?? {}),
-      [memberId]: {
-        ...existingSub,
-        userId: memberId,
-        userName: memberName ?? existingSub.userName ?? 'Usuário',
-        completed,
-        completedAt: completed
-          ? (existingSub.completedAt ?? new Date().toISOString())
-          : undefined,
-        values: values !== undefined ? values : (existingSub.values ?? {}),
-        observacao: finalObservacao,
-        observation: finalObservacao,
-        completedByAdmin: isMemberAdmin,
-        completed_by_admin: isMemberAdmin,
-        finalizada_por_admin: isMemberAdmin,
-      },
-    };
-
-    // Consolidar valores para customFieldValues de forma estrita
-    const consolidatedValues: CustomFieldValue[] = [];
-    if (task.customFields && task.customFields.length > 0) {
-      task.customFields.forEach((f) => {
-        let sum = 0;
-        const isNum = f.type === 'number';
-        let hasAny = false;
-
-        Object.values(updatedSubmissions).forEach((s) => {
-          if (
-            s.values &&
-            s.values[f.id] !== undefined &&
-            s.values[f.id] !== null &&
-            s.values[f.id] !== ''
-          ) {
-            hasAny = true;
-            if (isNum) {
-              const raw = s.values[f.id];
-              const normalized = typeof raw === 'string' ? raw.trim().replace(',', '.') : raw;
-              const parsed = Number(normalized);
-              sum = sum + (isNaN(parsed) ? 0 : parsed);
-            } else {
-              sum = (s.values[f.id] as any);
-            }
-          }
-        });
-
-        if (hasAny) {
-          consolidatedValues.push({
-            fieldId: f.id,
-            value: isNum ? Number(sum) : String(sum).trim(),
-          });
-        }
-      });
-    }
-
-    // Verificar se todos os responsáveis completaram
-    const allCompleted = assigneeIds.every(
-      (id) => updatedSubmissions[id]?.completed === true
-    );
-    const anyCompleted = assigneeIds.some(
-      (id) => updatedSubmissions[id]?.completed === true
-    );
-
-    const newStatus: TaskStatus = allCompleted
-      ? 'concluida'
-      : anyCompleted
-      ? 'em_andamento'
-      : 'pendente';
-
-    // Rastreabilidade no resumo geral: tarefa integralmente concluída por admin se todos os membros foram concluídos por admin ou ação direta de admin
-    const allSubsFinishedByAdmin =
-      allCompleted &&
-      assigneeIds.every(
-        (id) =>
-          updatedSubmissions[id]?.completed &&
-          (updatedSubmissions[id]?.completedByAdmin ||
-            updatedSubmissions[id]?.completed_by_admin ||
-            updatedSubmissions[id]?.finalizada_por_admin)
-      );
-
-    const isByAdmin = allCompleted
-      ? Boolean(isAdmin || allSubsFinishedByAdmin || task.completedByAdmin || task.completed_by_admin)
-      : false;
-
-    const updatedTask: Task = {
-      ...task,
-      status: newStatus,
-      userSubmissions: updatedSubmissions,
-      customFieldValues: consolidatedValues,
-      completedByAdmin: isByAdmin,
-      completed_by_admin: isByAdmin,
-      finalizada_por_admin: isByAdmin,
-    };
-
-    let nextRecurrentTask: Task | null = null;
-    let updateError: any = null;
-
-    try {
-      const { data: savedTask, error } = await persistTaskUpdate(updatedTask, { [memberId]: updatedSubmissions[memberId] });
-
-      if (error || !savedTask) {
-        console.error('[SUPABASE AUDIT - UPDATE ASSIGNEE COMPLETION ERROR]', error);
-        updateError = error ?? new Error('O Supabase não retornou a tarefa atualizada.');
-      } else {
-        Object.assign(updatedTask, savedTask);
-        broadcastTaskMutation('updated', updatedTask);
-      }
-
-      // Verificação de recorrência somente depois de confirmar a gravação.
-      const hasRecurrence =
-        task.recurrence &&
-        String(task.recurrence).trim().toLowerCase() !== 'nenhuma' &&
-        String(task.recurrence).trim() !== '';
-
-      if (!updateError && updatedTask.status === 'concluida' && hasRecurrence) {
-        const baseDate = normalizeDateOnly(task.scheduledDate) ?? normalizeDateOnly(task.startDate) ?? formatISO(new Date());
-        const nextDate = getNextOccurrenceAfterToday(task, baseDate);
-
-        if (nextDate) {
-          // Criação atômica e segura com consulta prévia no Supabase para evitar duplicatas
-          nextRecurrentTask = await createNextRecurrentTaskSafely(task, nextDate);
-        }
-      }
-
-      return {
-        updatedTask,
-        nextRecurrentTask,
-        error: updateError,
-      };
-    } catch (err) {
-      console.error('Erro ao atualizar conclusão individual do responsável:', err);
-      return {
-        updatedTask,
-        nextRecurrentTask: null,
-        error: err,
-      };
-    }
-  },
-
-  /**
-   * Função explícita para marcar uma tarefa como 'concluida', aplicando preenchimento e gerando recorrência automática.
-   */
-  async completeTask(
-    task: Task,
-    filledValues?: CustomFieldValue[],
-    completedByAdmin?: boolean
-  ): Promise<{
-    updatedTask: Task;
-    nextRecurrentTask: Task | null;
-    error: any | null;
-  }> {
-    return this.updateTaskStatus(task, 'concluida', filledValues, completedByAdmin);
   },
 
   /**
@@ -1015,36 +594,26 @@ export const taskService = {
     submissionChanges: SubmissionChanges = {},
     replaceAggregateValues = false,
     replaceCompletionMetadata = false
-  ): Promise<{ data: Task; error: any | null }> {
+  ): Promise<{ data: Task; error: unknown }> {
     try {
       const { data, error } = await persistTaskUpdate(task, submissionChanges, replaceAggregateValues, replaceCompletionMetadata);
 
       if (error) {
-        console.error('[SUPABASE AUDIT - UPDATE TASK ERROR]', error);
+        console.error('[Planejamento] update task error', error);
         return { data: task, error };
       }
 
       return { data: data ?? task, error: null };
     } catch (err) {
-      console.error('[SUPABASE AUDIT - UPDATE TASK EXCEPTION]', err);
+      console.error('[Planejamento] update task exception', err);
       return { data: task, error: err };
     }
   },
 
   /**
-   * Cria a próxima ocorrência recorrente de forma atômica e segura com verificação de duplicidade.
-   */
-  async createNextRecurrentTaskSafely(
-    task: Task,
-    nextDate: string
-  ): Promise<Task | null> {
-    return createNextRecurrentTaskSafely(task, nextDate);
-  },
-
-  /**
    * Remove uma tarefa do banco de dados Supabase
    */
-  async deleteTask(taskId: string): Promise<{ error: any | null; deleted: boolean }> {
+  async deleteTask(taskId: string): Promise<{ error: unknown; deleted: boolean }> {
     try {
       // Pedir o ID retornado é essencial: com RLS, o Supabase pode responder
       // sem erro e ainda assim remover zero linhas. Sem SELECT de retorno,
@@ -1057,7 +626,7 @@ export const taskService = {
         .maybeSingle();
 
       if (error) {
-        console.error('[SUPABASE AUDIT - DELETE TASK ERROR]', { taskId, error });
+        console.error('[Planejamento] delete task error', { taskId, error });
         return { error, deleted: false };
       }
 
@@ -1065,14 +634,14 @@ export const taskService = {
         const noDeleteError = new Error(
           'O Supabase não confirmou a exclusão da tarefa. Nenhum registro foi retornado; verifique se a política RLS permite que esta conta admin exclua tarefas.'
         );
-        console.warn('[SUPABASE AUDIT - DELETE TASK NOT CONFIRMED]', { taskId });
+        console.warn('[Planejamento] delete task not confirmed', { taskId });
         return { error: noDeleteError, deleted: false };
       }
 
       broadcastTaskMutation('deleted', taskId);
       return { error: null, deleted: true };
     } catch (err) {
-      console.error('[SUPABASE AUDIT - DELETE TASK EXCEPTION]', { taskId, err });
+      console.error('[Planejamento] delete task exception', { taskId, err });
       return { error: err, deleted: false };
     }
   },
