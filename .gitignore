@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Pacote exportado para publicação
+*.zip

@@ -1,8 +1,4 @@
 {
-  "name": "R9Bot Mailer",
-  "description": "Criador e editor de e-mail marketing R9Bot com Gerador Visual, Editor de Código e Visualização.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "name": "R9 Hub",
+  "description": "Central da operação comercial do R9: vendas, metas, rankings, planejamento da equipe, repositório de mensagens e comparador de preços da concorrência."
 }
