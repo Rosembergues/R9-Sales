@@ -41,11 +41,7 @@ export default function Login({ onSwitchToSignUp, onForgotPassword }: LoginProps
       });
 
       if (!result.success) {
-        setErrorMessage(
-          result.error === 'Invalid login credentials'
-            ? 'E-mail ou senha incorretos.'
-            : result.error || 'Erro ao realizar login. Tente novamente.'
-        );
+        setErrorMessage(result.error || 'Erro ao realizar login. Tente novamente.');
       }
     } catch (err) {
       console.error('❌ [Login] Erro não tratado durante o login:', err);

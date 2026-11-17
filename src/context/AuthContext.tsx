@@ -34,6 +34,56 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const NETWORK_ERROR_MESSAGE = 'Sem conexão com o servidor. Verifique sua internet e tente de novo.';
+
+const isNetworkError = (err: unknown) =>
+  /failed to fetch|networkerror|network request failed|load failed/i.test(errorText(err, ''));
+
+/**
+ * Transforma o erro do Supabase no login em um aviso claro para o usuário.
+ * O Supabase responde "Invalid login credentials" tanto para e-mail inexistente
+ * quanto para senha errada; para separar os dois casos consultamos a função
+ * `email_cadastrado` (supabase/login-avisos.sql). Se ela não existir, cai no aviso genérico.
+ */
+async function loginErrorMessage(
+  error: { message?: string; code?: string; status?: number },
+  email: string,
+): Promise<string> {
+  const msg = error.message || '';
+  const code = error.code || '';
+
+  if (code === 'invalid_credentials' || /invalid login credentials/i.test(msg)) {
+    try {
+      const { data, error: rpcError } = await supabase.rpc('email_cadastrado', { p_email: email });
+      if (!rpcError && data === false) {
+        return 'E-mail não encontrado. Confira o endereço ou crie uma conta em "Cadastre-se".';
+      }
+      if (!rpcError && data === true) {
+        return 'Senha incorreta. Tente de novo ou use "Esqueci minha senha".';
+      }
+    } catch {
+      // Sem a função no banco: segue para o aviso genérico.
+    }
+    return 'E-mail ou senha incorretos. Verifique seus dados e tente de novo.';
+  }
+  if (code === 'email_not_confirmed' || /email not confirmed/i.test(msg)) {
+    return 'Seu e-mail ainda não foi confirmado. Abra o link que enviamos para a sua caixa de entrada (veja também o spam).';
+  }
+  if (code === 'user_banned' || /banned/i.test(msg)) {
+    return 'Seu acesso está bloqueado. Fale com um administrador do R9 Hub.';
+  }
+  if (error.status === 429 || code === 'over_request_rate_limit' || /rate limit|too many/i.test(msg)) {
+    return 'Muitas tentativas seguidas. Aguarde alguns minutos e tente de novo.';
+  }
+  if (isNetworkError(error)) {
+    return NETWORK_ERROR_MESSAGE;
+  }
+  if (error.status && error.status >= 500) {
+    return 'O serviço de login está fora do ar no momento. Tente de novo em instantes.';
+  }
+  return msg || 'Não foi possível entrar. Tente de novo.';
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [allProfiles, setProfiles] = useState<Profile[]>([]);
@@ -220,7 +270,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!isAllowedEmailDomain(email)) {
       return { success: false, error: 'Use seu e-mail corporativo @estacio.br ou @yduqs.com.br.' };
     }
-    setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -232,7 +281,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error('❌ [Supabase Auth] Erro retornado no signUp:', error.message, error);
-        setLoading(false);
         const friendly = /estacio|yduqs|Database error saving new user/i.test(error.message)
           ? 'Cadastro permitido apenas para e-mails @estacio.br ou @yduqs.com.br.'
           : error.message;
@@ -247,11 +295,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await refreshProfiles();
       }
 
-      setLoading(false);
       return { success: true };
     } catch (err) {
       console.error('💥 [Supabase Auth] Exceção inesperada durante o cadastro:', err);
-      setLoading(false);
       return { success: false, error: errorText(err, 'Erro inesperado durante o cadastro.') };
     }
   };
@@ -267,7 +313,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: err };
     }
 
-    setLoading(true);
+    // Não liga o `loading` global aqui: ele troca a tela inteira pelo "Carregando..."
+    // e desmonta o formulário de login, apagando a mensagem de erro. O botão do
+    // formulário já mostra "Autenticando...".
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -276,13 +324,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error('❌ [Supabase Auth] Erro no signInWithPassword:', error.message, error);
-        setLoading(false);
-        return {
-          success: false,
-          error: error.message === 'Invalid login credentials'
-            ? 'E-mail ou senha incorretos. Verifique suas credenciais.'
-            : error.message || 'Falha ao autenticar no Supabase.',
-        };
+        return { success: false, error: await loginErrorMessage(error, email) };
       }
 
       // Recupera os dados do perfil do usuário logado fazendo um select na tabela profiles filtrando pelo ID da sessão
@@ -293,11 +335,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       await refreshProfiles();
 
-      setLoading(false);
       return { success: true };
     } catch (err) {
       console.error('💥 [Supabase Auth] Exceção inesperada no login:', err);
-      setLoading(false);
+      if (isNetworkError(err)) return { success: false, error: NETWORK_ERROR_MESSAGE };
       return { success: false, error: errorText(err, 'Erro ao realizar login.') };
     }
   };
