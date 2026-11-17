@@ -1,120 +1,120 @@
-# R9 Hub
+# R9Bot Mailer
 
-Central da operação comercial do R9: lançamento e consulta de vendas, metas (importadas do Power BI e distribuídas por peso), desempenho e ranking da equipe, planejamento de tarefas, repositório de mensagens e comparador de preços da concorrência.
+Aplicação para criar, importar, editar, organizar e exportar e-mails usando blocos visuais.
 
-Feito com **React 19 + Vite + TypeScript + Tailwind CSS 4**, com banco, login e tempo real no **Supabase**. Publicado na **Vercel**.
+## Telas
+- **Início:** abre o editor, dá acesso à Biblioteca e mostra os três modelos públicos atualizados mais recentemente.
+- **Editor:** blocos arrastáveis, edição de texto diretamente no e-mail, imagens, botões, desfazer/refazer, prévia responsiva, importação e exportação de HTML.
+- **Biblioteca de modelos:** catálogo compartilhado de modelos públicos, com cópia independente para uso e permissões de edição por proprietário/administrador.
 
-## Rodar na sua máquina
+## Persistência online
+- O **rascunho atual** é salvo automaticamente no Supabase após uma breve pausa na edição. Os rascunhos são privados para cada usuário autenticado.
+- **Salvar template** publica o modelo na biblioteca compartilhada ou atualiza o modelo existente se o usuário for seu dono ou administrador.
+- **Usar modelo** cria uma cópia independente; não altera o original.
+- O histórico é registrado no banco quando um modelo é publicado ou seu conteúdo/metadados são alterados.
+- O projeto não utiliza mais `localStorage` para armazenar templates ou rascunhos. A persistência local de sessão do Supabase permanece ativada para manter o login.
 
-Precisa do Node.js 20 ou mais novo.
+## Configuração do Supabase
+1. Configure `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` no ambiente do projeto.
+2. Execute `supabase/migrations/202610160001_shared_mailer_library.sql` no SQL Editor do projeto Supabase ou aplique-o pelo fluxo de migrations adotado pela equipe.
+3. Cadastre pelo menos um administrador, substituindo o e-mail na consulta abaixo por uma conta já registrada em Auth > Users:
 
-```bash
-npm install
-npm run dev        # abre em http://localhost:3000
+```sql
+insert into public.mailer_library_admins (user_id)
+select id from auth.users where lower(email) = lower('admin@example.com')
+on conflict (user_id) do nothing;
 ```
 
-Sem configuração, o app usa o projeto Supabase oficial. Para usar outro banco (por exemplo, um de testes), copie `.env.example` para `.env.local` e preencha.
+A tabela de administradores não permite que usuários autenticados adicionem a si mesmos. A promoção administrativa deve ser feita por alguém com acesso privilegiado ao banco.
 
-| Comando | O que faz |
-|---|---|
-| `npm run dev` | Servidor de desenvolvimento. |
-| `npm run build` | Gera o site final em `dist/`. |
-| `npm run typecheck` | Confere os tipos (TypeScript em modo rígido). |
-| `npm test` | Roda os testes automáticos (`src/**/*.test.ts`). |
-| `npm run check` | Tipos + testes. Rode antes de publicar. |
+### Regras implementadas
+- Consultar e usar modelos públicos: todos os usuários autenticados.
+- Criar/publicar modelos públicos: todos os usuários autenticados.
+- Editar modelos: somente o dono ou um administrador.
+- Excluir modelos: somente administradores.
+- O administrador pode editar um modelo sem transferir a propriedade do criador original.
+- Os rascunhos são privados e as permissões são aplicadas por RLS no Supabase, além dos controles de interface.
 
-## Publicar
+**Importante:** a migração do banco precisa ser aplicada no projeto Supabase real antes de testar os fluxos da biblioteca. Este pacote inclui a migração, mas não aplica alterações remotamente ao seu projeto.
 
-A Vercel publica a partir desta pasta: ela instala as dependências com o `bun.lock` e roda `vite build`. O `vercel.json` faz toda rota cair no `index.html`.
+## Importar HTML
+A importação analisa o conteúdo antes de substituir o e-mail atual e mostra uma estimativa de palavras preservadas, imagens, links e blocos gerados. O conteúdo textual pode ser aproveitado mesmo quando colunas, bordas, espaçamentos e outros detalhes visuais precisam ser simplificados na conversão para blocos.
 
-Mudanças no banco **não** vão junto: rode o SQL novo no Supabase antes de publicar a versão que depende dele (veja [supabase/README.md](supabase/README.md)).
+O importador (`src/utils/htmlParser.ts`) percorre o documento até as folhas de conteúdo, inclusive texto solto entre elementos, e só aplica heurísticas de classificação a contêineres pequenos:
+- **Reconhece:** títulos e subtítulos (por tag ou tamanho de fonte), parágrafos com negrito, itálico, cores e links, listas, imagens com link, botões (inclusive o padrão de tabela "bulletproof"), banners coloridos com título, cupons (borda tracejada ou classe `cupom`/`coupon`), divisores, redes sociais (inclusive linhas só com ícones) e rodapés.
+- **Estilos:** resolve CSS inline, atributos legados (`bgcolor`, `align`, `<font>`), regras de `<style>` com qualquer seletor (`.mcnTextContent p`, `#hero h1`, `td > a.btn`) respeitando a especificidade, herança e unidades (`px`, `pt`, `em`, `rem`, `%`). Media queries com condição (celular, modo escuro) e estados como `:hover` são ignorados.
+- **Imagens de fundo:** um banner com foto de fundo (`background-image` ou atributo `background`) vira um bloco de imagem seguido do texto e do botão que ficavam sobre ela. Texturas de fundo da página inteira não são importadas, e a análise de importação as conta como imagens não reconhecidas.
+- **Variáveis de outras plataformas:** nome e e-mail do Mailchimp (`*|FNAME|*`), Brevo/HubSpot/RD (`{{ contact.FIRSTNAME }}`), Salesforce (`%%first_name%%`), ActiveCampaign (`%FIRSTNAME%`) e Mautic viram `{{nome}}` e `{{email}}`. As que não têm equivalente (por exemplo `*|UNSUB|*`) aparecem como erro na revisão de exportação.
+- **Descarta:** conteúdo oculto (preheaders com `display:none`), pixels de rastreamento, células espaçadoras e o fundo da página/cartão.
+- **E-mails do próprio R9:** HTML gerado pelo editor (preview ou exportação) é reconstruído bloco a bloco, preservando IDs e propriedades.
 
-### Configuração de login no Supabase
+Os testes em `tests/htmlParser.test.ts` documentam cada caso suportado.
 
-Em **Authentication → URL Configuration**:
+## Segurança dos blocos
+Blocos vindos do Supabase, de importações ou de rascunhos antigos passam por `normalizeBlocks` (`src/utils/blockNormalizer.ts`), que descarta chaves desconhecidas e restringe cores, alinhamentos, tamanhos e fontes a formatos seguros. O compilador também normaliza cada bloco antes de gerar HTML, então dados manipulados diretamente pela API não conseguem injetar atributos no preview.
 
-- **Site URL:** o endereço do site publicado (ex.: `https://seu-dominio.com`).
-- **Redirect URLs:** inclua `https://seu-dominio.com/redefinir-senha` (e `http://localhost:3000/redefinir-senha` para testar na sua máquina).
+Aplique também `supabase/migrations/202611130001_validate_mailer_blocks.sql`, que rejeita payloads de blocos malformados (não-array ou grandes demais) em novas gravações, sem alterar as linhas existentes.
 
-Se o domínio mudar, atualize os dois. Sem a página na lista de Redirect URLs, o link do e-mail de senha cai na página inicial (o site ainda reconhece e abre a tela de senha nova, mas o certo é cadastrar).
+## Recursos de edição
 
-O texto do e-mail fica em **Authentication → Email Templates → Reset Password** (pode traduzir; mantenha o `{{ .ConfirmationURL }}`).
+- **Assunto e texto de pré-visualização (preheader):** com nenhum bloco selecionado, o painel da direita mostra o assunto e o preheader. O preheader é exportado como texto oculto no topo do e-mail e é lido de volta ao importar um HTML.
+- **Revisão antes de exportar** (`src/utils/emailChecklist.ts`): a janela de exportação abre numa lista de problemas que chegariam ao destinatário. A lista cobre e-mail sem assunto ou preheader, botões sem link ou com link de exemplo, imagens sem hospedagem ou sem descrição, variáveis desconhecidas (`{{empresa}}`), texto com pouco contraste, falta de rodapé e HTML acima de 102 KB (o Gmail corta). Clicar em "Corrigir" seleciona o bloco com problema.
+- **Colunas:** bloco com 2 ou 3 itens lado a lado (imagem, texto e botão por coluna). No celular as colunas ficam empilhadas. O importador reconhece grades de produtos (linhas de tabela com 2–3 células que tenham imagem ou botão).
+- **Kit da marca:** cores de cabeçalho, botões, títulos e textos, fonte, logo, site, redes e rodapé padrão. Os blocos novos já nascem com o kit, e "Salvar e aplicar neste e-mail" recolore o e-mail atual (dá para desfazer com Ctrl+Z). Fica no menu Biblioteca e no painel de configurações do e-mail.
+- **Meus blocos:** o ícone de marcador no painel de um bloco salva esse bloco para reutilizar. Os blocos salvos aparecem no topo de "Adicionar bloco".
+- **Modo escuro na visualização:** a visualização em tela cheia simula como Gmail e Outlook escurecem o e-mail (fundos claros ficam escuros, textos escuros ficam claros, imagens não mudam).
 
-## Organização do código
+O kit da marca e Meus blocos são **por usuário** e precisam da migração `supabase/migrations/202611130002_brand_kit_and_saved_blocks.sql`. Sem ela, o editor continua funcionando com o kit padrão e mostra um aviso.
 
-```
-src/
-  main.tsx, App.tsx        entrada; login → aguardando autorização → painel
-  context/                 AuthContext (sessão, perfis, autorização) e SalesContext (vendas)
-  components/
-    dashboard/             R9Dashboard (menu e abas) e Início
-    sales/                 planilha de Vendas, Fechamento Diário, lançar/editar venda
-    performance/           Desempenho e Analytics
-    ranking/               Ranking semanal/mensal
-    admin/                 Gerenciar Equipe, Gerenciar Metas (goalManagement/), Importar Metas (goalImport/)
-    prices/                Comparador de Preços
-    messages/              Repositório de Mensagens
-    auth/                  login, cadastro, aguardando autorização
-    common/                peças usadas em várias telas (tela de erro)
-  planner/                 Planejamento (calendário, rotina da semana, balanço, tags)
-    components/planner/    dados (usePlannerData), ações (usePlannerActions) e blocos da tela
-    components/taskDetail/ janela de uma tarefa: estado, visão do consultor e do admin
-    services/              leitura/gravação de tarefas, cadastros, tags e equipe
-  lib/                     regras sem tela (testáveis):
-    supabase.ts            conexão única com o banco
-    localCache.ts          o que fica guardado no navegador (fila offline, perfis, metas)
-    dates.ts               datas no fuso local
-    saleOptions.ts         produtos, modalidades, turnos, FDI e campos obrigatórios da venda
-    saleStyles.ts          cores das FDI
-    salesQuery.ts          filtros da planilha de Vendas aplicados no banco
-    salesMapper.ts         linha do banco ⇄ venda do app
-    saleValidation.ts      oportunidade duplicada, data da venda
-    goalImport*.ts         leitura e gravação das metas do Power BI
-    goalWeights.ts         distribuição das metas por peso
-    goalProgress.ts, performance.ts, saleCycle.ts   cálculos de metas, desempenho e ciclo
-    priceComparison*.ts    leitura e comparação da planilha da concorrência
-    errors.ts              texto de erro
-    dbTypes.ts             formato das linhas lidas do banco (tarefas, metas, comparador...)
-supabase/                  scripts do banco e a ordem de execução
-scripts/run-tests.mjs      executor dos testes (usa o esbuild que já vem com o Vite)
-```
+## Qualidade do HTML exportado
 
-### Convenções
+- **Outlook para Windows:** os botões são exportados também em VML (`v:roundrect`), então aparecem com cantos arredondados e área de clique correta no Outlook, que ignora padding e border-radius em links.
+- **Texto puro:** a aba "Texto puro" da exportação gera a versão `text/plain` do e-mail, com os links por extenso. Cole-a no disparador se ele tiver esse campo.
+- **Imagens otimizadas no envio:** as imagens são redimensionadas para no máximo 1200 px. Fotos e imagens sem transparência viram JPEG comprimido até cerca de 300 KB (WEBP também é convertido, porque o Outlook não o exibe). Imagens com transparência continuam PNG, e GIFs animados não são alterados. Arquivos de até 15 MB são aceitos, porque são comprimidos antes do limite de 5 MB do upload.
 
-- **Datas:** use `lib/dates.ts`. Nunca `toISOString().slice(0, 10)` para "hoje": em Brasília, depois das 21h já é o dia seguinte em UTC. Para comparar dias, compare textos `aaaa-mm-dd`.
-- **Opções de venda** (modalidade, turno, FDI) só em `lib/saleOptions.ts`; cores só em `lib/saleStyles.ts`.
-- **Erros:** `catch (err)` + `errorText(err, 'mensagem padrão')`.
-- **Sem `any`:** dado vindo do banco recebe o tipo de `lib/dbTypes.ts` no ponto em que chega (`data as GoalDailyRow[]`).
-- **Telas grandes** seguem o mesmo desenho: um hook com o estado e as ações (`useX`) e blocos da tela que recebem `st` (o resultado do hook).
-- **Banco:** toda regra de segurança fica no Supabase (RLS e gatilhos). A tela só esconde botões; quem bloqueia é o banco.
-- **Telas grandes** são carregadas sob demanda (`lazy` no `R9Dashboard`) e cada aba fica dentro de uma tela de erro.
-- Comentários e textos em português.
+## Rodar localmente
+1. `npm install`
+2. Configure as variáveis de ambiente do Supabase e do Firebase se for usar upload de imagens.
+3. `npm run dev`
 
-## Funcionalidades
+## Verificar
+- `npm run lint`
+- `npm test`
+- `npm run build`
 
-### Vendas & Operação
-- **Venda sempre completa:** o formulário começa sem nada marcado (produto, FDI, modalidade, turno, parcela leve e bolsa). O turno é marcado sozinho quando só existe uma opção (EAD, Flex e Pós Digital são "Virtual"). O banco recusa venda nova incompleta.
-- **Vendas:** filtros de período, consultor, produto, modalidade, FDI, turno e "Só as minhas" valem para todas as vendas. Exportar leva tudo o que foi filtrado. Venda nova aparece sem recarregar. Vendas antigas sem algum campo aparecem como "Falta preencher" e o filtro **Cadastros incompletos** lista essas vendas.
-- **Fechamento Diário:** totais do dia por modalidade, FDI e consultor; "Copiar Fechamento" gera o texto para o WhatsApp.
-- Uma oportunidade só pode ser lançada uma vez. Consultor pode lançar para colega; só o dono da venda ou um admin edita.
+### Publicação na biblioteca compartilhada
 
-### Metas
-- **Importar Metas:** os relatórios do Power BI (.xlsx/.csv) são arrastados de uma vez. Modalidade, período acadêmico e campus vêm do texto "Filtros aplicados" (célula A1). Há conferência "antes × depois" e alertas antes de gravar. A importação nova é gravada como rascunho e só substitui a anterior quando termina, então uma falha nunca apaga a vigente.
-- **Metas por peso:** em Gerenciar Metas → Pesos por BU, cada consultor tem um % por BU (cada BU soma 100%; peso 0 = sem meta). A meta oficial de cada semana/mês é dividida pelos pesos com arredondamento que mantém a soma. Recalcula ao abrir a tela, ao salvar os pesos e após cada importação, só da semana/mês atual em diante. Editar o valor de alguém marca ajuste manual ("voltar ao peso" desfaz).
-- Semanas são de segunda a domingo, cortadas no mês.
+Ao clicar em **Salvar template** (ou usar `Ctrl+S` no editor), o sistema abre um formulário próprio para o nome e a descrição do modelo. Para uma nova publicação, esses campos começam vazios e são obrigatórios; o assunto/título do e-mail não é utilizado como nome automaticamente. Ao editar um modelo já publicado, o formulário recupera o nome e a descrição registrados na biblioteca.
 
-### Equipe e acesso
-- Cadastro só com `@estacio.br` ou `@yduqs.com.br`; todo cadastro novo espera autorização de um admin.
-- **Gerenciar Equipe:** Ativo, Fora do ranking (acessa, mas sai de ranking, desempenho e metas), Bloqueado (histórico mantido) e Aguardando autorização. Menu ⋯ por pessoa: editar nome, tornar admin/consultor, tirar/voltar ao ranking, bloquear/autorizar.
-- No banco: só admin muda função ou acesso, ninguém bloqueia a si mesmo e o último admin não pode ser removido.
-- **Esqueci minha senha** (no login): manda um link para o e-mail. O link abre `/redefinir-senha`, onde a pessoa cria a senha nova (mínimo 8 caracteres, com letras e números). Link expirado ou já usado mostra o aviso e deixa pedir outro. A resposta ao pedir o link é sempre a mesma, para não revelar quem tem cadastro.
+### Diagnóstico de falha ao publicar
 
-### Planejamento
-- **Tarefa** (cadastro, `tarefas_modelo`) × **execução** (`tarefas`, cada dia em que roda). O banco grava as execuções das próximas 8 semanas e renova todo dia.
-- Todos criam tarefas (inclusive para colegas), com repetição e formulário; só quem criou ou um admin altera. Os responsáveis concluem e preenchem o formulário.
-- Menu: Calendário (com a Fila de tarefas sem data), Minhas tarefas, Rotina da semana, Balanço da semana e Tags (admin).
+A publicação do modelo é executada antes da gravação do rascunho privado, então uma falha isolada no autosave não impede a publicação. Se a publicação em si falhar, a janela exibe a mensagem devolvida pela operação em vez de ocultá-la com um aviso genérico. Se apenas o rascunho falhar, o sistema informa que o modelo foi publicado e que o rascunho precisa de atenção. O diagnóstico somente leitura do banco está em `supabase/diagnostics/check-mailer-library.sql`; execute-o no SQL Editor para conferir todas as colunas usadas pelo código, políticas, funções e RLS. Se houver colunas ausentes em tabelas que já existiam antes da migração, execute `supabase/diagnostics/repair-mailer-library-columns.sql`: ele apenas adiciona colunas ausentes, preenche metadados disponíveis e solicita a atualização do cache de schema do PostgREST, sem apagar registros.
 
-### Comparador de Preços
-- Importa a planilha da Análise da Concorrência (aba com "NOME DO CURSO"), recalculando as fórmulas que vêm sem valor. Bolsa composta (`65% 1ºS + 60% CT`) compara pelo 1º semestre.
-- **Ofensa:** concorrente X% ou mais abaixo do nosso preço (padrão 8%, ajustável). Cada envio fica no histórico; reenviar na mesma semana substitui.
-- Todos veem; só admin importa e muda o limite.
+## Recuperação de senha
+- A tela de login envia o e-mail de recuperação pelo Supabase Auth.
+- O link retorna para `/?auth=password-reset`, onde o usuário define e confirma a nova senha.
+- Configure a **Site URL**, as **Redirect URLs** e o template de e-mail de recuperação no painel do Supabase. O passo a passo está em [`SUPABASE_AUTH_SETUP.md`](./SUPABASE_AUTH_SETUP.md).
+- Não é necessária uma migração SQL para este recurso. Use o arquivo `.env.example` como referência das variáveis de ambiente; não coloque a chave `service_role` no frontend.
+
+## Encerrar sessão
+- O botão **Sair** fica disponível na navegação principal e também na barra superior do editor.
+- Ao sair pelo editor, o R9Bot tenta salvar o rascunho atual na nuvem antes de encerrar a sessão; se o salvamento falhar, informa o problema e mantém o usuário no editor.
+- O encerramento da sessão é feito por `supabase.auth.signOut()`. O usuário retorna à tela de autenticação.
+
+## Aviso diário de novidades
+
+O aviso aparece também na tela de login, antes de a pessoa entrar, e continua disponível após a autenticação. Ele explica o login por e-mail, a Biblioteca compartilhada e deixa claro que qualquer funcionário pode criar a própria conta pelo botão **Criar conta**. O aviso pode ser fechado pelo botão `X` ou por `Entendi, continuar` e volta a aparecer no próximo dia. Como ele também aparece antes do login, o aplicativo guarda somente a data em que foi fechado em uma chave local do navegador; essa marcação evita que o aviso reapareça imediatamente após a pessoa entrar. Modelos e rascunhos não são armazenados nessa chave.
+
+
+## Modelos recentes na página inicial
+A seção de modelos do Início é carregada da Biblioteca compartilhada no Supabase e mostra até três modelos públicos ordenados pela atualização mais recente. O botão **Usar modelo** abre uma cópia independente no editor, sem alterar o modelo original. Se ainda não houver modelos publicados, ou se a conexão falhar, a página mostra uma mensagem de estado vazio/erro e oferece acesso à Biblioteca ou nova tentativa; as imagens locais dos modelos antigos não são mais usadas nessa seção.
+
+## Biblioteca como página completa
+
+A navegação principal agora abre uma página dedicada da Biblioteca. A janela compacta de seleção continua disponível dentro do editor para que seja possível escolher um modelo sem sair do fluxo de edição.
+
+A página completa inclui busca por nome, descrição ou assunto; filtros para todos os modelos públicos e modelos criados pelo usuário; detalhes e histórico de versões; uso de uma cópia independente; edição permitida somente ao dono ou administrador; exclusão somente por administradores; restauração de versões anteriores para dono/admin; e estados de carregamento, erro e biblioteca vazia.
+
+### Prévia compacta dos modelos da biblioteca
+
+A página da Biblioteca mostra uma miniatura visual baseada nos blocos reais do modelo, tanto nos cartões da lista quanto no painel de detalhes. A prévia é renderizada com componentes React leves (sem criar um iframe ou fazer uma nova consulta ao Supabase por cartão), mostra apenas os primeiros blocos para manter a interface rápida e carrega imagens com `loading="lazy"`.

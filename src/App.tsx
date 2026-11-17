@@ -1,89 +1,274 @@
-import React, { useEffect, useCallback } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { SalesProvider } from './context/SalesContext';
-import { AuthPage } from './components/auth/AuthPage';
-import { PendingApprovalPage } from './components/auth/PendingApprovalPage';
-import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
-import { hasApprovedAccess } from './types';
-import { R9Dashboard } from './components/dashboard/R9Dashboard';
-import { useIdleTimeout, THREE_HOURS_MS } from './hooks/useIdleTimeout';
-import { LocalSyncEngine } from './lib/localCache';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Screen, TransitionType, EmailData } from './types';
+import { DEFAULT_TEMPLATES } from './data/templates';
+import type { TemplateDocument } from './utils/templateStore';
 
-const MainLayout: React.FC = () => {
-  const { currentUser, loading, signOut, isPasswordRecovery } = useAuth();
+import { Header } from './components/Header';
+import { Footer } from './components/Footer';
+import { DailyNoticeModal } from './components/DailyNoticeModal';
 
-  // Normaliza rota caso haja caminho residual (/login, hash, etc.) e garante a raiz do app
-  // (exceto a página de nova senha, que precisa do próprio endereço)
-  useEffect(() => {
-    if (isPasswordRecovery) return;
-    if (window.location.pathname !== '/' && window.location.pathname !== '') {
-      window.history.replaceState(null, '', '/');
-    }
-  }, [currentUser, isPasswordRecovery]);
+import { GeradorProScreen } from './screens/GeradorProScreen';
+import { InicioScreen } from './screens/InicioScreen';
+import { BibliotecaScreen } from './screens/BibliotecaScreen';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { LoginScreen } from './components/auth/LoginScreen';
+import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 
-  // Callback de encerramento por inatividade de 3 horas
-  const handleIdleLogout = useCallback(async () => {
-    try {
-      // 1. Limpeza de estado local
-      localStorage.setItem('r9_session_expired_idle', 'true');
-      localStorage.removeItem('r9_last_user_activity');
-      LocalSyncEngine.setCurrentUser(null);
-
-      // Encerramento oficial no Supabase Auth
-      await signOut();
-    } catch (error) {
-      console.error('❌ [Idle Timeout] Erro ao deslogar por inatividade:', error);
-    } finally {
-      // 3. Forçar redirecionamento limpo estritamente para a raiz do aplicativo (/)
-      window.location.href = '/';
-    }
-  }, [signOut]);
-
-  // Bloqueio por inatividade ativo durante toda a sessão autenticada do usuário
-  useIdleTimeout({
-    enabled: Boolean(currentUser),
-    timeoutMs: THREE_HOURS_MS,
-    onIdle: handleIdleLogout,
-  });
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center p-4">
-        <div className="w-12 h-12 rounded-2xl bg-[#00478f] text-white flex items-center justify-center font-black text-lg shadow-md animate-pulse">
-          R9
-        </div>
-        <p className="text-xs font-semibold text-gray-500 mt-3 font-['Space_Grotesk']">
-          Carregando ambiente R9 Hub...
-        </p>
-      </div>
-    );
-  }
-
-  // Veio pelo link do e-mail de "Esqueci minha senha"
-  if (isPasswordRecovery) {
-    return <ResetPasswordPage />;
-  }
-
-  // Se não autenticado, exibe a tela de login/cadastro
-  if (!currentUser) {
-    return <AuthPage />;
-  }
-
-  // Logado, mas ainda não autorizado por um admin (os dados também ficam bloqueados no banco)
-  if (!hasApprovedAccess(currentUser)) {
-    return <PendingApprovalPage />;
-  }
-
-  // Exibe a tela principal do sistema R9
-  return <R9Dashboard />;
-};
+function getLocalDateKey() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export default function App() {
+  const [authReady, setAuthReady] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [showDailyNotice, setShowDailyNotice] = useState(false);
+  const [passwordResetMode, setPasswordResetMode] = useState(() => {
+    const search = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    return search.get('auth') === 'password-reset' || hash.get('type') === 'recovery';
+  });
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) { setAuthReady(true); return; }
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      setAuthenticated(Boolean(data.session));
+      setAuthUserId(data.session?.user.id ?? null);
+      setAuthReady(true);
+    }).catch(() => { if (alive) setAuthReady(true); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setPasswordResetMode(true);
+      setAuthenticated(Boolean(session));
+      setAuthUserId(session?.user.id ?? null);
+      setAuthReady(true);
+    });
+    return () => { alive = false; subscription.unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) {
+      setShowDailyNotice(false);
+      return;
+    }
+
+    // The announcement must also be available before login, so its daily
+    // dismissal is tracked with a browser-wide key. This keeps it from opening
+    // a second time immediately after a user signs in.
+    const today = getLocalDateKey();
+    const globalStorageKey = 'r9bot-mailer-daily-notice:v2:global';
+    const accountStorageKey = authUserId
+      ? `r9bot-mailer-daily-notice:v1:${authUserId}`
+      : null;
+    try {
+      const dismissedGlobally = window.localStorage.getItem(globalStorageKey) === today;
+      const dismissedForAccount = accountStorageKey
+        ? window.localStorage.getItem(accountStorageKey) === today
+        : false;
+      setShowDailyNotice(!dismissedGlobally && !dismissedForAccount);
+    } catch {
+      // If browser storage is unavailable, show the notice for this session.
+      setShowDailyNotice(true);
+    }
+  }, [authReady, authenticated, authUserId]);
+
+  const handleDismissDailyNotice = () => {
+    const today = getLocalDateKey();
+    try {
+      // Works on the login page too, when no user ID is available yet.
+      window.localStorage.setItem('r9bot-mailer-daily-notice:v2:global', today);
+      if (authUserId) {
+        window.localStorage.setItem(`r9bot-mailer-daily-notice:v1:${authUserId}`, today);
+      }
+    } catch {
+      // Closing still works when browser storage is blocked.
+    }
+    setShowDailyNotice(false);
+  };
+
+  const [currentScreen, setCurrentScreen] = useState<Screen>('inicio');
+  const [transitionType, setTransitionType] = useState<TransitionType>('none');
+  const [openLibraryOnEditor, setOpenLibraryOnEditor] = useState(false);
+  const [homeLibraryTemplate, setHomeLibraryTemplate] = useState<TemplateDocument | null>(null);
+  const [homeLibraryTemplateToEdit, setHomeLibraryTemplateToEdit] = useState<TemplateDocument | null>(null);
+
+  const defaultTmpl = DEFAULT_TEMPLATES[0];
+
+  const [emailData, setEmailData] = useState<EmailData>({
+    headerTitle: defaultTmpl.headerTitle,
+    greeting: defaultTmpl.greeting,
+    buttonText: defaultTmpl.buttonText,
+    buttonUrl: defaultTmpl.buttonUrl,
+    bodyText: defaultTmpl.bodyText,
+    footerText: defaultTmpl.footerText,
+    primaryColor: defaultTmpl.primaryColor,
+    activeTemplateId: defaultTmpl.id,
+    subject: defaultTmpl.headerTitle,
+    contentSource: 'html',
+    customCodeHtml: defaultTmpl.customCodeHtml,
+  });
+
+  const handleNavigate = (screen: Screen, transition: TransitionType = 'none') => {
+    setTransitionType(transition);
+    setCurrentScreen(screen);
+  };
+
+  const handleSignOut = async () => {
+    if (!supabase || !isSupabaseConfigured) {
+      setAuthenticated(false);
+      setPasswordResetMode(false);
+      setOpenLibraryOnEditor(false);
+      setCurrentScreen('inicio');
+      return;
+    }
+
+    const { error } = await supabase.auth.signOut();
+    if (error) throw new Error(`Não foi possível sair da conta: ${error.message}`);
+
+    setAuthenticated(false);
+    setPasswordResetMode(false);
+    setOpenLibraryOnEditor(false);
+    setCurrentScreen('inicio');
+  };
+
+  const handleSelectHomeLibraryTemplate = (template: TemplateDocument) => {
+    setHomeLibraryTemplateToEdit(null);
+    setHomeLibraryTemplate(template);
+    handleNavigate('gerador_pro', 'push');
+  };
+
+  const getVariants = () => {
+    if (transitionType === 'push') {
+      return {
+        initial: { x: '100%', opacity: 0 },
+        animate: { x: 0, opacity: 1 },
+        exit: { x: '-100%', opacity: 0 },
+      };
+    }
+    if (transitionType === 'push_back') {
+      return {
+        initial: { x: '-100%', opacity: 0 },
+        animate: { x: 0, opacity: 1 },
+        exit: { x: '100%', opacity: 0 },
+      };
+    }
+    // 'none' transition
+    return {
+      initial: { opacity: 0 },
+      animate: { opacity: 1 },
+      exit: { opacity: 0 },
+    };
+  };
+
+  const getSubtitle = () => {
+    switch (currentScreen) {
+      case 'inicio':
+        return '/ inicio-guia.html';
+      case 'gerador_pro':
+        return '/ gerador-pro-blocos.html';
+      case 'biblioteca':
+        return '/ biblioteca.html';
+      default:
+        return '/ modelo-de-email.html';
+    }
+  };
+
+  if (!authReady) return <div className="min-h-screen flex items-center justify-center bg-white text-slate-500 text-sm">Carregando acesso seguro...</div>;
+  if (passwordResetMode) {
+    return <ResetPasswordScreen
+      onContinue={() => setPasswordResetMode(false)}
+      onBackToLogin={() => { setPasswordResetMode(false); setAuthenticated(false); }}
+    />;
+  }
+  if (!authenticated) return <>
+    <LoginScreen onAuthenticated={() => setAuthenticated(true)} />
+    {showDailyNotice && <DailyNoticeModal onDismiss={handleDismissDailyNotice} />}
+  </>;
+
   return (
-    <AuthProvider>
-      <SalesProvider>
-        <MainLayout />
-      </SalesProvider>
-    </AuthProvider>
+    <ErrorBoundary fallbackTitle="R9Bot Mailer" fallbackMessage="O aplicativo encontrou um erro inesperado. Seus rascunhos e modelos ficam na nuvem quando o salvamento é confirmado. Tente novamente." resetLabel="Tentar novamente">
+      <div className={`flex flex-col bg-background text-on-surface font-body-md ${currentScreen === 'gerador_pro' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
+      {/* Shared navigation is hidden inside the editor workspace to avoid duplicate headers. */}
+      {currentScreen !== 'gerador_pro' && (
+        <Header
+          currentScreen={currentScreen}
+          onNavigate={handleNavigate}
+          subtitle={getSubtitle()}
+          onSignOut={handleSignOut}
+        />
+      )}
+
+      {/* Screen Content Container with Motion Animations */}
+      <main className="flex-grow flex flex-col relative w-full min-h-0">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentScreen}
+            variants={getVariants()}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={{ duration: transitionType === 'none' ? 0.15 : 0.35, ease: 'easeInOut' }}
+            className="flex-grow flex flex-col w-full min-h-0"
+          >
+            {currentScreen === 'inicio' && (
+              <InicioScreen
+                onNavigate={handleNavigate}
+                onSelectLibraryTemplate={handleSelectHomeLibraryTemplate}
+                onOpenLibrary={() => {
+                  handleNavigate('biblioteca', 'push');
+                }}
+              />
+            )}
+
+            {currentScreen === 'biblioteca' && (
+              <BibliotecaScreen
+                onUseTemplate={(template) => {
+                  setHomeLibraryTemplate(template);
+                  setHomeLibraryTemplateToEdit(null);
+                  handleNavigate('gerador_pro', 'push');
+                }}
+                onEditTemplate={(template) => {
+                  setHomeLibraryTemplate(null);
+                  setHomeLibraryTemplateToEdit(template);
+                  handleNavigate('gerador_pro', 'push');
+                }}
+                onCreateTemplate={() => {
+                  setHomeLibraryTemplate(null);
+                  setHomeLibraryTemplateToEdit(null);
+                  handleNavigate('gerador_pro', 'push');
+                }}
+              />
+            )}
+
+            {currentScreen === 'gerador_pro' && (
+              <GeradorProScreen
+                emailData={emailData}
+                setEmailData={setEmailData}
+                onNavigate={handleNavigate}
+                openLibraryOnStart={openLibraryOnEditor}
+                onLibraryStartHandled={() => setOpenLibraryOnEditor(false)}
+                initialTemplateToUse={homeLibraryTemplate}
+                onInitialTemplateHandled={() => setHomeLibraryTemplate(null)}
+                initialTemplateToEdit={homeLibraryTemplateToEdit}
+                onInitialTemplateEditHandled={() => setHomeLibraryTemplateToEdit(null)}
+                onSignOut={handleSignOut}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </main>
+
+      {/* Shared Footer - hidden on gerador_pro to avoid overlapping full-height workspace */}
+      {currentScreen !== 'gerador_pro' && <Footer />}
+      {showDailyNotice && <DailyNoticeModal onDismiss={handleDismissDailyNotice} />}
+      </div>
+    </ErrorBoundary>
   );
 }

@@ -1,202 +1,145 @@
-export type UserRole = 'admin' | 'seller';
+export type Screen = 'inicio' | 'gerador_pro' | 'biblioteca';
 
-export type MainProductType = 'Graduação' | 'Pós Graduação' | 'Curso Técnico';
+export type TransitionType = 'none' | 'push' | 'push_back';
 
-export type ProductChannelFDI = 
-  | 'Simplificada' 
-  | 'MSV' 
-  | 'Reabertura' 
-  | 'Transferência Externa' 
-  | 'Vestibular' 
-  | 'ENEM' 
-  | 'Técnico' 
-  | 'Pós Graduação';
+export type BlockType = 
+  | 'header'
+  | 'header_text'
+  | 'header_image'
+  | 'title'
+  | 'subtitle'
+  | 'text'
+  | 'button'
+  | 'image'
+  | 'coupon'
+  | 'divider'
+  | 'social'
+  | 'footer'
+  | 'columns';
 
-export type ModalityType = 
-  | 'Presencial' 
-  | 'Semipresencial' 
-  | 'Ao Vivo' 
-  | 'EAD' 
-  | 'FLEX' 
-  | 'Técnico' 
-  | 'Técnico Presencial'
-  | 'Pós Presencial' 
-  | 'Pós Ao Vivo'
-  | 'Pós Digital';
-
-export type ShiftType = 'Manhã' | 'Noite' | 'Virtual' | 'Manhã e Noite';
-
-export type ParcelaLeveOption = '3 parcelas' | '2 parcelas' | '1 parcela' | 'Sem parcelas';
-
-export interface SaleCustomData {
-  opportunity_number?: string;
-  candidate_name?: string;
-  sale_date?: string; // dd/MM/yyyy
-  main_product?: MainProductType;
-  business_unit?: 'BU Presencial' | 'BU Digital' | 'Pós-Graduação' | 'Curso Técnico';
-  fdi?: string | ProductChannelFDI; // Texto exclusivo do canal selecionado
-  fdi_channel?: ProductChannelFDI;
-  modality?: ModalityType;
-  shift?: ShiftType;
-  parcela_leve?: ParcelaLeveOption;
-  has_bolsa_convenio?: boolean;
-  empresa_convenio?: string;
-  /** Ciclo acadêmico da venda (ex.: 2026.3). */
-  academic_period?: string;
-  /** Quem lançou (pode ser diferente do dono da venda). */
-  registered_by?: string;
-  seller_id?: string;
-  seller_name?: string;
-  seller_email?: string;
-  collaborator_id?: string;
-  collaborator_name?: string;
-  channel?: string;
-  canal?: string;
-  [key: string]: unknown;
+/** One cell of a "columns" block: an optional image, text and button, side by side with the others. */
+export interface ColumnCell {
+  imageUrl?: string;
+  imageAlt?: string;
+  imageLink?: string;
+  text?: string;
+  buttonLabel?: string;
+  buttonUrl?: string;
 }
 
-export type ProfileStatus = 'pending' | 'active' | 'inactive' | 'rejected';
+export interface EmailBlock {
+  id: string;
+  type: BlockType;
+  
+  // Text content
+  text?: string;
+  
+  // Font and typography formatting
+  fontSizePx?: number;
+  fontSize?: 'sm' | 'md' | 'lg' | 'xl';
+  textColor?: string;
+  bgColor?: string;
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+  isBold?: boolean;
+  isItalic?: boolean;
+  isUnderline?: boolean;
+  isStrikethrough?: boolean;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  fontFamily?: string;
+  lineHeight?: string;
 
-/** Pode acessar o sistema (autorizado por um admin). Perfis antigos sem status contam como ativos. */
-export const hasApprovedAccess = (p: { status?: string | null } | null | undefined) =>
-  !!p && ['active', 'inactive'].includes(p.status ?? 'active');
+  // Header properties
+  headerTitle?: string;
+  headerSubtitle?: string;
+  headerBgColor?: string;
+  headerTextColor?: string;
+  headerSubtitleColor?: string;
+  headerSubtitleSizePx?: number;
 
-/** Domínios aceitos no cadastro (a mesma regra está no banco: supabase/acesso-autorizacao.sql). */
-export const ALLOWED_EMAIL_DOMAINS = ['estacio.br', 'yduqs.com.br'];
+  // Button properties
+  buttonLabel?: string;
+  buttonUrl?: string;
+  buttonBgColor?: string;
+  buttonTextColor?: string;
+  buttonWidth?: 'full' | 'auto';
 
-export const isAllowedEmailDomain = (email: string) =>
-  ALLOWED_EMAIL_DOMAINS.includes(email.trim().toLowerCase().split('@')[1] ?? '');
+  // Image properties
+  imageUrl?: string;
+  imageAlt?: string;
+  imageLink?: string;
+  imageCaption?: string;
+  /** Largura visual do cabeçalho de imagem em pixels; limitado pelo container. */
+  imageWidthPx?: number;
 
-export interface Profile {
+  // Coupon properties
+  couponCode?: string;
+  couponDiscount?: string;
+  couponTitle?: string;
+  couponExpiry?: string;
+  couponBgColor?: string;
+  couponBorderColor?: string;
+
+  // Divider properties
+  dividerStyle?: 'solid' | 'dashed' | 'dotted';
+  dividerColor?: string;
+  dividerHeight?: number;
+
+  // Social properties
+  instagramUrl?: string;
+  whatsappUrl?: string;
+  linkedinUrl?: string;
+  facebookUrl?: string;
+  websiteUrl?: string;
+
+  // Footer properties
+  footerText?: string;
+  footerBgColor?: string;
+  footerTextColor?: string;
+
+  // Columns (2 or 3 cells side by side; stacked on mobile)
+  columns?: ColumnCell[];
+}
+
+export interface EmailTemplate {
   id: string;
   name: string;
-  email: string;
-  role: UserRole;
-  avatar_url?: string;
-  created_at: string;
-  /** pending = aguarda autorização · rejected = acesso recusado/revogado · inactive = fora dos rankings. */
-  status: ProfileStatus;
-  approved_at?: string | null;
-  approved_by?: string | null;
-  phone?: string;
-  target_monthly?: number; // meta mensal em quantidade de lançamentos
+  description: string;
+  badge?: string;
+  image: string;
+  headerTitle: string;
+  greeting: string;
+  buttonText: string;
+  buttonUrl: string;
+  bodyText: string;
+  footerText: string;
+  primaryColor: string;
+  customCodeHtml?: string;
 }
 
-export interface Sale {
-  id: string;
-  campaign_id: string;
-  campaign_name: string;
-  seller_id: string;
-  collaborator_id?: string;
-  seller_name: string;
-  collaborator_name?: string;
-  seller_email: string;
-  client_name: string;
-  client_document?: string;
-  client_phone?: string;
-  client_email?: string;
-  product_name: string;
-  fdi?: string | ProductChannelFDI;
-  sale_date?: string;
-  custom_data?: SaleCustomData;
-  notes?: string;
-  created_at: string;
-  /** Campos obrigatórios que a venda gravada não tem (vendas antigas). Só leitura, nunca gravado. */
-  missing_fields?: Array<'opportunity' | 'candidate' | 'date' | 'seller' | 'product' | 'modality' | 'shift' | 'fdi'>;
+export type ContentSource = 'blocks' | 'html';
+
+export interface EmailData {
+  documentId?: string;
+  subject?: string;
+  /** Texto exibido ao lado do assunto na caixa de entrada (preheader). */
+  preheader?: string;
+  contentSource?: ContentSource;
+  headerTitle: string;
+  greeting: string;
+  buttonText: string;
+  buttonUrl: string;
+  bodyText: string;
+  footerText?: string;
+  primaryColor: string;
+  activeTemplateId: string;
+  customCodeHtml?: string;
+
+  // Advanced Layout & Responsive options
+  alignment?: 'center' | 'left';
+  mobileButtonWidth?: 'full' | 'auto';
+  cardBorderRadius?: 'none' | 'soft' | 'modern';
+  fontSizeLevel?: 'normal' | 'large_mobile';
 }
 
-export type GoalType = 'semanal' | 'mensal' | 'week' | 'month';
 
-export interface Goal {
-  id: string;
-  user_id: string;
-  type: GoalType;
-  target_bu_presencial?: number;
-  target_bu_digital?: number;
-  target_graduacao?: number;
-  target_pos?: number;
-  target_tecnico?: number;
-  target_total?: number;
-  reference_start?: string;
-  reference_end?: string;
-  created_at?: string;
-  updated_at?: string;
-  month?: number;
-  year?: number;
-  goal_period_id?: string | null;
-  /** Ciclo acadêmico (ex.: 2026.3), quando a meta é de um ciclo específico. */
-  academic_period?: string | null;
-}
-
-export interface DatabaseGoalRecord {
-  id?: string;
-  user_id: string;
-  type: GoalType;
-  reference_start: string;
-  reference_end: string;
-  target_bu_presencial?: number;
-  target_bu_digital?: number;
-  target_graduacao?: number;
-  target_pos?: number;
-  target_tecnico?: number;
-  target_total?: number;
-  created_at?: string;
-  updated_at?: string;
-  month?: number;
-  year?: number;
-  goal_period_id?: string | null;
-  academic_period?: string | null;
-}
-
-export interface UserGoalData {
-  target_total: number;
-  target_bu_presencial?: number;
-  target_bu_digital?: number;
-  target_graduacao: number;
-  target_pos: number;
-  target_tecnico: number;
-}
-
-export interface ConsultantGoalValues {
-  id?: string;
-  target_bu_presencial?: number;
-  target_bu_digital?: number;
-  target_graduacao: number;
-  target_pos: number;
-  target_tecnico: number;
-  target_total: number;
-}
-
-export interface RemoteSaleRow {
-  id?: string;
-  collaborator_name?: string;
-  candidate_name?: string;
-  opportunity?: string;
-  product?: string;
-  turn?: string;
-  modality?: string;
-  fdi?: string | ProductChannelFDI;
-  light_installment?: boolean;
-  partner_scholarship?: boolean;
-  notes?: string;
-  sale_date?: string;
-  campaign_id?: string;
-  created_at?: string;
-  updated_at?: string;
-  seller_id?: string;
-  collaborator_id?: string;
-  seller_name?: string;
-  seller_email?: string;
-  client_name?: string;
-  client_document?: string;
-  client_phone?: string;
-  client_email?: string;
-  product_name?: string;
-  custom_data?: SaleCustomData;
-  user_name?: string;
-  created_by_name?: string;
-  fdi_channel?: string;
-  channel?: string;
-  canal?: string;
-  [key: string]: unknown;
-}
+export type EditableBlockProperty = Exclude<keyof EmailBlock, 'id' | 'type'>;
