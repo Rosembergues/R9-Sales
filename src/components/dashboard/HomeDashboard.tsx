@@ -18,8 +18,10 @@ import { getSaleDateBr, getTodayBrDate, getRealSaleDate } from '../../lib/salesM
 import { supabase } from '../../lib/supabase';
 import { LocalSyncEngine } from '../../lib/localCache';
 import { useOfficialGoals } from '../../hooks/useOfficialGoals';
+import { useUnitRanking } from '../../hooks/useUnitRanking';
 import { computeCycleProgress, resolveDataDate, sumTarget } from '../../lib/goalProgress';
 import { OfficialGoalsPanel } from './OfficialGoalsPanel';
+import { UnitRankingCard } from './UnitRankingCard';
 import { toLocalIso } from '../../lib/dates';
 
 interface HomeDashboardProps {
@@ -71,6 +73,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const official = useOfficialGoals();
   const dataDate = useMemo(() => resolveDataDate(official.points, todayKey), [official.points, todayKey]);
   const cycles = useMemo(() => computeCycleProgress(official.points, dataDate), [official.points, dataDate]);
+  const unitRanking = useUnitRanking();
 
   // Metas manuais (Configuração de Metas). Só usadas quando não há metas importadas.
   const [manualTargets, setManualTargets] = useState<{
@@ -311,6 +314,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         isAdmin={currentUser?.role === 'admin'}
         onOpenImport={onOpenGoalImport}
       />
+
+      <UnitRankingCard ranking={unitRanking} />
 
       <div className="pt-2">
         <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">

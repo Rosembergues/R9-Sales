@@ -16,6 +16,8 @@ Todos podem ser rodados mais de uma vez sem estragar nada, exceto quando o próp
 | 7 | `metas-pesos.sql` | Peso de cada consultor por BU e marcação de ajuste manual nas metas. |
 | 8 | `equipe-protecoes.sql` | Só admin muda função; ninguém se bloqueia; o último admin não pode ser removido. |
 | 9 | `vendas-completas.sql` | Recusa venda nova incompleta e mostra quantas vendas antigas estão incompletas. |
+| 10 | `automacao-funil-captacao.sql` | Caixa de entrada (`goal_daily_inbox`) e role restrito para o Power Automate gravar o Funil de Captação diário direto no `goal_daily_data`, sem upload manual. |
+| 11 | `automacao-ranking-unidades.sql` | Caixa de entrada (`unit_ranking_inbox`) e tabela `unit_ranking_daily` com a posição do R9-Taquara e o total do mercado, gravados pelo Power Automate a partir do relatório "Rankings". Rode `automacao-funil-captacao.sql` antes (reaproveita o role de lá). |
 
 `tarefas-modelo-limpeza.sql` foi uma limpeza única, depois da migração das tarefas antigas. Não precisa rodar num banco novo.
 

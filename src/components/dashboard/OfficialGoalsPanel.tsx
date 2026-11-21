@@ -25,7 +25,8 @@ const BU_LABEL: Record<BusinessUnitKey, string> = {
   pos: 'Pós-Graduação',
   tecnico: 'Técnico',
 };
-const BU_ORDER: BusinessUnitKey[] = ['bu_presencial', 'bu_digital', 'pos', 'tecnico'];
+// Pós-Graduação e Técnico ficam de fora dessa tabela (pedido do usuário).
+const BU_ORDER: BusinessUnitKey[] = ['bu_presencial', 'bu_digital'];
 
 /** Quadros do topo da Home: um por metodologia da BU Presencial e um para a BU Digital. */
 const METHOD_TILES: { key: string; label: string; detail?: string; groups: string[] }[] = [
@@ -429,7 +430,11 @@ const BuTable: React.FC<{ cycles: CycleProgress[] }> = ({ cycles }) => {
       Object.entries(c.byBu).forEach(([bu, tot]) => byBu.set(bu as BusinessUnitKey, addTotals(byBu.get(bu as BusinessUnitKey) ?? emptyTotals(), tot!)));
       Object.entries(c.byGroup).forEach(([g, tot]) => byGroup.set(g, addTotals(byGroup.get(g) ?? emptyTotals(), tot)));
     });
-    const total = [...byBu.values()].reduce(addTotals, emptyTotals());
+    // Só soma as BUs exibidas na tabela (Pós e Técnico ficam de fora).
+    const total = BU_ORDER
+      .map(bu => byBu.get(bu))
+      .filter((t): t is ProgressTotals => !!t)
+      .reduce(addTotals, emptyTotals());
     return { byBu, byGroup, total };
   }, [cycles]);
 

@@ -30,6 +30,20 @@ export interface GoalDailyRow {
   actual: number | null;
 }
 
+/** public.unit_ranking_daily — posição do R9-Taquara e total do mercado, por BU. */
+export interface UnitRankingRow {
+  reference_date: string;
+  bu: 'bu_presencial' | 'bu_digital';
+  academic_period: string | null;
+  our_rank: number | null;
+  our_aa: number | null;
+  our_meta: number | null;
+  our_real: number | null;
+  market_aa: number | null;
+  market_meta: number | null;
+  market_real: number | null;
+}
+
 /** public.metas_pesos — peso (%) de um consultor numa BU. */
 export interface GoalWeightRow {
   user_id: string;
