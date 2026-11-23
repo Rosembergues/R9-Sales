@@ -367,7 +367,7 @@ export const R9Dashboard: React.FC = () => {
                   }`}
                 >
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Gerador - Bom Dia Captação</span>
+                  <span className="whitespace-nowrap">Bom Dia Captação</span>
                 </button>
                 <button
                   id="nav-ferramentas-coord-desempenho"
@@ -379,7 +379,7 @@ export const R9Dashboard: React.FC = () => {
                   }`}
                 >
                   <Presentation className="w-3.5 h-3.5 text-teal-300" />
-                  <span>Coordenação - Desempenho</span>
+                  <span className="whitespace-nowrap">Coord. - Desempenho</span>
                 </button>
                 <button
                   id="nav-ferramentas-coord-planilhas"
@@ -391,7 +391,7 @@ export const R9Dashboard: React.FC = () => {
                   }`}
                 >
                   <FolderArchive className="w-3.5 h-3.5 text-teal-300" />
-                  <span>Coordenação - Planilhas</span>
+                  <span className="whitespace-nowrap">Coord. - Planilhas</span>
                 </button>
                 </div>}
               </div>
