@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, CheckSquare, MessageSquareText, Scale, ListChecks } from 'lucide-react';
+import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, CheckSquare, MessageSquareText, Scale, ListChecks, Wrench, Sparkles } from 'lucide-react';
 import { HomeDashboard } from './HomeDashboard';
 import { NewSaleModal } from '../sales/NewSaleModal';
 import { getTodayBrDate, getSaleDateBr } from '../../lib/salesMapper';
@@ -19,6 +19,7 @@ const SalesSpreadsheetTable = lazy(() => import('../sales/SalesSpreadsheetTable'
 const DailyClosingView = lazy(() => import('../sales/DailyClosingView').then(m => ({ default: m.DailyClosingView })));
 const Planner = lazy(() => import('../../planner/components/Planner'));
 const PriceComparatorPage = lazy(() => import('../prices/PriceComparatorPage').then(m => ({ default: m.PriceComparatorPage })));
+const BomDiaGeneratorPage = lazy(() => import('../tools/BomDiaGeneratorPage').then(m => ({ default: m.BomDiaGeneratorPage })));
 
 const TabLoading = () => (
   <div className="py-20 flex items-center justify-center gap-2 text-xs text-slate-400">
@@ -44,6 +45,7 @@ export const R9Dashboard: React.FC = () => {
   const [isSalesMenuOpen, setIsSalesMenuOpen] = useState(false);
   const [isPerformanceMenuOpen, setIsPerformanceMenuOpen] = useState(false);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
+  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags'>('calendar');
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
 
@@ -333,6 +335,42 @@ export const R9Dashboard: React.FC = () => {
               {!isSidebarCollapsed && <span>Repositório de Mensagens</span>}
             </button>
 
+            {/* Section: Ferramentas */}
+            {!isSidebarCollapsed && (
+              <div className="space-y-1 pt-2">
+                <button
+                  id="nav-ferramentas-section"
+                  onClick={() => setIsToolsMenuOpen((open) => !open)}
+                  aria-expanded={isToolsMenuOpen}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'ferramentas_bom_dia'
+                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Wrench className="w-3.5 h-3.5 text-blue-300" />
+                    <span>Ferramentas</span>
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isToolsMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isToolsMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
+                <button
+                  id="nav-ferramentas-bom-dia"
+                  onClick={() => setActiveTab('ferramentas_bom_dia')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'ferramentas_bom_dia'
+                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Gerador - Bom Dia Captação</span>
+                </button>
+                </div>}
+              </div>
+            )}
+
             {/* Section: Desempenho */}
             {!isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
@@ -621,6 +659,8 @@ export const R9Dashboard: React.FC = () => {
             {activeTab === 'comparador_precos' && (
               <PriceComparatorPage canManage={isActualAdmin && viewRole === 'admin'} />
             )}
+
+            {activeTab === 'ferramentas_bom_dia' && <BomDiaGeneratorPage />}
 
             {activeTab === 'equipe' && (
               <div className="animate-in fade-in duration-200">
