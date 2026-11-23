@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
-import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, CheckSquare, MessageSquareText, Scale, ListChecks, Wrench, Sparkles } from 'lucide-react';
+import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, CheckSquare, MessageSquareText, Scale, ListChecks, Wrench, Sparkles, Presentation, FolderArchive } from 'lucide-react';
 import { HomeDashboard } from './HomeDashboard';
 import { NewSaleModal } from '../sales/NewSaleModal';
 import { getTodayBrDate, getSaleDateBr } from '../../lib/salesMapper';
@@ -20,6 +20,8 @@ const DailyClosingView = lazy(() => import('../sales/DailyClosingView').then(m =
 const Planner = lazy(() => import('../../planner/components/Planner'));
 const PriceComparatorPage = lazy(() => import('../prices/PriceComparatorPage').then(m => ({ default: m.PriceComparatorPage })));
 const BomDiaGeneratorPage = lazy(() => import('../tools/BomDiaGeneratorPage').then(m => ({ default: m.BomDiaGeneratorPage })));
+const DesempenhoCursosPage = lazy(() => import('../tools/coordenacao/DesempenhoCursosPage').then(m => ({ default: m.DesempenhoCursosPage })));
+const PlanilhasPorCursoPage = lazy(() => import('../tools/coordenacao/PlanilhasPorCursoPage').then(m => ({ default: m.PlanilhasPorCursoPage })));
 
 const TabLoading = () => (
   <div className="py-20 flex items-center justify-center gap-2 text-xs text-slate-400">
@@ -343,7 +345,7 @@ export const R9Dashboard: React.FC = () => {
                   onClick={() => setIsToolsMenuOpen((open) => !open)}
                   aria-expanded={isToolsMenuOpen}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'ferramentas_bom_dia'
+                    activeTab.startsWith('ferramentas_')
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -366,6 +368,30 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                   <span>Gerador - Bom Dia Captação</span>
+                </button>
+                <button
+                  id="nav-ferramentas-coord-desempenho"
+                  onClick={() => setActiveTab('ferramentas_coord_desempenho')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'ferramentas_coord_desempenho'
+                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <Presentation className="w-3.5 h-3.5 text-teal-300" />
+                  <span>Coordenação - Desempenho</span>
+                </button>
+                <button
+                  id="nav-ferramentas-coord-planilhas"
+                  onClick={() => setActiveTab('ferramentas_coord_planilhas')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'ferramentas_coord_planilhas'
+                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <FolderArchive className="w-3.5 h-3.5 text-teal-300" />
+                  <span>Coordenação - Planilhas</span>
                 </button>
                 </div>}
               </div>
@@ -661,6 +687,8 @@ export const R9Dashboard: React.FC = () => {
             )}
 
             {activeTab === 'ferramentas_bom_dia' && <BomDiaGeneratorPage />}
+            {activeTab === 'ferramentas_coord_desempenho' && <DesempenhoCursosPage />}
+            {activeTab === 'ferramentas_coord_planilhas' && <PlanilhasPorCursoPage />}
 
             {activeTab === 'equipe' && (
               <div className="animate-in fade-in duration-200">

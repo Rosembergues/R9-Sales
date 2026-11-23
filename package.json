@@ -16,6 +16,7 @@
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "canvas-confetti": "^1.9.4",
+    "fflate": "^0.8.3",
     "html-to-image": "^1.11.13",
     "lucide-react": "^0.546.0",
     "pdfjs-dist": "^6.5.438",

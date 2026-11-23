@@ -20,23 +20,17 @@ interface TextItem {
 }
 
 function toNumber(raw: string): number {
-  const v = raw.trim();
+  const v = raw.trim().replace('%', '');
   if (v.toLowerCase() === '(blank)') return 0;
-  const semPercentual = v.replace('%', '');
-  return parseFloat(semPercentual.replace(/\./g, '').replace(',', '.')) || 0;
+  // O Power BI exporta milhar com "." (pt-BR) ou "," (en-US): "1.400" / "1,400".
+  if (/^\d{1,3}([.,]\d{3})+$/.test(v)) return parseInt(v.replace(/[.,]/g, ''), 10);
+  return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0;
 }
 
 function detectBuFromText(value: string): BusinessUnit | null {
   const v = value.toUpperCase();
   if (v.includes('DIGITAL')) return 'digital';
   if (v.includes('PRESENC')) return 'presencial';
-  return null;
-}
-
-function detectBuFromFilename(fileName: string): BusinessUnit | null {
-  const v = fileName.toLowerCase();
-  if (v.includes('digital')) return 'digital';
-  if (v.includes('pres')) return 'presencial';
   return null;
 }
 
@@ -61,27 +55,39 @@ function itensNaMesmaLinha(items: TextItem[], y0: number, excluir: TextItem): Te
     .sort((a, b) => a.x - b.x);
 }
 
+// Valor do filtro do cabeçalho logo abaixo do rótulo. Ignora os ícones de dropdown,
+// que vêm como itens de texto sem letras nem dígitos.
+function valorDoFiltro(items: TextItem[], rotulo: RegExp): string | null {
+  const label = items.find((it) => rotulo.test(it.str));
+  if (!label) return null;
+  const valor = items
+    .filter(
+      (it) =>
+        it.y < label.y &&
+        label.y - it.y < 80 &&
+        Math.abs(it.x - label.x) < 40 &&
+        /[\p{L}\d]/u.test(it.str)
+    )
+    .sort((a, b) => b.y - a.y)[0];
+  return valor?.str ?? null;
+}
+
 export async function parseFunilSavaPdf(file: File): Promise<FunilSavaResult> {
   const items = await extractItems(file);
 
-  if (!items.some((it) => it.str.includes('Funil de Captação'))) {
+  if (!items.some((it) => /Funil de Captação\s*-\s*Sava/i.test(it.str))) {
     throw new Error(`"${file.name}" não parece ser um relatório "Funil de Captação - Sava".`);
   }
 
-  // BU e período: achamos o valor do período (ex.: "2027.1") e, na mesma linha,
-  // o próximo valor à direita é a BU/Modalidade (ex.: "PRESENCIAL").
-  const periodoItem = items.find((it) => /^\d{4}\.\d$/.test(it.str));
-  let academicPeriod = periodoItem?.str ?? '';
-  let bu: BusinessUnit | null = null;
+  const academicPeriod = valorDoFiltro(items, /^PER[IÍ]ODO ACAD[EÊ]MICO$/i) ?? '';
+  const buTexto = valorDoFiltro(items, /^BU\s*\/\s*MODALIDADE$/i);
+  const bu = buTexto ? detectBuFromText(buTexto) : null;
 
-  if (periodoItem) {
-    const linha = itensNaMesmaLinha(items, periodoItem.y, periodoItem);
-    const buItem = linha.find((it) => it.x > periodoItem.x);
-    if (buItem) bu = detectBuFromText(buItem.str);
-  }
-  if (!bu) bu = detectBuFromFilename(file.name);
   if (!bu) {
-    throw new Error(`Não consegui identificar a BU (Presencial/Digital) em "${file.name}".`);
+    throw new Error(
+      `Não consegui identificar a BU (Presencial/Digital) no filtro "BU / MODALIDADE" de "${file.name}"` +
+        (buTexto ? ` (valor encontrado: "${buTexto}").` : '.')
+    );
   }
   if (!academicPeriod) {
     throw new Error(`Não consegui identificar o período acadêmico em "${file.name}".`);
