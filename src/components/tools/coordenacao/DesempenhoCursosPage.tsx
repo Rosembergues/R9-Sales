@@ -44,6 +44,7 @@ export const DesempenhoCursosPage: React.FC = () => {
     setDownloading(true);
     try {
       const { toPng } = await import('html-to-image');
+      await document.fonts.ready;
       // 1280x720 * 1.5 = 1920x1080, o mesmo tamanho que o app desktop exportava.
       const dataUrl = await toPng(cardRef.current, { pixelRatio: 1.5, cacheBust: true });
       const a = document.createElement('a');
@@ -95,7 +96,9 @@ export const DesempenhoCursosPage: React.FC = () => {
         <div className="rounded-xl bg-teal-50/70 border border-teal-100 px-3.5 py-2.5 text-[11px] text-slate-600 flex gap-2">
           <Info className="w-3.5 h-3.5 text-teal-700 shrink-0 mt-0.5" />
           <span>
-            Usa o 3º grupo de colunas (Meta Dia, Atual e Meta Fech). % Meta Dia = Atual ÷ Meta Dia, com metas
+            Usa o 3º grupo de colunas da planilha. Meta Fech: metas provisórias do ciclo até 31/03/2027
+            (fechamento do ano anterior × 1,2). Meta Dia: forecast pela curva do ano anterior — o que o curso tinha
+            feito nesta mesma data no ciclo passado (coluna AA) × 1,2. % Meta Dia = Atual ÷ Meta Dia, com metas
             arredondadas. Verde ≥ 100% · Amarelo ≥ 80% · Vermelho &lt; 80% · "—" quando não há meta.
           </span>
         </div>

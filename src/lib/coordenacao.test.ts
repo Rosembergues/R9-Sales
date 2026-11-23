@@ -13,11 +13,11 @@ import {
 import { montarZipPorCurso } from './coordenacaoZip';
 
 const grupo = ['AA', 'META', 'ATUAL', 'META FECH', '% AA', '% META'];
-const linhaInd = (curso: string, meta: number, atual: number, fech: number) => [
+const linhaInd = (curso: string, aa: number, atual: number) => [
   curso,
   ...[1, 100, 200, 300, 0, 0],
   ...[1, 90, 180, 270, 0, 0],
-  ...[1, meta, atual, fech, 0, 0],
+  ...[aa, 5.5, atual, 14.7, 0, 0],
   ...[0, 0, 0, 0, 0, 0],
 ];
 
@@ -25,24 +25,25 @@ test('normalizar ignora acentos, caixa e espaços extras', () => {
   assert.equal(normalizar('  Ciências   contábeis '), 'CIENCIAS CONTABEIS');
 });
 
-test('desempenho usa o 3º grupo de colunas e arredonda as metas', () => {
+test('desempenho: meta dia = AA do 3º grupo × 1,2 e meta fech provisória', () => {
   const rows = [
     ['CURSO', ...grupo, ...grupo, ...grupo, ...grupo],
-    linhaInd('PSICOLOGIA', 5.856, 12, 14.77),
-    linhaInd('Direito', 7.04, 5, 17.8),
-    linhaInd('ENGENHARIA CIVIL', 3, 3, 3),
-    linhaInd('Total', 99, 99, 99),
+    linhaInd('PSICOLOGIA', 6, 12),
+    linhaInd('Direito', 9, 5),
+    linhaInd('ENGENHARIA CIVIL', 3, 3),
+    linhaInd('Total', 99, 99),
   ];
   const d = montarDesempenho(rows);
   const psi = d.linhas.find((l) => l.curso === 'PSICOLOGIA')!;
-  assert.deepEqual([psi.metaDia, psi.atual, psi.metaFech, psi.cor], [6, 12, 15, 'verde']);
-  assert.equal(formatarPct(psi.pct), '200,00%');
+  assert.deepEqual([psi.metaDia, psi.atual, psi.metaFech, psi.cor], [7, 12, 136, 'verde']);
+  assert.equal(formatarPct(psi.pct), '171,43%');
   const dir = d.linhas.find((l) => l.curso === 'DIREITO')!;
-  assert.equal(dir.cor, 'vermelho');
+  assert.deepEqual([dir.metaDia, dir.metaFech, dir.cor], [11, 163, 'vermelho']);
   assert.equal(d.linhas.length, 18);
   assert.equal(d.ausentes.length, 16);
-  assert.equal(d.total.metaDia, 13);
+  assert.equal(d.total.metaDia, 18);
   assert.equal(d.total.atual, 17);
+  assert.equal(d.total.metaFech, 1441);
   assert.equal(d.linhas.find((l) => l.curso === 'PEDAGOGIA')!.cor, 'sem_meta');
 });
 

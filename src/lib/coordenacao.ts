@@ -74,6 +74,30 @@ export interface Desempenho {
   ausentes: string[];
 }
 
+// Metas de fechamento provisórias do ciclo (até 31/03/2027), enviadas à parte enquanto o sistema
+// não traz as definitivas. Cada valor é o fechamento do ano anterior × FATOR_CRESCIMENTO.
+export const FATOR_CRESCIMENTO = 1.2;
+const METAS_FECH_PROVISORIAS: Record<string, number> = {
+  PEDAGOGIA: 110.4,
+  'ANÁLISE E DESENVOLVIMENTO DE SISTEMAS': 34.8,
+  'CIÊNCIA DA COMPUTAÇÃO': 15.6,
+  NUTRIÇÃO: 91.2,
+  BIOMEDICINA: 132,
+  'ESTÉTICA E COSMÉTICA': 39.6,
+  RADIOLOGIA: 34.8,
+  'CIÊNCIAS BIOLÓGICAS - BACHARELADO': 13.2,
+  FARMÁCIA: 79.2,
+  'EDUCAÇÃO FÍSICA - BACHARELADO': 194.4,
+  'EDUCAÇÃO FÍSICA - LICENCIATURA': 44.4,
+  PSICOLOGIA: 135.6,
+  DIREITO: 163.2,
+  FISIOTERAPIA: 111.6,
+  ADMINISTRAÇÃO: 105.6,
+  'CIÊNCIAS CONTÁBEIS': 24,
+  'GESTÃO DE RECURSOS HUMANOS': 34.8,
+  ENFERMAGEM: 75.6,
+};
+
 export const corDoPercentual = (pct: number | null): CorDesempenho =>
   pct === null ? 'sem_meta' : pct >= 1 ? 'verde' : pct >= 0.8 ? 'amarelo' : 'vermelho';
 
@@ -97,12 +121,19 @@ export function lerIndicadores(rows: Row[], grupo = 3) {
   };
   const colAtual = achar('ATUAL');
   const colFech = achar('META FECH');
+  const colAA = header.lastIndexOf('AA', colMeta);
+  if (colAA < 0) throw new Error('Não encontrei a coluna "AA" antes de "META" na planilha de indicadores.');
 
-  const dados = new Map<string, { metaDia: number; atual: number; metaFech: number }>();
+  const dados = new Map<string, { aa: number; metaDia: number; atual: number; metaFech: number }>();
   for (const r of rows.slice(headerIdx + 1)) {
     const curso = normalizar(r[colCurso]);
     if (!curso || curso === 'TOTAL') continue;
-    dados.set(curso, { metaDia: numero(r[colMeta]), atual: numero(r[colAtual]), metaFech: numero(r[colFech]) });
+    dados.set(curso, {
+      aa: numero(r[colAA]),
+      metaDia: numero(r[colMeta]),
+      atual: numero(r[colAtual]),
+      metaFech: numero(r[colFech]),
+    });
   }
   return dados;
 }
@@ -115,10 +146,12 @@ export function montarDesempenho(rows: Row[]): Desempenho {
   const linhas = COORDENADORES.map(({ curso, coordenador }) => {
     const valores = dados.get(normalizar(curso));
     if (!valores) ausentes.push(curso);
+    // Forecast pela curva do ano anterior: a meta até hoje é o que o curso tinha feito nesta
+    // mesma data no ciclo passado × o mesmo crescimento aplicado à meta de fechamento.
     // Metas arredondadas antes do cálculo, para o % usar a mesma meta exibida.
-    const metaDia = Math.round(valores?.metaDia ?? 0);
+    const metaDia = Math.round((valores?.aa ?? 0) * FATOR_CRESCIMENTO);
     const atual = valores?.atual ?? 0;
-    const metaFech = Math.round(valores?.metaFech ?? 0);
+    const metaFech = Math.round(METAS_FECH_PROVISORIAS[curso] ?? 0);
     const pct = metaDia ? atual / metaDia : null;
     total.metaDia += metaDia;
     total.atual += atual;
