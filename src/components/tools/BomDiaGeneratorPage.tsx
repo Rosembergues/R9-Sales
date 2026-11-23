@@ -1,7 +1,7 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Upload, Download, AlertCircle, Loader2, FileText, X, Sparkles } from 'lucide-react';
 import { parseFunilSavaPdf, type BusinessUnit, type FunilSavaResult } from '../../lib/bomDiaParser';
-import { BomDiaFullCard } from './BomDiaFullCard';
+import { BomDiaFullCard, BOM_DIA_CARD_WIDTH } from './BomDiaFullCard';
 
 type CardState = Record<BusinessUnit, FunilSavaResult | null>;
 
@@ -83,7 +83,27 @@ export const BomDiaGeneratorPage: React.FC = () => {
     setCards((prev) => ({ ...prev, [bu]: null }));
   }, []);
 
-  const temAlgumCard = cards.presencial || cards.digital;
+  const temAlgumCard = Boolean(cards.presencial || cards.digital);
+
+  const previewWrapRef = useRef<HTMLDivElement | null>(null);
+  const [preview, setPreview] = useState({ scale: 1, cardH: 0, wrapW: 0 });
+
+  useLayoutEffect(() => {
+    const wrap = previewWrapRef.current;
+    const card = fullCardRef.current;
+    if (!wrap || !card) return;
+    const update = () =>
+      setPreview({
+        scale: Math.min(1, wrap.clientWidth / BOM_DIA_CARD_WIDTH),
+        cardH: card.offsetHeight,
+        wrapW: wrap.clientWidth,
+      });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(wrap);
+    ro.observe(card);
+    return () => ro.disconnect();
+  }, [temAlgumCard]);
 
   return (
     <div className="max-w-5xl mx-auto animate-in fade-in duration-200 space-y-6">
@@ -176,8 +196,18 @@ export const BomDiaGeneratorPage: React.FC = () => {
             </p>
           )}
 
-          <div className="overflow-x-auto max-w-full">
-            <BomDiaFullCard ref={fullCardRef} presencial={cards.presencial} digital={cards.digital} />
+          <div ref={previewWrapRef} className="w-full" style={{ height: preview.cardH * preview.scale }}>
+            <div
+              style={{
+                width: BOM_DIA_CARD_WIDTH,
+                transform: `scale(${preview.scale})`,
+                transformOrigin: 'top left',
+                marginLeft: Math.max(0, (preview.wrapW - BOM_DIA_CARD_WIDTH * preview.scale) / 2),
+              }}
+              className="rounded-2xl overflow-hidden shadow-md"
+            >
+              <BomDiaFullCard ref={fullCardRef} presencial={cards.presencial} digital={cards.digital} />
+            </div>
           </div>
 
           <button
