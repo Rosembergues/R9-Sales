@@ -14,7 +14,7 @@ import { toBrDate } from './dates';
 /**
  * Converte data em formato DD/MM/YYYY ou ISO para string ISO 8601 segura para PostgreSQL TIMESTAMPTZ
  */
-export function toValidIsoTimestamp(dateInput?: string | null): string {
+function toValidIsoTimestamp(dateInput?: string | null): string {
   if (!dateInput) return new Date().toISOString();
 
   // Caso esteja no formato DD/MM/YYYY
@@ -47,7 +47,7 @@ export function toValidIsoTimestamp(dateInput?: string | null): string {
 /**
  * Converte timestamp ISO para string formatada DD/MM/YYYY
  */
-export function formatIsoToBr(isoStr?: string | null): string {
+function formatIsoToBr(isoStr?: string | null): string {
   if (!isoStr) return '';
   try {
     const d = new Date(isoStr);
@@ -126,7 +126,7 @@ export function getSaleDateBr(sale: Partial<Sale> & { custom_data?: SaleCustomDa
  * Converte string de data (DD/MM/YYYY, YYYY-MM-DD ou ISO) em objeto Date local
  * fixando o horário às 12:00:00 para evitar desvios de timezone.
  */
-export function parseDateString(dateStr?: string | null): Date | null {
+function parseDateString(dateStr?: string | null): Date | null {
   if (!dateStr) return null;
   const trimmed = dateStr.trim();
   if (!trimmed) return null;
@@ -180,7 +180,7 @@ export function getRealSaleDate(sale: Partial<Sale> & { custom_data?: SaleCustom
   return null;
 }
 
-export type SaleFdiInput = Partial<Sale> & {
+type SaleFdiInput = Partial<Sale> & {
   fdi_channel?: unknown;
   channel?: unknown;
   canal?: unknown;

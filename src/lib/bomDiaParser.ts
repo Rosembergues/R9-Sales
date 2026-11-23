@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { parsePowerBiNumber } from './powerBiNumber';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
@@ -19,13 +20,6 @@ interface TextItem {
   y: number;
 }
 
-function toNumber(raw: string): number {
-  const v = raw.trim().replace('%', '');
-  if (v.toLowerCase() === '(blank)') return 0;
-  // O Power BI exporta milhar com "." (pt-BR) ou "," (en-US): "1.400" / "1,400".
-  if (/^\d{1,3}([.,]\d{3})+$/.test(v)) return parseInt(v.replace(/[.,]/g, ''), 10);
-  return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0;
-}
 
 function detectBuFromText(value: string): BusinessUnit | null {
   const v = value.toUpperCase();
@@ -36,15 +30,21 @@ function detectBuFromText(value: string): BusinessUnit | null {
 
 async function extractItems(file: File): Promise<TextItem[]> {
   const buffer = await file.arrayBuffer();
-  const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const page = await doc.getPage(1);
-  const content = await page.getTextContent();
-  return content.items
-    .map((item) => {
-      const it = item as { str?: string; transform: number[] };
-      return { str: (it.str ?? '').trim(), x: it.transform[4], y: it.transform[5] };
-    })
-    .filter((it) => it.str !== '');
+  const task = pdfjsLib.getDocument({ data: buffer });
+  try {
+    const doc = await task.promise;
+    const page = await doc.getPage(1);
+    const content = await page.getTextContent();
+    return content.items
+      .map((item) => {
+        const it = item as { str?: string; transform: number[] };
+        return { str: (it.str ?? '').trim(), x: it.transform[4], y: it.transform[5] };
+      })
+      .filter((it) => it.str !== '');
+  } finally {
+    // Libera a memória do documento (senão cada PDF lido fica preso no worker).
+    void task.destroy();
+  }
 }
 
 const LINHA_TOLERANCIA = 15;
@@ -103,9 +103,21 @@ export async function parseFunilSavaPdf(file: File): Promise<FunilSavaResult> {
     throw new Error(`A linha "M.FIN" de "${file.name}" veio incompleta (esperava 13 valores, achei ${valores.length}).`);
   }
 
-  const metaDoDia = toNumber(valores[1].str);
-  const realizado = toNumber(valores[2].str);
-  const metaFinal = toNumber(valores[9].str);
+  // Posições fixas da linha (ver acima). Cada valor precisa ser um número de verdade:
+  // se uma célula vier vazia ou o layout mudar, é melhor recusar do que gerar a arte com número errado.
+  const lerValor = (indice: number, nome: string) => {
+    const n = parsePowerBiNumber(valores[indice].str);
+    if (n === null) {
+      throw new Error(
+        `"${nome}" na linha "M.FIN" de "${file.name}" não é um número ("${valores[indice].str}"). ` +
+          'O layout do relatório pode ter mudado.'
+      );
+    }
+    return n;
+  };
+  const metaDoDia = lerValor(1, 'Meta');
+  const realizado = lerValor(2, 'Atual');
+  const metaFinal = lerValor(9, 'Meta final');
 
   return { bu, academicPeriod, metaFinal, metaDoDia, realizado };
 }

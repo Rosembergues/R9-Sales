@@ -1,6 +1,8 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { AlertCircle, Download, Info, Loader2, Presentation } from 'lucide-react';
-import { montarDesempenho, type Desempenho } from '../../../lib/coordenacao';
+import { CURSOS, montarDesempenho, type Desempenho } from '../../../lib/coordenacao';
+import { todayLocalIso } from '../../../lib/dates';
+import { downloadUrl } from '../../../lib/download';
 import { readSheetRows } from '../../../lib/readSheetRows';
 import { DesempenhoCursosCard, DESEMPENHO_CARD_H, DESEMPENHO_CARD_W } from './DesempenhoCursosCard';
 import { FileDrop } from './FileDrop';
@@ -47,10 +49,7 @@ export const DesempenhoCursosPage: React.FC = () => {
       await document.fonts.ready;
       // 1280x720 * 1.5 = 1920x1080, o mesmo tamanho que o app desktop exportava.
       const dataUrl = await toPng(cardRef.current, { pixelRatio: 1.5, cacheBust: true });
-      const a = document.createElement('a');
-      a.download = `desempenho_cursos_${new Date().toISOString().slice(0, 10)}.png`;
-      a.href = dataUrl;
-      a.click();
+      downloadUrl(dataUrl, `desempenho_cursos_${todayLocalIso()}.png`);
     } catch {
       setError('Não consegui gerar a imagem. Tente novamente.');
     } finally {
@@ -68,7 +67,7 @@ export const DesempenhoCursosPage: React.FC = () => {
           <h2 className="text-lg font-black text-slate-900">Coordenação - Desempenho de Cursos x Meta</h2>
         </div>
         <p className="text-xs text-slate-500 mt-1.5 max-w-2xl">
-          Envie a planilha de indicadores por curso (export "data.xlsx"). O sistema monta a tabela com os 18 cursos e
+          Envie a planilha de indicadores por curso (export "data.xlsx"). O sistema monta a tabela com os {CURSOS.length} cursos e
           seus coordenadores e gera a imagem pronta para enviar.
         </p>
       </div>
@@ -81,10 +80,7 @@ export const DesempenhoCursosPage: React.FC = () => {
           file={file}
           busy={busy}
           summary={
-            dados &&
-            (dados.ausentes.length
-              ? `${18 - dados.ausentes.length} de 18 cursos encontrados`
-              : '18 de 18 cursos encontrados')
+            dados && `${CURSOS.length - dados.ausentes.length} de ${CURSOS.length} cursos encontrados`
           }
           onFile={onFile}
           onClear={() => {

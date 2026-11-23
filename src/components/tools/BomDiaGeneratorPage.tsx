@@ -2,6 +2,9 @@ import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Upload, Download, AlertCircle, Loader2, FileText, X, Sparkles } from 'lucide-react';
 import { parseFunilSavaPdf, type BusinessUnit, type FunilSavaResult } from '../../lib/bomDiaParser';
 import { BomDiaFullCard, BOM_DIA_CARD_WIDTH } from './BomDiaFullCard';
+import { todayLocalIso } from '../../lib/dates';
+import { downloadUrl } from '../../lib/download';
+import { useDropZone } from '../common/useDropZone';
 
 type CardState = Record<BusinessUnit, FunilSavaResult | null>;
 
@@ -13,9 +16,7 @@ const BU_TITLE: Record<BusinessUnit, string> = {
 export const BomDiaGeneratorPage: React.FC = () => {
   const [cards, setCards] = useState<CardState>({ presencial: null, digital: null });
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const fullCardRef = useRef<HTMLDivElement | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -27,9 +28,16 @@ export const BomDiaGeneratorPage: React.FC = () => {
     const novosErros: string[] = [];
     const resultados: Partial<CardState> = {};
 
+    const arquivoDaBu: Partial<Record<BusinessUnit, string>> = {};
     for (const file of files) {
       try {
         const resultado = await parseFunilSavaPdf(file);
+        if (arquivoDaBu[resultado.bu]) {
+          novosErros.push(
+            `"${arquivoDaBu[resultado.bu]}" e "${file.name}" são os dois da ${BU_TITLE[resultado.bu]}; ficou valendo "${file.name}".`
+          );
+        }
+        arquivoDaBu[resultado.bu] = file.name;
         resultados[resultado.bu] = resultado;
       } catch (err) {
         novosErros.push(err instanceof Error ? err.message : `Falha ao processar "${file.name}".`);
@@ -41,22 +49,12 @@ export const BomDiaGeneratorPage: React.FC = () => {
     setIsProcessing(false);
   }, []);
 
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files);
-    },
-    [handleFiles]
-  );
-
-  const onPickFiles = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files?.length) handleFiles(e.target.files);
-      e.target.value = '';
-    },
-    [handleFiles]
-  );
+  const { dragging: isDragging, zoneProps, inputProps } = useDropZone({
+    accept: '.pdf',
+    multiple: true,
+    disabled: isProcessing,
+    onFiles: handleFiles,
+  });
 
   const temAsDuas = Boolean(cards.presencial && cards.digital);
 
@@ -67,11 +65,7 @@ export const BomDiaGeneratorPage: React.FC = () => {
     try {
       const { toPng } = await import('html-to-image');
       const dataUrl = await toPng(node, { pixelRatio: 2.5, cacheBust: true });
-      const dataHoje = new Date().toISOString().slice(0, 10);
-      const link = document.createElement('a');
-      link.download = `bom-dia-captacao-${dataHoje}.png`;
-      link.href = dataUrl;
-      link.click();
+      downloadUrl(dataUrl, `bom-dia-captacao-${todayLocalIso()}.png`);
     } catch {
       setErrors((prev) => [...prev, 'Não consegui gerar a imagem. Tente novamente.']);
     } finally {
@@ -81,6 +75,7 @@ export const BomDiaGeneratorPage: React.FC = () => {
 
   const clearCard = useCallback((bu: BusinessUnit) => {
     setCards((prev) => ({ ...prev, [bu]: null }));
+    setErrors([]);
   }, []);
 
   const temAlgumCard = Boolean(cards.presencial || cards.digital);
@@ -123,18 +118,13 @@ export const BomDiaGeneratorPage: React.FC = () => {
 
       {/* Drop zone */}
       <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
-        className={`rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors ${
+        {...zoneProps}
+        aria-label="Relatórios Funil de Captação - Sava: arraste os PDFs aqui ou clique para selecionar"
+        className={`rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-[#0052cc] ${
           isDragging ? 'border-[#0052cc] bg-blue-50' : 'border-gray-300 bg-white hover:bg-gray-50'
         }`}
       >
-        <input ref={inputRef} type="file" accept=".pdf" multiple className="hidden" onChange={onPickFiles} />
+        <input {...inputProps} />
         {isProcessing ? (
           <Loader2 className="w-6 h-6 text-[#0052cc] animate-spin" />
         ) : (
@@ -182,6 +172,7 @@ export const BomDiaGeneratorPage: React.FC = () => {
                     onClick={() => clearCard(bu)}
                     className="text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
                     title="Remover"
+                    aria-label={`Remover ${BU_TITLE[bu]}`}
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>

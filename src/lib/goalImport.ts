@@ -1,6 +1,7 @@
 import { excelSerialToIso } from './dates';
+import { stripAccents } from './text';
 
-export type GoalTeachingModel =
+type GoalTeachingModel =
   | 'graduacao_presencial'
   | 'graduacao_semipresencial'
   | 'graduacao_aovivo'
@@ -168,7 +169,7 @@ export interface ParsedGoalFile extends Omit<GoalFilePreview, 'group'> {
   errors: string[];
 }
 
-export interface ImportedGoalSummary {
+interface ImportedGoalSummary {
   aa: number;
   target: number;
   actual: number;
@@ -235,11 +236,7 @@ export function summarizeImportedGoals(
   return { aa, target, actual, actualDays, groups, byBu };
 }
 
-const normalize = (value: unknown) => String(value ?? '')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .trim()
-  .toLowerCase();
+const normalize = (value: unknown) => stripAccents(value).trim().toLowerCase();
 
 const toNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || String(value).trim() === '') return null;
@@ -332,7 +329,7 @@ const POS_MODALITY: Record<string, GoalImportGroup> = {
  * - Pós:       "Incluídos (1) ESTACIO (MARCA) + EAD (NOM_MODALIDADE)"
  * - Técnico:   campus "ESCOLA ESTÁCIO ..." / NOM_CAMPUS_TRATADO, sem modalidade
  */
-export const detectGroupFromFilters = (text: string): { group: GoalImportGroup | null; warnings: string[] } => {
+const detectGroupFromFilters = (text: string): { group: GoalImportGroup | null; warnings: string[] } => {
   const t = normalize(text).replace(/\s+/g, ' ');
   const warnings: string[] = [];
 
@@ -363,7 +360,7 @@ export const detectGroupFromFilters = (text: string): { group: GoalImportGroup |
 };
 
 /** Campus esperado nos relatórios. Arquivos de outro campus geram alerta. */
-export const EXPECTED_CAMPUS_KEYWORD = 'taquara';
+const EXPECTED_CAMPUS_KEYWORD = 'taquara';
 
 // A biblioteca de Excel (pesada) só é baixada quando alguém importa um arquivo.
 const parseWorkbook = async (file: File): Promise<unknown[][]> => {
@@ -377,7 +374,7 @@ const parseWorkbook = async (file: File): Promise<unknown[][]> => {
 };
 
 /** Interpreta as linhas brutas de uma planilha (separado de File para poder ser testado). */
-export function parseGoalRows(rows: unknown[][], fileName: string): ParsedGoalFile {
+function parseGoalRows(rows: unknown[][], fileName: string): ParsedGoalFile {
   const headerIndex = findHeader(rows);
   const text = filtersText(rows, headerIndex);
   const filters = extractFilters(text);

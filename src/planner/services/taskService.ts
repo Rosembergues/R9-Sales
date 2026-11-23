@@ -60,7 +60,7 @@ async function persistTaskUpdate(
   return { data: updatedTask, error: null };
 }
 
-export function getTaskSyncChannel() {
+function getTaskSyncChannel() {
   if (!realtimeSyncChannel) {
     realtimeSyncChannel = supabase.channel('tarefas-planner-sync-hub', {
       config: {
@@ -90,7 +90,7 @@ export function subscribeTaskMutations(listener: (eventPayload: TaskMutationEven
   };
 }
 
-export function broadcastTaskMutation(
+function broadcastTaskMutation(
   action: 'created' | 'updated' | 'deleted' | 'form_submitted',
   taskOrId?: Task | string | null
 ) {
@@ -311,7 +311,7 @@ export function mapDbRowToTask(row: TaskDbRow): Task {
 /** Colunas gravadas em public.tarefas (campos_customizados é um objeto JSON). */
 type TaskDbPayload = Record<string, unknown> & { campos_customizados?: Record<string, unknown> };
 
-export function mapTaskToDbPayload(
+function mapTaskToDbPayload(
   task: Partial<Task> | Omit<Task, 'id' | 'comments'>
 ): TaskDbPayload {
   const payload: TaskDbPayload = {};

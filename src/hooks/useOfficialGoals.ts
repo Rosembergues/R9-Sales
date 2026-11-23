@@ -7,7 +7,7 @@ import type { GoalDailyRow, GoalImportRow } from '../lib/dbTypes';
 
 const PAGE = 1000;
 
-export interface OfficialGoalsState {
+interface OfficialGoalsState {
   points: GoalDailyPoint[];
   /** Data/hora da importação mais recente entre as ativas. */
   lastImportAt: string | null;

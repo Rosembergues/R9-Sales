@@ -96,7 +96,7 @@ export const PriceSnapshotTable: React.FC<PriceSnapshotTableProps> = ({ rows, pr
       if (onlyOffended && offenseCount(r, visibleCompetitors) === 0) return false;
       return true;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // visibleCompetitors e offenseCount derivam de rows, competitor e threshold (já listados).
   }, [rows, search, shift, onlyOffended, competitor, threshold]);
 
   return (

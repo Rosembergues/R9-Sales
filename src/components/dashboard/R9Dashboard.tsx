@@ -3,7 +3,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
 import { ChevronLeft, Shield, User, LogOut, PanelLeft, Plus, TrendingUp, Users, Tag, BarChart3, FileSpreadsheet, CalendarCheck, Trophy, Target, ClipboardList, ChevronDown, CalendarDays, CheckSquare, MessageSquareText, Scale, ListChecks, Wrench, Sparkles, Presentation, FolderArchive } from 'lucide-react';
 import { HomeDashboard } from './HomeDashboard';
-import { NewSaleModal } from '../sales/NewSaleModal';
 import { getTodayBrDate, getSaleDateBr } from '../../lib/salesMapper';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 
@@ -21,6 +20,7 @@ const Planner = lazy(() => import('../../planner/components/Planner'));
 const PriceComparatorPage = lazy(() => import('../prices/PriceComparatorPage').then(m => ({ default: m.PriceComparatorPage })));
 const BomDiaGeneratorPage = lazy(() => import('../tools/BomDiaGeneratorPage').then(m => ({ default: m.BomDiaGeneratorPage })));
 const DesempenhoCursosPage = lazy(() => import('../tools/coordenacao/DesempenhoCursosPage').then(m => ({ default: m.DesempenhoCursosPage })));
+const NewSaleModal = lazy(() => import('../sales/NewSaleModal').then(m => ({ default: m.NewSaleModal })));
 const PlanilhasPorCursoPage = lazy(() => import('../tools/coordenacao/PlanilhasPorCursoPage').then(m => ({ default: m.PlanilhasPorCursoPage })));
 
 const TabLoading = () => (
@@ -29,6 +29,24 @@ const TabLoading = () => (
     Carregando...
   </div>
 );
+
+/** Abas do painel (o que aparece na área principal). */
+type DashboardTab =
+  | 'home'
+  | 'canvas'
+  | 'fechamento_diario'
+  | 'resumo'
+  | 'rank_semanal'
+  | 'planner'
+  | 'planner_summary'
+  | 'comparador_precos'
+  | 'mensagens'
+  | 'ferramentas_bom_dia'
+  | 'ferramentas_coord_desempenho'
+  | 'ferramentas_coord_planilhas'
+  | 'equipe'
+  | 'metas'
+  | 'metas_importacao';
 
 export const R9Dashboard: React.FC = () => {
   const { currentUser, signOut, pendingProfiles } = useAuth();
@@ -41,7 +59,7 @@ export const R9Dashboard: React.FC = () => {
   const [viewRole, setViewRole] = useState<'admin' | 'membro'>(
     currentUser?.role === 'admin' ? 'admin' : 'membro'
   );
-  const [activeTab, setActiveTab] = useState<string>('home');
+  const [activeTab, setActiveTab] = useState<DashboardTab>('home');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isPlannerMenuOpen, setIsPlannerMenuOpen] = useState(false);
   const [isSalesMenuOpen, setIsSalesMenuOpen] = useState(false);
@@ -215,7 +233,7 @@ export const R9Dashboard: React.FC = () => {
                   onClick={() => setIsSalesMenuOpen((open) => !open)}
                   aria-expanded={isSalesMenuOpen}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    ['canvas', 'planilha', 'boletos_do_dia', 'fechamento_diario'].includes(activeTab)
+                    activeTab === 'canvas' || activeTab === 'fechamento_diario'
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -232,7 +250,7 @@ export const R9Dashboard: React.FC = () => {
                   id="nav-planilha-vendas"
                   onClick={() => setActiveTab('canvas')}
                   className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'canvas' || activeTab === 'planilha'
+                    activeTab === 'canvas'
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -405,7 +423,7 @@ export const R9Dashboard: React.FC = () => {
                   onClick={() => setIsPerformanceMenuOpen((open) => !open)}
                   aria-expanded={isPerformanceMenuOpen}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    ['resumo', 'resumo_semanal', 'analytics', 'rank_semanal', 'rank_mensal'].includes(activeTab)
+                    activeTab === 'resumo' || activeTab === 'rank_semanal'
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -421,7 +439,7 @@ export const R9Dashboard: React.FC = () => {
                   id="nav-desempenho"
                   onClick={() => setActiveTab('resumo')}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'resumo' || activeTab === 'resumo_semanal' || activeTab === 'analytics'
+                    activeTab === 'resumo'
                       ? 'bg-blue-500/15 text-blue-300 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -433,7 +451,7 @@ export const R9Dashboard: React.FC = () => {
                   id="nav-ranking"
                   onClick={() => setActiveTab('rank_semanal')}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'rank_semanal' || activeTab === 'rank_mensal'
+                    activeTab === 'rank_semanal'
                       ? 'bg-blue-500/15 text-blue-300 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -629,21 +647,20 @@ export const R9Dashboard: React.FC = () => {
             )}
 
             {/* View switcher based on sidebar selection */}
-            {(activeTab === 'canvas' || activeTab === 'planilha' || activeTab === 'boletos_do_dia') && (
+            {activeTab === 'canvas' && (
               <div className="space-y-4 animate-in fade-in duration-200">
                 <div>
                   <h2 className="text-lg font-bold text-gray-900 font-['Space_Grotesk']">Vendas</h2>
                   <p className="text-xs text-gray-500 mt-0.5">Consulte, filtre, corrija e exporte as vendas da equipe.</p>
                 </div>
                 <SalesSpreadsheetTable
-                  key={activeTab === 'boletos_do_dia' ? 'today' : 'all'}
-                  initialPeriod={activeTab === 'boletos_do_dia' ? 'today' : 'all'}
+                  initialPeriod="all"
                   onOpenNewSaleModal={() => setShowNewSaleModal(true)}
                 />
               </div>
             )}
 
-            {(activeTab === 'resumo' || activeTab === 'resumo_semanal' || activeTab === 'analytics' || activeTab.startsWith('produto_')) && (
+            {activeTab === 'resumo' && (
               <PerformancePage onOpenNewSaleModal={() => setShowNewSaleModal(true)} />
             )}
 
@@ -653,11 +670,9 @@ export const R9Dashboard: React.FC = () => {
               />
             )}
 
-            {(activeTab === 'rank_semanal' || activeTab === 'rank_mensal') && (
+            {activeTab === 'rank_semanal' && (
               <div className="space-y-6 animate-in fade-in duration-200">
-                <LiveTeamLeaderboard
-                  period={activeTab === 'rank_mensal' ? 'mensal' : 'semanal'}
-                />
+                <LiveTeamLeaderboard period="semanal" />
               </div>
             )}
 
@@ -747,10 +762,12 @@ export const R9Dashboard: React.FC = () => {
       </div>
 
       {/* 3. MODAL: + NOVA VENDA _ */}
-      <NewSaleModal
-        isOpen={showNewSaleModal}
-        onClose={() => setShowNewSaleModal(false)}
-      />
+      {/* Só carrega o formulário quando ele é aberto pela primeira vez (ele já recomeça vazio a cada abertura). */}
+      {showNewSaleModal && (
+        <Suspense fallback={null}>
+          <NewSaleModal isOpen onClose={() => setShowNewSaleModal(false)} />
+        </Suspense>
+      )}
 
     </div>
   );

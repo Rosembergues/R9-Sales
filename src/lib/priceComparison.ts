@@ -1,5 +1,6 @@
 import { excelSerialToIso } from './dates';
 import { toLocalIso } from './dates';
+import { stripAccents } from './text';
 
 /**
  * Comparador de Preços — leitura da planilha "Análise da Concorrência" e regras de comparação.
@@ -51,13 +52,7 @@ export interface ParsedPriceFile {
 
 export const DEFAULT_OFFENSE_THRESHOLD_PCT = 8;
 
-const normalizeHeader = (value: unknown) =>
-  String(value ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
+const normalizeHeader = (value: unknown) => stripAccents(value).replace(/\s+/g, ' ').trim().toUpperCase();
 
 const isBlankMarker = (value: unknown) => {
   if (value === null || value === undefined) return true;
@@ -327,7 +322,7 @@ export async function parsePriceFile(file: File): Promise<ParsedPriceFile> {
 
 export type OfferStatus = 'offense' | 'cheaper' | 'ours_cheaper' | 'na';
 
-export interface OfferComparison {
+interface OfferComparison {
   diff: number | null; // concorrente - nosso (R$)
   diffPct: number | null; // fração sobre o nosso preço
   status: OfferStatus;

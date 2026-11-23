@@ -3,6 +3,7 @@ import { todayLocalIso } from '../../lib/dates';
 import { CustomFormField, Priority, Recurrence, TaskModel } from '../types.ts';
 import type { TaskModelDbRow } from '../../lib/dbTypes';
 import { errorText } from '../../lib/errors';
+import { stripAccents } from '../../lib/text';
 
 /**
  * Cadastro de tarefas (tabela tarefas_modelo).
@@ -25,7 +26,7 @@ const toArray = (value: unknown): string[] => {
   return [];
 };
 
-export const mapRowToTaskModel = (row: TaskModelDbRow): TaskModel => ({
+const mapRowToTaskModel = (row: TaskModelDbRow): TaskModel => ({
   id: String(row.id),
   title: row.titulo ?? 'Sem título',
   description: row.descricao ?? '',
@@ -121,7 +122,7 @@ export const WEEKDAY_KEYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'] a
 const WEEKDAY_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const DAY_INDEX: Record<string, number> = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6, 'sáb': 6 };
 
-const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+const norm = (s: string) => stripAccents(s).toLowerCase().trim();
 
 export const parseIsoDate = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number);

@@ -1,8 +1,9 @@
 import { GoalImportGroup, getModelMetadata } from './goalImport';
 import { GoalDailyPoint } from './goalProgress';
+import { stripAccents } from './text';
 
 /** Janela de datas de um ciclo para uma modalidade, tirada do arquivo importado. */
-export interface CycleWindow {
+interface CycleWindow {
   period: string;
   group: string;
   start: string;
@@ -11,11 +12,7 @@ export interface CycleWindow {
   metaEnd: string;
 }
 
-const norm = (v: unknown) => String(v ?? '')
-  .normalize('NFD')
-  .replace(/[̀-ͯ]/g, '')
-  .trim()
-  .toLowerCase();
+const norm = (v: unknown) => stripAccents(v).trim().toLowerCase();
 
 /**
  * Converte o produto/modalidade da venda no grupo usado pelas metas importadas.
@@ -60,7 +57,7 @@ export function buildCycleWindows(points: GoalDailyPoint[]): CycleWindow[] {
 }
 
 /** Ciclos possíveis para uma venda, do mais provável para o menos provável. */
-export function candidateCycles(group: string | null, dateIso: string, windows: CycleWindow[]): string[] {
+function candidateCycles(group: string | null, dateIso: string, windows: CycleWindow[]): string[] {
   if (!group || !dateIso) return [];
   const inRange = windows.filter(w => w.group === group && w.start <= dateIso && dateIso <= w.end);
   // Preferência: ciclo mais antigo que ainda tem meta a perseguir nessa data; depois os demais.

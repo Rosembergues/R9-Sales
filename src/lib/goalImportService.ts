@@ -3,7 +3,7 @@ import { GoalImportGroup, ParsedGoalRow, getModelMetadata } from './goalImport';
 
 const ROWS_CHUNK = 500;
 
-export interface SaveGoalImportInput {
+interface SaveGoalImportInput {
   group: GoalImportGroup;
   academicPeriod: string;
   fileName: string;

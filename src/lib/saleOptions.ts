@@ -78,7 +78,7 @@ export const shiftsFor = (product: MainProductType | '', modality: ModalityType 
 export const PARCELA_OPTIONS: ParcelaLeveOption[] = ['1 parcela', '2 parcelas', '3 parcelas', 'Sem parcelas'];
 
 /** Campos obrigatórios de toda venda (mesma lista da trava no banco). */
-export type RequiredSaleField = 'opportunity' | 'candidate' | 'date' | 'seller' | 'product' | 'modality' | 'shift' | 'fdi';
+type RequiredSaleField = 'opportunity' | 'candidate' | 'date' | 'seller' | 'product' | 'modality' | 'shift' | 'fdi';
 
 export const REQUIRED_FIELD_LABEL: Record<RequiredSaleField, string> = {
   opportunity: 'Oportunidade',

@@ -46,7 +46,7 @@ export function localDayStartIso(isoDate: string, plusDays = 0): string {
 }
 
 /** Mesma regra da trava do banco (supabase/vendas-completas.sql). */
-export const INCOMPLETE_SALE_FILTER = [
+const INCOMPLETE_SALE_FILTER = [
   'opportunity.is.null', 'opportunity.eq.',
   'client_name.is.null', 'client_name.eq.',
   'seller_id.is.null', 'seller_id.eq.',
@@ -57,9 +57,8 @@ export const INCOMPLETE_SALE_FILTER = [
   'sale_date.is.null',
 ].join(',');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 /** O mínimo de um construtor de consulta do Supabase que os filtros usam. */
-export interface FilterableQuery {
+interface FilterableQuery {
   or(filters: string): unknown;
   ilike(column: string, pattern: string): unknown;
   eq(column: string, value: string): unknown;

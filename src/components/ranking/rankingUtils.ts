@@ -1,4 +1,5 @@
 import type { Sale, UserGoalData } from '../../types';
+import { stripAccents } from '../../lib/text';
 
 export type RankingOperation =
   | 'todos_produtos'
@@ -21,15 +22,11 @@ export const RANKING_OPERATION_OPTIONS: Array<{
   { value: 'tecnico', label: 'Curso Técnico', description: 'Técnico Presencial' },
 ];
 
-export function normalizeRankingText(value: unknown): string {
-  return String(value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase();
+function normalizeRankingText(value: unknown): string {
+  return stripAccents(value).trim().toLowerCase();
 }
 
-export function getSaleRankingOperation(sale: Sale): Exclude<RankingOperation, 'todos_produtos' | 'graduacao_total'> {
+function getSaleRankingOperation(sale: Sale): Exclude<RankingOperation, 'todos_produtos' | 'graduacao_total'> {
   const product = normalizeRankingText(sale.custom_data?.main_product || sale.product_name || '');
   const modality = normalizeRankingText(sale.custom_data?.modality || '');
   const businessUnit = normalizeRankingText(sale.custom_data?.business_unit || '');

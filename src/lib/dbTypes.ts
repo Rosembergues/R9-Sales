@@ -52,7 +52,7 @@ export interface GoalWeightRow {
 }
 
 /** public.tags_bucket — categoria de tarefa. */
-export interface TagBucketRow {
+interface TagBucketRow {
   id: string;
   nome: string;
   color?: string | null;
@@ -80,12 +80,6 @@ export interface PriceCourseRow {
   our_price: number | string | null;
   competitors: unknown;
 }
-
-/**
- * Linha "solta" do banco (tarefas, cadastros, perfis): as funções de leitura conferem
- * cada campo, porque registros antigos usam nomes de coluna diferentes.
- */
-export type LooseRow = Record<string, unknown>;
 
 /** Lê um campo de texto de uma linha solta ('' quando falta). */
 export const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));

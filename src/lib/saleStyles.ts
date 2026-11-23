@@ -2,7 +2,7 @@
  * Cores das formas de ingresso (FDI), iguais em todas as telas de vendas.
  * As classes ficam escritas por inteiro para o Tailwind encontrá-las no build.
  */
-export interface FdiStyle {
+interface FdiStyle {
   /** Etiqueta pequena (fundo + texto + borda). */
   badge: string;
   bg: string;

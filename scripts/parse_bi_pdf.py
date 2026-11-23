@@ -1,29 +1,39 @@
 """Extrai os campos que a automacao precisa dos PDFs do Power BI (Funil de
 Captacao e Ranking Unidades). So leitura/parsing -- a escrita no Supabase
-fica em outro arquivo.
+fica em supabase_writer.py.
 
 Os relatorios tem acentuacao inconsistente entre si (alguns saem sem acento,
 outros com o acento virando um caractere de substituicao \\ufffd ao extrair
 o texto do PDF) -- por isso o parsing evita depender de texto acentuado.
+
+Cada relatorio tem duas funcoes: parse_*(caminho) abre o PDF, e parse_*_text
+(texto, nome_arquivo) faz o parsing em cima do texto ja extraido (e o que os
+testes em test_parse_bi_pdf.py exercitam, sem precisar de PDF real).
 """
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
-import pdfplumber
-
-# Icone de dropdown que o Power BI usa como separador depois de cada valor de
-# filtro (ex.: "All  2027.1  PRESENCIAL  ..."). Estavel nos
+# Icone de dropdown (caractere de uso privado U+E118 da fonte do Power BI) que
+# aparece como separador depois de cada valor de filtro
+# (ex.: "All  2027.1  PRESENCIAL  ..."). Estavel nos
 # relatorios testados, independente de acentuacao.
 FILTER_ICON = ""
+
+# Numero do Power BI em pt-BR ("1.234", "12,5") ou "(Blank)" (etapa sem valor).
+NUM = r"(?:[\d.,]+|\(Blank\))"
+
+EXPECTED_CAMPUS = "R9 - TAQUARA"
+
 
 def _to_number(raw: str) -> float | None:
     raw = raw.strip()
     if not raw:
         return None
-    # O Power BI mostra "(Blank)" quando não há meta/valor configurado pra
-    # aquela etapa -- tratamos como zero, não como "sem dado".
+    # O Power BI mostra "(Blank)" quando nao ha meta/valor configurado pra
+    # aquela etapa -- tratamos como zero, nao como "sem dado".
     if raw.lower() == "(blank)":
         return 0.0
     raw = raw.replace(".", "").replace(",", ".")
@@ -33,7 +43,9 @@ def _to_number(raw: str) -> float | None:
         return None
 
 
-def _full_text(pdf_path: str) -> str:
+def _full_text(pdf_path: str | Path) -> str:
+    import pdfplumber  # import tardio: os testes de texto nao precisam do pdfplumber
+
     with pdfplumber.open(pdf_path) as pdf:
         return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
@@ -48,7 +60,45 @@ def _filter_values(text: str) -> list[str]:
     raise ValueError("Nao encontrei a linha de filtros (icone de dropdown ausente)")
 
 
-def _detect_graduacao_modalidade(raw_value: str, pdf_path: str) -> str:
+def _academic_period(values: list[str], nome: str) -> str:
+    if len(values) < 3:
+        raise ValueError(f"Linha de filtros com poucos valores em {nome}: {values}")
+    periodo = values[1]
+    if not re.fullmatch(r"[0-9]{4}\.[0-9]", periodo):
+        raise ValueError(f"Periodo academico inesperado '{periodo}' em {nome}")
+    return periodo
+
+
+def _unico(candidatos: set[str], nome: str, o_que: str) -> str:
+    if len(candidatos) == 1:
+        return next(iter(candidatos))
+    if not candidatos:
+        raise ValueError(f"Nao consegui identificar {o_que} de {nome} (nem pelo filtro do PDF nem pelo nome do arquivo)")
+    raise ValueError(
+        f"Nome do arquivo {nome} e ambiguo para {o_que} (bate com {sorted(candidatos)}); "
+        "renomeie o arquivo para conter so uma modalidade ou corrija o filtro no Power BI"
+    )
+
+
+# "pres" que NAO faz parte de "semipresencial"/"semi-presencial"/"semi presencial".
+_PRES_SOZINHO = r"(?<!semi)(?<!semi-)(?<!semi )pres"
+
+
+def _graduacao_pelo_nome(nome_arquivo: str) -> set[str]:
+    nome = Path(nome_arquivo).name.lower()  # so o nome: a pasta nao pode influenciar
+    achados = set()
+    if "ao vivo" in nome or "aovivo" in nome:
+        achados.add("graduacao_aovivo")
+    if "semi" in nome:
+        achados.add("graduacao_semipresencial")
+    if "digital" in nome:
+        achados.add("graduacao_ead")
+    if re.search(_PRES_SOZINHO, nome):
+        achados.add("graduacao_presencial")
+    return achados
+
+
+def _detect_graduacao_modalidade(raw_value: str, nome_arquivo: str) -> str:
     v = raw_value.lower()
     # O PDF trunca "SEMIPRESENCIAL" de forma consistente (fonte incompleta no
     # export do Power BI): o valor sai como "presencial (bu) + se<lixo>".
@@ -58,33 +108,21 @@ def _detect_graduacao_modalidade(raw_value: str, pdf_path: str) -> str:
         return "graduacao_aovivo"
     if "digital" in v:
         # O card "Digital" da home soma graduacao_ead + graduacao_dlex (ver
-        # METHOD_TILES em OfficialGoalsPanel.tsx); "graduacao_bu_digital" é só
-        # uma categoria de exibição noutras telas, não entra nesse somatório.
-        # O funil "Digital" do Power BI não separa EAD de Flex, e os imports
-        # manuais históricos sempre gravaram tudo em graduacao_ead (nunca
-        # apareceu um graduacao_dlex real), então é esse o grupo certo aqui.
+        # METHOD_TILES em OfficialGoalsPanel.tsx); "graduacao_bu_digital" e so
+        # uma categoria de exibicao noutras telas, nao entra nesse somatorio.
+        # O funil "Digital" do Power BI nao separa EAD de Flex, e os imports
+        # manuais historicos sempre gravaram tudo em graduacao_ead (nunca
+        # apareceu um graduacao_dlex real), entao e esse o grupo certo aqui.
         return "graduacao_ead"
     if v.strip() == "presencial":
         return "graduacao_presencial"
 
-    # O filtro do PDF às vezes vem quebrado ("Multiple selections", quando a
-    # assinatura do Power BI está com mais de uma modalidade marcada). Nesse
-    # caso cai pro nome do arquivo (o assunto do email é estável: "Funil Sava
-    # - Met. Pres/Semi/Ao Vivo/BU Digital"). Quando o filtro for corrigido lá
-    # no Power BI, o texto do PDF volta a mandar (bloco acima).
-    nome = pdf_path.lower()
-    if "ao vivo" in nome or "aovivo" in nome:
-        return "graduacao_aovivo"
-    if "semi" in nome:
-        return "graduacao_semipresencial"
-    if "digital" in nome:
-        return "graduacao_ead"
-    if "pres" in nome:
-        return "graduacao_presencial"
-
-    raise ValueError(
-        f"Modalidade desconhecida '{raw_value}' em {pdf_path} (e o nome do arquivo também não ajudou)"
-    )
+    # O filtro do PDF as vezes vem quebrado ("Multiple selections", quando a
+    # assinatura do Power BI esta com mais de uma modalidade marcada). Nesse
+    # caso cai pro nome do arquivo -- mas so se ele apontar UMA modalidade:
+    # um nome com o assunto inteiro do e-mail ("Pres/Semi/Ao Vivo/BU Digital")
+    # nao pode virar "ao vivo" por acaso.
+    return _unico(_graduacao_pelo_nome(nome_arquivo), nome_arquivo, f"a modalidade (filtro '{raw_value}')")
 
 
 @dataclass
@@ -96,49 +134,32 @@ class FunilResult:
     actual_to_date: float
 
 
-def parse_funil_captacao(pdf_path: str) -> FunilResult:
-    text = _full_text(pdf_path)
+def parse_funil_captacao_text(text: str, nome_arquivo: str) -> FunilResult:
     values = _filter_values(text)
-    if len(values) < 3:
-        raise ValueError(f"Linha de filtros com poucos valores em {pdf_path}: {values}")
-
-    academic_period = values[1]
-    if not re.fullmatch(r"[0-9]{4}\.[0-9]", academic_period):
-        raise ValueError(f"Periodo academico inesperado '{academic_period}' em {pdf_path}")
+    academic_period = _academic_period(values, nome_arquivo)
 
     is_tecnico = re.search(r"cursos\s+t.cnicos", text, re.IGNORECASE) is not None
-
-    if is_tecnico:
-        goal_group = "tecnico_presencial"
-    else:
-        goal_group = _detect_graduacao_modalidade(values[2], pdf_path)
+    goal_group = "tecnico_presencial" if is_tecnico else _detect_graduacao_modalidade(values[2], nome_arquivo)
 
     if is_tecnico:
         # Layout diferente: os numeros vem ANTES do rotulo da etapa, e a
         # etapa financeira se chama "FIN" (nao "M.FIN"). "FIN" sozinho na
         # linha (nao "FIN. DOC", que tambem comeca com FIN).
-        fin_match = re.search(r"([^\n]+)\n^FIN$", text, re.MULTILINE)
+        fin_match = re.search(r"([^\n]+)\n^FIN[ \t]*$", text, re.MULTILINE)
         if not fin_match:
-            raise ValueError(f"Nao encontrei a linha FIN (tecnico) em {pdf_path}")
+            raise ValueError(f"Nao encontrei a linha FIN (tecnico) em {nome_arquivo}")
         tokens = [t for t in fin_match.group(1).split() if not t.endswith("%") and t != "-"]
         if len(tokens) < 3:
-            raise ValueError(f"Linha FIN com poucos numeros em {pdf_path}: {tokens}")
+            raise ValueError(f"Linha FIN com poucos numeros em {nome_arquivo}: {tokens}")
         aa, meta, atual = (_to_number(t) for t in tokens[:3])
     else:
-        numero_ou_blank = r"(?:[\d.,]+|\(Blank\))"
-        mfin_match = re.search(
-            rf"\nM\.FIN\s+({numero_ou_blank})\s+({numero_ou_blank})\s+({numero_ou_blank})",
-            text,
-            re.IGNORECASE,
-        )
+        mfin_match = re.search(rf"\nM\.FIN\s+({NUM})\s+({NUM})\s+({NUM})", text, re.IGNORECASE)
         if not mfin_match:
-            raise ValueError(f"Nao encontrei a linha M.FIN em {pdf_path}")
-        aa = _to_number(mfin_match.group(1))
-        meta = _to_number(mfin_match.group(2))
-        atual = _to_number(mfin_match.group(3))
+            raise ValueError(f"Nao encontrei a linha M.FIN em {nome_arquivo}")
+        aa, meta, atual = (_to_number(mfin_match.group(i)) for i in (1, 2, 3))
 
     if aa is None or meta is None or atual is None:
-        raise ValueError(f"Nao consegui converter os numeros da linha financeira em {pdf_path}")
+        raise ValueError(f"Nao consegui converter os numeros da linha financeira em {nome_arquivo}")
 
     return FunilResult(
         academic_period=academic_period,
@@ -147,6 +168,10 @@ def parse_funil_captacao(pdf_path: str) -> FunilResult:
         target_to_date=meta,
         actual_to_date=atual,
     )
+
+
+def parse_funil_captacao(pdf_path: str | Path) -> FunilResult:
+    return parse_funil_captacao_text(_full_text(pdf_path), str(pdf_path))
 
 
 @dataclass
@@ -160,35 +185,34 @@ class RankingResult:
     market_aa: float | None
     market_meta: float | None
     market_real: float | None
+    avisos: list[str] = field(default_factory=list)
 
 
-EXPECTED_CAMPUS = "R9 - TAQUARA"
-
-
-def parse_ranking_unidades(pdf_path: str) -> RankingResult:
-    text = _full_text(pdf_path)
-    values = _filter_values(text)
-    if len(values) < 3:
-        raise ValueError(f"Linha de filtros com poucos valores em {pdf_path}: {values}")
-
-    academic_period = values[1]
-    if not re.fullmatch(r"[0-9]{4}\.[0-9]", academic_period):
-        raise ValueError(f"Periodo academico inesperado '{academic_period}' em {pdf_path}")
-
-    modalidade = values[2].lower()
+def _bu_do_ranking(raw_value: str, nome_arquivo: str) -> str:
+    modalidade = raw_value.lower()
     if "digital" in modalidade:
-        bu = "bu_digital"
-    elif "presencial" in modalidade:
-        bu = "bu_presencial"
-    else:
-        # Filtro ambíguo ("Multiple selections") -- cai pro nome do arquivo.
-        nome = pdf_path.lower()
-        bu = "bu_digital" if "digital" in nome else "bu_presencial"
+        return "bu_digital"
+    if "presencial" in modalidade:
+        return "bu_presencial"
+    # Filtro ambiguo ("Multiple selections") -- cai pro nome do arquivo, se ele for claro.
+    nome = Path(nome_arquivo).name.lower()
+    achados = set()
+    if "digital" in nome:
+        achados.add("bu_digital")
+    if "presencial" in nome or re.search(_PRES_SOZINHO, nome):
+        achados.add("bu_presencial")
+    return _unico(achados, nome_arquivo, f"a BU (filtro '{raw_value}')")
 
-    num = r"(?:[\d.,]+|\(Blank\))"
+
+def parse_ranking_unidades_text(text: str, nome_arquivo: str) -> RankingResult:
+    values = _filter_values(text)
+    academic_period = _academic_period(values, nome_arquivo)
+    bu = _bu_do_ranking(values[2], nome_arquivo)
+    avisos: list[str] = []
+
     # Linha da nossa unidade: UNIDADE RKN AA D-7 REAL VAR-D7 META %ATING-AA ...
     our_match = re.search(
-        rf"\n\W*{re.escape(EXPECTED_CAMPUS)}\s+(\d+)\s+({num})\s+({num})\s+({num})\s+{num}\s+({num})",
+        rf"\n\W*{re.escape(EXPECTED_CAMPUS)}\s+(\d+)\s+({NUM})\s+({NUM})\s+({NUM})\s+{NUM}\s+({NUM})",
         text,
         re.IGNORECASE,
     )
@@ -198,18 +222,13 @@ def parse_ranking_unidades(pdf_path: str) -> RankingResult:
         our_aa = _to_number(our_match.group(2))
         our_real = _to_number(our_match.group(4))
         our_meta = _to_number(our_match.group(5))
+    else:
+        avisos.append(f"a linha '{EXPECTED_CAMPUS}' nao apareceu no relatorio; nossa posicao fica em branco")
 
-    # Linha Total: AA D-7 REAL VAR-D7 META %ATING-AA ...
-    total_match = re.search(
-        rf"\nTotal\s+({num})\s+({num})\s+({num})\s+{num}\s+({num})",
-        text,
-        re.IGNORECASE,
-    )
+    # Linha Total: AA D-7 REAL VAR-D7 META %ATING-AA ... (VAR-D7 vem como numero, sem %)
+    total_match = re.search(rf"\nTotal\s+({NUM})\s+({NUM})\s+({NUM})\s+{NUM}\s+({NUM})", text, re.IGNORECASE)
     if not total_match:
-        raise ValueError(f"Nao encontrei a linha Total em {pdf_path}")
-    market_aa = _to_number(total_match.group(1))
-    market_real = _to_number(total_match.group(3))
-    market_meta = _to_number(total_match.group(4))
+        raise ValueError(f"Nao encontrei a linha Total em {nome_arquivo}")
 
     return RankingResult(
         academic_period=academic_period,
@@ -218,7 +237,12 @@ def parse_ranking_unidades(pdf_path: str) -> RankingResult:
         our_aa=our_aa,
         our_meta=our_meta,
         our_real=our_real,
-        market_aa=market_aa,
-        market_meta=market_meta,
-        market_real=market_real,
+        market_aa=_to_number(total_match.group(1)),
+        market_meta=_to_number(total_match.group(4)),
+        market_real=_to_number(total_match.group(3)),
+        avisos=avisos,
     )
+
+
+def parse_ranking_unidades(pdf_path: str | Path) -> RankingResult:
+    return parse_ranking_unidades_text(_full_text(pdf_path), str(pdf_path))

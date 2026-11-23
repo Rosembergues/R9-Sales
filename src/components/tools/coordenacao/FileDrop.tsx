@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import { CheckCircle2, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react';
+import { useDropZone } from '../../common/useDropZone';
 
 interface Props {
   label: string;
@@ -14,8 +15,7 @@ interface Props {
 
 /** Área para soltar/selecionar um arquivo, com estado de carregado. */
 export const FileDrop: React.FC<Props> = ({ label, hint, accept, file, busy, summary, onFile, onClear }) => {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [dragging, setDragging] = useState(false);
+  const { dragging, zoneProps, inputProps } = useDropZone({ accept, onFiles: ([f]) => onFile(f) });
 
   return (
     <div className="space-y-1.5">
@@ -36,39 +36,20 @@ export const FileDrop: React.FC<Props> = ({ label, hint, accept, file, busy, sum
             disabled={busy}
             className="text-slate-400 hover:text-red-500 transition-colors cursor-pointer disabled:opacity-40"
             title="Remover arquivo"
+            aria-label={`Remover ${file.name}`}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       ) : (
         <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const f = e.dataTransfer.files?.[0];
-            if (f) onFile(f);
-          }}
-          onClick={() => inputRef.current?.click()}
-          className={`rounded-xl border-2 border-dashed px-4 py-5 flex items-center gap-3 cursor-pointer transition-colors ${
+          {...zoneProps}
+          aria-label={`${label}: arraste o arquivo aqui ou clique para selecionar`}
+          className={`rounded-xl border-2 border-dashed px-4 py-5 flex items-center gap-3 cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-[#0052cc] ${
             dragging ? 'border-[#0052cc] bg-blue-50' : 'border-gray-300 bg-white hover:bg-gray-50'
           }`}
         >
-          <input
-            ref={inputRef}
-            type="file"
-            accept={accept}
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onFile(f);
-              e.target.value = '';
-            }}
-          />
+          <input {...inputProps} />
           <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
             {dragging ? <Upload className="w-4 h-4 text-[#0052cc]" /> : <FileSpreadsheet className="w-4 h-4 text-slate-400" />}
           </div>

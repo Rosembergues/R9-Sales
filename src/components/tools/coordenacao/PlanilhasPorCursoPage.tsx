@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { AlertCircle, Download, FolderArchive, Info, Loader2 } from 'lucide-react';
 import {
   CURSOS,
@@ -8,7 +8,9 @@ import {
   filtrarClassificados,
   separarTrancados,
 } from '../../../lib/coordenacao';
-import { downloadBlob, readSheetRows } from '../../../lib/readSheetRows';
+import { readSheetRows } from '../../../lib/readSheetRows';
+import { todayLocalIso } from '../../../lib/dates';
+import { downloadBlob } from '../../../lib/download';
 import { FileDrop } from './FileDrop';
 
 type Classificados = ReturnType<typeof filtrarClassificados>;
@@ -31,19 +33,33 @@ export const PlanilhasPorCursoPage: React.FC = () => {
   const [zipping, setZipping] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
 
+  // Cada slot guarda o arquivo mais recente: se outro arquivo for solto enquanto o anterior
+  // ainda está sendo lido, o resultado do anterior é descartado.
+  const latest = useRef<Record<string, File | null>>({});
   const load = useCallback(
-    async <T,>(file: File, set: React.Dispatch<React.SetStateAction<Slot<T>>>, parse: (rows: unknown[][]) => T) => {
+    async <T,>(
+      slot: string,
+      file: File,
+      set: React.Dispatch<React.SetStateAction<Slot<T>>>,
+      parse: (rows: unknown[][]) => T
+    ) => {
+      latest.current[slot] = file;
       set({ file, data: null, busy: true, error: null });
       await nextFrame();
+      let next: Slot<T>;
       try {
-        const data = parse(await readSheetRows(file));
-        set({ file, data, busy: false, error: null });
+        next = { file, data: parse(await readSheetRows(file)), busy: false, error: null };
       } catch (err) {
-        set({ file, data: null, busy: false, error: err instanceof Error ? err.message : 'Não consegui ler o arquivo.' });
+        next = { file, data: null, busy: false, error: err instanceof Error ? err.message : 'Não consegui ler o arquivo.' };
       }
+      if (latest.current[slot] === file) set(next);
     },
     []
   );
+  const clear = (slot: string, set: (s: Slot<never>) => void) => {
+    latest.current[slot] = null;
+    set(emptySlot());
+  };
 
   const gerarZip = useCallback(async () => {
     setZipping(true);
@@ -52,8 +68,7 @@ export const PlanilhasPorCursoPage: React.FC = () => {
     try {
       const { montarZipPorCurso } = await import('../../../lib/coordenacaoZip');
       const bytes = montarZipPorCurso(classificados.data, trancados.data);
-      const hoje = new Date().toISOString().slice(0, 10);
-      downloadBlob(new Blob([bytes], { type: 'application/zip' }), `Planilhas por Curso ${hoje}.zip`);
+      downloadBlob(new Blob([bytes], { type: 'application/zip' }), `Planilhas por Curso ${todayLocalIso()}.zip`);
     } catch (err) {
       setZipError(err instanceof Error ? err.message : 'Não consegui gerar o arquivo .zip.');
     } finally {
@@ -77,7 +92,7 @@ export const PlanilhasPorCursoPage: React.FC = () => {
         </div>
         <p className="text-xs text-slate-500 mt-1.5 max-w-2xl">
           Envie o relatório de Classificados e o de Trancados/Abandono. O sistema aplica os filtros e gera um .zip com
-          uma pasta para cada um dos 18 cursos, contendo Inscritos, Trancados Adimplentes e Trancados Inadimplentes.
+          uma pasta para cada um dos {CURSOS.length} cursos, contendo Inscritos, Trancados Adimplentes e Trancados Inadimplentes.
         </p>
       </div>
 
@@ -89,9 +104,9 @@ export const PlanilhasPorCursoPage: React.FC = () => {
             accept=".xlsx,.xls"
             file={classificados.file}
             busy={classificados.busy}
-            summary={c && `${c.total.toLocaleString('pt-BR')} inscritos elegíveis nos 18 cursos`}
-            onFile={(f) => load(f, setClassificados, filtrarClassificados)}
-            onClear={() => setClassificados(emptySlot())}
+            summary={c && `${c.total.toLocaleString('pt-BR')} inscritos elegíveis nos ${CURSOS.length} cursos`}
+            onFile={(f) => load('classificados', f, setClassificados, filtrarClassificados)}
+            onClear={() => clear('classificados', setClassificados)}
           />
           {classificados.error && <ErrorBox msg={classificados.error} />}
           <Rules>
@@ -110,12 +125,12 @@ export const PlanilhasPorCursoPage: React.FC = () => {
             busy={trancados.busy}
             summary={
               t &&
-              `${t.stats.exportados.toLocaleString('pt-BR')} alunos nos 18 cursos · ${t.stats.duplicados.toLocaleString(
+              `${t.stats.exportados.toLocaleString('pt-BR')} alunos nos ${CURSOS.length} cursos · ${t.stats.duplicados.toLocaleString(
                 'pt-BR'
               )} linhas duplicadas removidas`
             }
-            onFile={(f) => load(f, setTrancados, separarTrancados)}
-            onClear={() => setTrancados(emptySlot())}
+            onFile={(f) => load('trancados', f, setTrancados, separarTrancados)}
+            onClear={() => clear('trancados', setTrancados)}
           />
           {trancados.error && <ErrorBox msg={trancados.error} />}
           <Rules>

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Download, Search, Users } from 'lucide-react';
 import { Task, TaskModel, TeamMember } from '../types.ts';
 import { formatISO, formatWeekInterval, getWeekDates } from '../utils/dateUtils.ts';
+import { downloadCsv } from '../../lib/download';
 
 /**
  * Balanço da semana — 3 blocos:
@@ -83,7 +84,7 @@ export default function WeeklyBalanceView({ tasks, models, teamMembers, todayDat
         return { ...g, done, late, total: g.runs.length };
       })
       .sort((a, b) => b.late - a.late || a.title.localeCompare(b.title, 'pt-BR'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // stateOf depende de todayIso (já listado).
   }, [weekTasks, modelById, todayIso]);
 
   const showWeekend = weekTasks.some((t) => {
@@ -171,13 +172,7 @@ export default function WeeklyBalanceView({ tasks, models, teamMembers, todayDat
         return [t.scheduledDate!.split('-').reverse().join('/'), t.title, names, status, values];
       });
     const csv = [header, ...lines].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `balanco_${weekIsos[0]}_a_${weekIsos[6]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(csv, `balanco_${weekIsos[0]}_a_${weekIsos[6]}.csv`);
   };
 
   const Avatar = ({ id, size = 'w-6 h-6 text-[9px]' }: { id: string; size?: string }) => {

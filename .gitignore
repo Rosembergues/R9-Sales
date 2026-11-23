@@ -9,3 +9,7 @@ coverage/
 
 # Pacote exportado para publicação
 *.zip
+
+# Python
+__pycache__/
+*.pyc

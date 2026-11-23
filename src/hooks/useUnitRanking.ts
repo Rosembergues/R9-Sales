@@ -16,10 +16,6 @@ type Loaded = Omit<UnitRankingState, 'loading' | 'error'>;
 const CACHE_TTL = 5 * 60 * 1000;
 let cache: { at: number; promise: Promise<Loaded> } | null = null;
 
-export function invalidateUnitRanking() {
-  cache = null;
-}
-
 const loadUnitRanking = (): Promise<Loaded> => {
   if (cache && Date.now() - cache.at < CACHE_TTL) return cache.promise;
   const promise = fetchUnitRanking();
@@ -45,24 +41,29 @@ export function useUnitRanking(): UnitRankingState {
   return state;
 }
 
+const BUS = ['bu_presencial', 'bu_digital'] as const;
+
 async function fetchUnitRanking(): Promise<Loaded> {
-  const { data, error } = await supabase
-    .from('unit_ranking_daily')
-    .select('reference_date, bu, academic_period, our_rank, our_aa, our_meta, our_real, market_aa, market_meta, market_real')
-    .order('reference_date', { ascending: false });
-  if (error) {
-    // Tabela ainda não criada (automacao-ranking-unidades.sql não rodou): trata como "sem dados", não como erro.
-    if (error.code === '42P01' || /could not find the table/i.test(error.message)) return { rows: [] };
-    throw error;
+  // Só a linha mais recente de cada BU: a tabela ganha uma linha por BU por dia, não precisa trazer o histórico.
+  const results = await Promise.all(
+    BUS.map((bu) =>
+      supabase
+        .from('unit_ranking_daily')
+        .select('reference_date, bu, academic_period, our_rank, our_aa, our_meta, our_real, market_aa, market_meta, market_real')
+        .eq('bu', bu)
+        .order('reference_date', { ascending: false })
+        .limit(1)
+    )
+  );
+
+  const rows: UnitRankingRow[] = [];
+  for (const { data, error } of results) {
+    if (error) {
+      // Tabela ainda não criada (automacao-ranking-unidades.sql não rodou): trata como "sem dados", não como erro.
+      if (error.code === '42P01' || /could not find the table/i.test(error.message)) return { rows: [] };
+      throw error;
+    }
+    rows.push(...((data || []) as UnitRankingRow[]));
   }
-
-  // Mantém só a linha mais recente de cada BU (a consulta já veio ordenada do mais novo pro mais velho).
-  const seen = new Set<string>();
-  const rows = ((data || []) as UnitRankingRow[]).filter((row) => {
-    if (seen.has(row.bu)) return false;
-    seen.add(row.bu);
-    return true;
-  });
-
   return { rows };
 }

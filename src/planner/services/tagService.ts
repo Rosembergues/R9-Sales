@@ -19,7 +19,7 @@ export const PRESET_TAG_COLORS = [
 /**
  * Normaliza uma linha retornada pelo Supabase para o tipo TagBucket
  */
-export function mapDbRowToTag(row: TagDbRow): TagBucket {
+function mapDbRowToTag(row: TagDbRow): TagBucket {
   const resolvedColor = row.color ?? row.cor ?? row.tag_color ?? '#004691';
   const resolvedDesc = row.description ?? row.descricao ?? '';
   return {

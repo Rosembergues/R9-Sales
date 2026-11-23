@@ -3,7 +3,7 @@ import { buildCycleWindows, saleGoalGroup } from './saleCycle';
 import type { RankingOperation } from '../components/ranking/rankingUtils';
 
 /** Filtros de metodologia da página de Desempenho. */
-export interface MethodFilter {
+interface MethodFilter {
   key: string;
   label: string;
   groups: string[];
@@ -32,7 +32,7 @@ export const METHOD_FILTERS: MethodFilter[] = [
 const DAY = 86400000;
 const toTime = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
 // Datas como instantes UTC (Date.UTC): aqui toISOString é seguro, ida e volta no mesmo fuso.
-export const isoFromTime = (t: number) => new Date(t).toISOString().slice(0, 10);
+const isoFromTime = (t: number) => new Date(t).toISOString().slice(0, 10);
 export const addDays = (iso: string, n: number) => isoFromTime(toTime(iso) + n * DAY);
 /** Segunda-feira da semana de uma data (aaaa-mm-dd). */
 export const mondayOf = (iso: string) => {
@@ -64,7 +64,7 @@ export function currentCycleRange(points: GoalDailyPoint[], groups: string[], da
   };
 }
 
-export interface DayRow {
+interface DayRow {
   date: string;
   meta: number;
   aa: number;
@@ -108,7 +108,7 @@ export function dailyRows(points: GoalDailyPoint[], groups: string[], start: str
   return rows;
 }
 
-export interface RangeSummary {
+interface RangeSummary {
   /** Meta somada até a data-base (dentro do intervalo). */
   metaToDate: number;
   metaTotal: number;
@@ -144,7 +144,7 @@ export function summarize(rows: DayRow[], dataDate: string): RangeSummary {
   };
 }
 
-export interface WeekRow {
+interface WeekRow {
   start: string;
   end: string;
   meta: number;
@@ -178,7 +178,7 @@ export function weeklyRows(rows: DayRow[], dataDate: string): WeekRow[] {
 }
 
 /** Venda já reduzida ao que a página precisa. */
-export interface PerfSale {
+interface PerfSale {
   sellerId: string;
   sellerName: string;
   date: string; // aaaa-mm-dd
@@ -186,7 +186,7 @@ export interface PerfSale {
   modality?: unknown;
 }
 
-export interface ConsultantRow {
+interface ConsultantRow {
   sellerId: string;
   name: string;
   total: number;
@@ -255,7 +255,7 @@ export function dailyCsv(rows: DayRow[]): string {
 }
 
 /** Dados extras da venda usados no "Perfil das vendas" (antiga tela Produtos). */
-export interface ProfileSale extends PerfSale {
+interface ProfileSale extends PerfSale {
   shift?: string;
   fdi?: string;
   parcela?: string;

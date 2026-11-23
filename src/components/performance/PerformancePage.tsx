@@ -8,6 +8,7 @@ import { getRealSaleDate, getSaleFdiDisplay } from '../../lib/salesMapper';
 import { getModelMetadata } from '../../lib/goalImport';
 import { resolveDataDate } from '../../lib/goalProgress';
 import { getRankingOperationTarget } from '../ranking/rankingUtils';
+import { downloadCsv as saveCsv } from '../../lib/download';
 import {
   METHOD_FILTERS,
   IndividualGoal,
@@ -169,12 +170,7 @@ export const PerformancePage: React.FC<Props> = ({ onOpenNewSaleModal }) => {
   };
 
   const downloadCsv = () => {
-    const blob = new Blob(['﻿' + dailyCsv(rows)], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `desempenho-${filter.key}-${range.start}-a-${range.end}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    saveCsv(dailyCsv(rows),`desempenho-${filter.key}-${range.start}-a-${range.end}.csv`);
   };
 
   if (!currentUser) return null;

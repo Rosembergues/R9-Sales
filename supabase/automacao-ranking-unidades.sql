@@ -1,5 +1,10 @@
 -- =====================================================================
--- R9 Hub · Automação do Ranking de Unidades (Power Automate → Supabase)
+-- R9 Hub · Automação do Ranking de Unidades (Power BI → Supabase)
+--
+-- ATUALIZAÇÃO: hoje quem envia é o script Python scripts/run_daily_import.py
+-- (o Power Automate saiu). Ele grava pela API REST usando as funções de
+-- automacao-token-importacao.sql. O role power_automate_ingest continua
+-- aqui só para quem preferir conexão Postgres direta.
 --
 -- O Power BI manda por e-mail o PDF "Rankings" (BU Digital / BU Presencial),
 -- uma tabela com uma linha por unidade. O que a home quer mostrar é só

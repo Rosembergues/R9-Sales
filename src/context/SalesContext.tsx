@@ -12,7 +12,6 @@ import {
 } from '../lib/saleValidation';
 import { useAuth } from './AuthContext';
 import { SALES_SORT_COLUMN, SalesQueryFilters, SalesSortField, applySalesFilters } from '../lib/salesQuery';
-import confetti from 'canvas-confetti';
 import { errorText } from '../lib/errors';
 import type { SaleCustomData, RemoteSaleRow } from '../types';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
@@ -291,17 +290,20 @@ export const SalesProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return { data: rows.map(row => normalizeRemoteSale(row)) };
   }, []);
 
+  // Carregado só na hora da comemoração: não pesa no carregamento inicial do site.
   const triggerConfetti = () => {
-    try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#3b82f6'],
+    import('canvas-confetti')
+      .then(({ default: confetti }) =>
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#3b82f6'],
+        })
+      )
+      .catch(() => {
+        // Ignora erro visual de confetti
       });
-    } catch {
-      // Ignora erro visual de confetti
-    }
   };
 
   // Lançamento de venda

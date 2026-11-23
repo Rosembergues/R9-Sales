@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 
-export interface UseIdleTimeoutOptions {
+interface UseIdleTimeoutOptions {
   /** Se o monitoramento está ativado (ativo durante toda a sessão autenticada) */
   enabled?: boolean;
   /** Tempo de inatividade em milissegundos antes de expirar a sessão (padrão: 3 horas = 10.800.000 ms) */

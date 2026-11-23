@@ -17,7 +17,7 @@ import type { GoalDailyRow, GoalImportRow, GoalWeightRow } from './dbTypes';
 export type BuKey = 'bu_presencial' | 'bu_digital' | 'pos' | 'tecnico';
 export const BU_KEYS: BuKey[] = ['bu_presencial', 'bu_digital', 'pos', 'tecnico'];
 
-export const BU_FIELD: Record<BuKey, 'target_bu_presencial' | 'target_bu_digital' | 'target_pos' | 'target_tecnico'> = {
+const BU_FIELD: Record<BuKey, 'target_bu_presencial' | 'target_bu_digital' | 'target_pos' | 'target_tecnico'> = {
   bu_presencial: 'target_bu_presencial',
   bu_digital: 'target_bu_digital',
   pos: 'target_pos',
@@ -26,9 +26,9 @@ export const BU_FIELD: Record<BuKey, 'target_bu_presencial' | 'target_bu_digital
 
 /** userId → BU → percentual (0–100) */
 export type WeightsMap = Record<string, Partial<Record<BuKey, number>>>;
-export type BuValues = Record<BuKey, number>;
+type BuValues = Record<BuKey, number>;
 
-export interface GoalPeriod {
+interface GoalPeriod {
   type: 'week' | 'month';
   start: string;
   end: string;
@@ -255,7 +255,7 @@ async function lastImportedDate(): Promise<string | null> {
   return data?.[0]?.reference_date ?? null;
 }
 
-export interface ApplyResult {
+interface ApplyResult {
   periods: number;
   goalsWritten: number;
   untouchedBus: BuKey[];

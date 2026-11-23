@@ -1,8 +1,9 @@
 // Gerador mínimo de .xlsx com estilo (cabeçalho destacado, filtro, linha congelada e larguras),
 // usado nas planilhas por curso. Evita depender de uma biblioteca de Excel completa só para escrita.
 import { strToU8, zipSync } from 'fflate';
+import { dateToExcelSerial } from './dates';
 
-export interface SheetSpec {
+interface SheetSpec {
   name: string;
   headers: string[];
   rows: unknown[][];
@@ -19,7 +20,7 @@ const esc = (s: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-export function colLetter(i: number): string {
+function colLetter(i: number): string {
   let s = '';
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
@@ -42,12 +43,10 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
-const excelSerial = (d: Date) => d.getTime() / 86400000 + 25569;
-
 function cellXml(ref: string, value: unknown, style: number, asText: boolean): string {
   if (value === null || value === undefined || value === '') return `<c r="${ref}" s="${style}"/>`;
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return `<c r="${ref}" s="2"><v>${excelSerial(value)}</v></c>`;
+    return `<c r="${ref}" s="2"><v>${dateToExcelSerial(value)}</v></c>`;
   }
   if (typeof value === 'number' && Number.isFinite(value) && !asText) {
     return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;

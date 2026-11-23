@@ -28,13 +28,24 @@ export const parseLocalIso = (iso: string): Date => {
   return new Date(y, m - 1, d, 12, 0, 0);
 };
 
+/** Dias entre 30/12/1899 (dia 0 do Excel) e 01/01/1970. */
+const EXCEL_EPOCH_OFFSET = 25569;
+const MS_PER_DAY = 86400000;
+
+/** Data serial do Excel → Date em UTC (a hora do serial vira hora UTC). Nulo se não for um serial válido. */
+export const excelSerialToDate = (serial: number): Date | null =>
+  Number.isFinite(serial) && serial > 0 ? new Date(Math.round((serial - EXCEL_EPOCH_OFFSET) * MS_PER_DAY)) : null;
+
+/** Date (UTC) → data serial do Excel; inverso de excelSerialToDate. */
+export const dateToExcelSerial = (d: Date): number => d.getTime() / MS_PER_DAY + EXCEL_EPOCH_OFFSET;
+
 /**
  * Data serial do Excel (dias desde 30/12/1899) → aaaa-mm-dd.
  * Evita carregar a biblioteca de Excel só para converter uma data.
  */
 export const excelSerialToIso = (serial: number): string | null => {
-  if (!Number.isFinite(serial) || serial <= 0) return null;
-  const d = new Date(Math.round((serial - 25569) * 86400000));
+  const d = excelSerialToDate(serial);
+  if (!d) return null;
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 };
 

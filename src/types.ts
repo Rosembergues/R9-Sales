@@ -62,7 +62,7 @@ export const hasApprovedAccess = (p: { status?: string | null } | null | undefin
   !!p && ['active', 'inactive'].includes(p.status ?? 'active');
 
 /** Domínios aceitos no cadastro (a mesma regra está no banco: supabase/acesso-autorizacao.sql). */
-export const ALLOWED_EMAIL_DOMAINS = ['estacio.br', 'yduqs.com.br'];
+const ALLOWED_EMAIL_DOMAINS = ['estacio.br', 'yduqs.com.br'];
 
 export const isAllowedEmailDomain = (email: string) =>
   ALLOWED_EMAIL_DOMAINS.includes(email.trim().toLowerCase().split('@')[1] ?? '');
@@ -105,7 +105,7 @@ export interface Sale {
   missing_fields?: Array<'opportunity' | 'candidate' | 'date' | 'seller' | 'product' | 'modality' | 'shift' | 'fdi'>;
 }
 
-export type GoalType = 'semanal' | 'mensal' | 'week' | 'month';
+type GoalType = 'semanal' | 'mensal' | 'week' | 'month';
 
 export interface Goal {
   id: string;

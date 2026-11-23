@@ -32,7 +32,7 @@ export function getInitials(name: string): string {
 /**
  * Converte um registro da tabela 'perfis' do Supabase para o modelo UserProfile
  */
-export function mapDbRowToProfile(row: PlannerProfileDbRow, index = 0): UserProfile {
+function mapDbRowToProfile(row: PlannerProfileDbRow, index = 0): UserProfile {
   const rawFuncao = (row.funcao ?? row.role ?? 'membro').toString().toLowerCase();
   const funcao: 'admin' | 'membro' =
     rawFuncao === 'admin' || rawFuncao === 'administrador' ? 'admin' : 'membro';

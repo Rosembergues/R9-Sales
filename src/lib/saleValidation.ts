@@ -1,6 +1,7 @@
 import type { Sale } from '../types';
 import { todayLocalIso } from './dates';
 import { errorText } from './errors';
+import { stripAccents } from './text';
 
 /**
  * Número da oportunidade normalizado: sem espaços e em maiúsculas.
@@ -12,7 +13,7 @@ export const normalizeOpportunity = (value: unknown): string =>
 /** Valores gerados pelo sistema quando a venda antiga não tinha oportunidade (ex.: "OP-xxxx"). */
 const isSyntheticOpportunity = (value: string) => /^OP-/.test(value);
 
-export const saleOpportunity = (sale: Pick<Sale, 'custom_data'>): string =>
+const saleOpportunity = (sale: Pick<Sale, 'custom_data'>): string =>
   normalizeOpportunity(sale.custom_data?.opportunity_number);
 
 /** Venda já carregada com a mesma oportunidade (ignorando a própria venda em edição). */
@@ -22,12 +23,7 @@ export function findDuplicateByOpportunity(sales: Sale[], opportunity: string, e
   return sales.find(s => s.id !== excludeId && saleOpportunity(s) === key) ?? null;
 }
 
-const normalizeName = (value: unknown) => String(value ?? '')
-  .normalize('NFD')
-  .replace(/[̀-ͯ]/g, '')
-  .replace(/\s+/g, ' ')
-  .trim()
-  .toLowerCase();
+const normalizeName = (value: unknown) => stripAccents(value).replace(/\s+/g, ' ').trim().toLowerCase();
 
 /**
  * Vendas do mesmo aluno no mesmo produto (com outra oportunidade).

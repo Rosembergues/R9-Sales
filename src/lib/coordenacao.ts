@@ -1,10 +1,13 @@
 // Regras dos relatórios da Coordenação (portadas do app desktop "R9 Central de Relatórios").
 // Tudo aqui trabalha sobre linhas já lidas da planilha (matriz de células), sem depender do navegador.
 
+import { excelSerialToDate } from './dates';
+import { stripAccents } from './text';
+
 export type Row = unknown[];
 
 // Relação fixa de coordenadores por curso, na ordem em que aparecem na arte.
-export const COORDENADORES: ReadonlyArray<{ curso: string; coordenador: string }> = [
+const COORDENADORES: ReadonlyArray<{ curso: string; coordenador: string }> = [
   { curso: 'PEDAGOGIA', coordenador: 'ANGELA' },
   { curso: 'ANÁLISE E DESENVOLVIMENTO DE SISTEMAS', coordenador: 'ANTÔNIO' },
   { curso: 'CIÊNCIA DA COMPUTAÇÃO', coordenador: 'ANTÔNIO' },
@@ -28,24 +31,22 @@ export const CURSOS = COORDENADORES.map((c) => c.curso);
 
 /** Maiúsculas, espaços simples e sem acentos — para comparar nomes vindos de fontes diferentes. */
 export function normalizar(valor: unknown): string {
-  if (valor === null || valor === undefined) return '';
-  return String(valor)
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, ' ')
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '');
+  return stripAccents(valor).trim().toUpperCase().replace(/\s+/g, ' ');
 }
 
 const CURSO_LOOKUP = new Map(CURSOS.map((c) => [normalizar(c), c]));
-export const cursoOficial = (valor: unknown) => CURSO_LOOKUP.get(normalizar(valor)) ?? null;
+const cursoOficial = (valor: unknown) => CURSO_LOOKUP.get(normalizar(valor)) ?? null;
 
 export function numero(valor: unknown): number {
   if (valor === null || valor === undefined || valor === '') return 0;
   if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0;
-  const texto = String(valor).trim();
-  // "1.234,56" (pt-BR) ou "1234.56"
-  const limpo = texto.includes(',') ? texto.replace(/\./g, '').replace(',', '.') : texto;
+  const texto = String(valor).trim().replace(/^R\$\s*/i, '');
+  // "1.234,56" e "1.234" (pt-BR, ponto = milhar) ou "1234.56" (ponto decimal, como o Excel grava).
+  const limpo = texto.includes(',')
+    ? texto.replace(/\./g, '').replace(',', '.')
+    : /^-?\d{1,3}(\.\d{3})+$/.test(texto)
+      ? texto.replace(/\./g, '')
+      : texto;
   const n = Number(limpo);
   return Number.isFinite(n) ? n : 0;
 }
@@ -58,7 +59,7 @@ const vazio = (v: unknown) => v === null || v === undefined || (typeof v === 'st
 
 export type CorDesempenho = 'verde' | 'amarelo' | 'vermelho' | 'sem_meta';
 
-export interface LinhaDesempenho {
+interface LinhaDesempenho {
   coordenador: string;
   curso: string;
   metaDia: number;
@@ -76,7 +77,7 @@ export interface Desempenho {
 
 // Metas de fechamento provisórias do ciclo (até 31/03/2027), enviadas à parte enquanto o sistema
 // não traz as definitivas. Cada valor é o fechamento do ano anterior × FATOR_CRESCIMENTO.
-export const FATOR_CRESCIMENTO = 1.2;
+const FATOR_CRESCIMENTO = 1.2;
 const METAS_FECH_PROVISORIAS: Record<string, number> = {
   PEDAGOGIA: 110.4,
   'ANÁLISE E DESENVOLVIMENTO DE SISTEMAS': 34.8,
@@ -106,7 +107,7 @@ export const corDoPercentual = (pct: number | null): CorDesempenho =>
  * AA | META | ATUAL | META FECH | % AA | % META quatro vezes; o relatório usa o 3º grupo
  * (o mesmo que o app desktop lia em posições fixas).
  */
-export function lerIndicadores(rows: Row[], grupo = 3) {
+function lerIndicadores(rows: Row[], grupo = 3) {
   const headerIdx = rows.findIndex((r) => r.some((c) => normalizar(c) === 'CURSO'));
   if (headerIdx < 0) throw new Error('Não encontrei a coluna "CURSO" na planilha de indicadores.');
   const header = rows[headerIdx].map(normalizar);
@@ -175,7 +176,7 @@ export const TURNOS_CLASSIFICADOS = ['MANHÃ', 'NOITE'];
 export const FASES_CLASSIFICADOS = ['Classificado', 'Inscrito'];
 
 // Colunas exportadas (D:L do relatório), localizadas pelo nome do cabeçalho.
-export const COLUNAS_CLASSIFICADOS = [
+const COLUNAS_CLASSIFICADOS = [
   'Periodo Acadêmico',
   'Modelo de Ensino',
   'Nome da oportunidade',
@@ -235,7 +236,7 @@ export function filtrarClassificados(rows: Row[]) {
 // 3) Trancados / Abandono
 // ---------------------------------------------------------------------------
 
-export const COLUNAS_TRANCADOS = [
+const COLUNAS_TRANCADOS = [
   'COD_MATRICULA',
   'NOM_ALUNO',
   'CPF_ALUNO',
@@ -250,10 +251,7 @@ export const COLUNAS_TRANCADOS = [
 
 /** Converte data serial do Excel (ou texto) em Date; devolve o valor original se não reconhecer. */
 export function paraData(valor: unknown): unknown {
-  if (typeof valor === 'number' && valor > 0) {
-    return new Date(Math.round((valor - 25569) * 86400000));
-  }
-  return valor;
+  return (typeof valor === 'number' && excelSerialToDate(valor)) || valor;
 }
 
 export function separarTrancados(rows: Row[]) {

@@ -11,8 +11,9 @@ import { ALL_FDI, ALL_MODALITIES, ALL_SHIFTS, MAIN_PRODUCTS, REQUIRED_FIELD_LABE
 import { SalesQueryFilters, SalesSortField } from '../../lib/salesQuery';
 import { fdiStyle } from '../../lib/saleStyles';
 import { toLocalIso } from '../../lib/dates';
+import { downloadCsv } from '../../lib/download';
 
-export type SalesPeriod = 'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+type SalesPeriod = 'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom';
 
 interface SalesSpreadsheetTableProps {
   onOpenNewSaleModal?: () => void;
@@ -195,7 +196,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({ on
     if (firstLive.current) { firstLive.current = false; return; }
     const t = setTimeout(() => loadRef.current(), 700);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Só recarrega quando chega venda nova em tempo real; loadRef sempre aponta para a busca atual.
   }, [liveSales]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -232,15 +233,7 @@ export const SalesSpreadsheetTable: React.FC<SalesSpreadsheetTableProps> = ({ on
       q(r.collaborator), q(r.opportunity), q(r.candidate), q(r.date), q(r.product), q(r.fdi), q(r.modality), q(r.shift),
       q(r.parcelaLeve), q(r.hasBolsa), q(r.empresa), q(r.notes),
     ].join(';'));
-    const blob = new Blob(['﻿' + [header.join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `R9_Vendas_${isoOf(new Date())}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadCsv([header.join(';'), ...lines].join('\n'), `R9_Vendas_${isoOf(new Date())}.csv`);
   };
 
   const rangeStart = total === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;

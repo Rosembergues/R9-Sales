@@ -25,7 +25,7 @@ export interface StoredPriceRow extends ParsedPriceRow {
   competitors: CompetitorOffer[];
 }
 
-export interface SavePriceImportInput {
+interface SavePriceImportInput {
   referenceDate: string;
   campus: string | null;
   fileName: string;

@@ -1,5 +1,10 @@
 -- =====================================================================
--- R9 Hub · Automação do Funil de Captação (Power Automate → Supabase)
+-- R9 Hub · Automação do Funil de Captação (Power BI → Supabase)
+--
+-- ATUALIZAÇÃO: hoje quem envia é o script Python scripts/run_daily_import.py
+-- (o Power Automate saiu). Ele grava pela API REST usando as funções de
+-- automacao-token-importacao.sql. O role power_automate_ingest continua
+-- aqui só para quem preferir conexão Postgres direta.
 --
 -- O Power BI manda por e-mail, todo dia, o PDF "Funil de Captação" de cada
 -- modalidade (presencial/semi/ao vivo/digital/técnico). Um fluxo no Power
