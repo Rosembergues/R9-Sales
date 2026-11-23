@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Upload, Download, AlertCircle, Loader2, FileText, X, Sparkles } from 'lucide-react';
 import { parseFunilSavaPdf, type BusinessUnit, type FunilSavaResult } from '../../lib/bomDiaParser';
-import { BomDiaCard } from './BomDiaCard';
+import { BomDiaFullCard } from './BomDiaFullCard';
 
 type CardState = Record<BusinessUnit, FunilSavaResult | null>;
 
@@ -16,8 +16,8 @@ export const BomDiaGeneratorPage: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const cardRefs = useRef<Record<BusinessUnit, HTMLDivElement | null>>({ presencial: null, digital: null });
-  const [downloadingBu, setDownloadingBu] = useState<BusinessUnit | null>(null);
+  const fullCardRef = useRef<HTMLDivElement | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const handleFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList).filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
@@ -58,25 +58,26 @@ export const BomDiaGeneratorPage: React.FC = () => {
     [handleFiles]
   );
 
-  const handleDownload = useCallback(async (bu: BusinessUnit) => {
-    const node = cardRefs.current[bu];
-    if (!node) return;
-    setDownloadingBu(bu);
+  const temAsDuas = Boolean(cards.presencial && cards.digital);
+
+  const handleDownload = useCallback(async () => {
+    const node = fullCardRef.current;
+    if (!node || !temAsDuas) return;
+    setIsDownloading(true);
     try {
       const { toPng } = await import('html-to-image');
-      const dataUrl = await toPng(node, { pixelRatio: 3.2, cacheBust: true });
-      const resultado = cards[bu];
+      const dataUrl = await toPng(node, { pixelRatio: 2.5, cacheBust: true });
       const dataHoje = new Date().toISOString().slice(0, 10);
       const link = document.createElement('a');
-      link.download = `bom-dia-captacao-${bu}-${resultado?.academicPeriod ?? ''}-${dataHoje}.png`;
+      link.download = `bom-dia-captacao-${dataHoje}.png`;
       link.href = dataUrl;
       link.click();
     } catch {
-      setErrors((prev) => [...prev, `Não consegui gerar a imagem da ${BU_TITLE[bu]}. Tente novamente.`]);
+      setErrors((prev) => [...prev, 'Não consegui gerar a imagem. Tente novamente.']);
     } finally {
-      setDownloadingBu(null);
+      setIsDownloading(false);
     }
-  }, [cards]);
+  }, [temAsDuas]);
 
   const clearCard = useCallback((bu: BusinessUnit) => {
     setCards((prev) => ({ ...prev, [bu]: null }));
@@ -94,7 +95,7 @@ export const BomDiaGeneratorPage: React.FC = () => {
           <h2 className="text-lg font-black text-slate-900">Gerador - Bom Dia Captação</h2>
         </div>
         <p className="text-xs text-slate-500 mt-1.5 max-w-2xl">
-          Solte aqui os PDFs do relatório "Funil de Captação - Sava" (BU Presencial e/ou BU Digital) recebidos por
+          Solte aqui os PDFs do relatório "Funil de Captação - Sava" (BU Presencial e BU Digital) recebidos por
           e-mail. O sistema identifica a BU e o período automaticamente e gera a arte de acompanhamento do dia,
           pronta para baixar.
         </p>
@@ -143,46 +144,52 @@ export const BomDiaGeneratorPage: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 justify-items-center">
-        {(['presencial', 'digital'] as BusinessUnit[]).map((bu) => {
-          const resultado = cards[bu];
-          if (!resultado) return null;
-          return (
-            <div key={bu} className="space-y-2.5 flex flex-col items-center">
-              <div className="flex items-center justify-between w-full max-w-[460px]">
-                <span className="text-xs font-bold text-slate-700">{BU_TITLE[bu]} · {resultado.academicPeriod}</span>
-                <button
-                  onClick={() => clearCard(bu)}
-                  className="text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
-                  title="Remover"
+      {temAlgumCard && (
+        <div className="space-y-4 flex flex-col items-center">
+          <div className="flex items-center gap-4 flex-wrap justify-center">
+            {(['presencial', 'digital'] as BusinessUnit[]).map((bu) => {
+              const resultado = cards[bu];
+              if (!resultado) return null;
+              return (
+                <div
+                  key={bu}
+                  className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-white border border-gray-200 rounded-lg px-3 py-1.5"
                 >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
+                  <span>
+                    {BU_TITLE[bu]} · {resultado.academicPeriod}
+                  </span>
+                  <button
+                    onClick={() => clearCard(bu)}
+                    className="text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
+                    title="Remover"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
 
-              <BomDiaCard
-                ref={(el) => {
-                  cardRefs.current[bu] = el;
-                }}
-                bu={bu}
-                academicPeriod={resultado.academicPeriod}
-                metaFinal={resultado.metaFinal}
-                metaDoDia={resultado.metaDoDia}
-                realizado={resultado.realizado}
-              />
+          {!temAsDuas && (
+            <p className="text-xs text-slate-400">
+              Carregue o PDF da BU que falta para liberar o download da imagem completa.
+            </p>
+          )}
 
-              <button
-                onClick={() => handleDownload(bu)}
-                disabled={downloadingBu === bu}
-                className="px-4 py-2 bg-[#0052cc] hover:bg-[#00478f] disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                {downloadingBu === bu ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                Baixar imagem
-              </button>
-            </div>
-          );
-        })}
-      </div>
+          <div className="overflow-x-auto max-w-full">
+            <BomDiaFullCard ref={fullCardRef} presencial={cards.presencial} digital={cards.digital} />
+          </div>
+
+          <button
+            onClick={handleDownload}
+            disabled={!temAsDuas || isDownloading}
+            className="px-5 py-2.5 bg-[#0052cc] hover:bg-[#00478f] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Baixar imagem
+          </button>
+        </div>
+      )}
     </div>
   );
 };
