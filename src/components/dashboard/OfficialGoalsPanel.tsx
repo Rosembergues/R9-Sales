@@ -116,7 +116,7 @@ export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, 
         <div>
           <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
             <Flag className="w-4 h-4 text-blue-600" />
-            Metas oficiais · todas as BUs
+            Meta acumulada
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Matrículas financeiras do Power BI · ciclos ativos: {active.map(c => c.period).join(' + ')}

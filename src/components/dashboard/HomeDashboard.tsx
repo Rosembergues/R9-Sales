@@ -306,7 +306,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard icon={<ShoppingCart className="w-5 h-5" />} label="Vendas Hoje" value={brNumber(todayCount)} tone="blue" delta={dayDelta} subtitle={`vs. ontem (${brNumber(yesterdaySales.length)})`} />
-        <KpiCard icon={<Target className="w-5 h-5" />} label="Meta Hoje" value={brGoal(teamGoalToday)} tone="green" subtitle={`Últimos 7 dias: ${brGoal(teamGoalWeek)}`} />
+        <KpiCard icon={<Target className="w-5 h-5" />} label="Meta do dia" value={brGoal(teamGoalToday)} tone="green" subtitle={`Últimos 7 dias: ${brGoal(teamGoalWeek)}`} />
         <KpiCard icon={<BarChart3 className="w-5 h-5" />} label="Atingimento Hoje" value={teamGoalToday > 0 ? `${attainment}%` : '—'} tone="purple" delta={teamGoalToday > 0 ? percentDelta(attainment, Math.round((yesterdaySales.length / teamGoalToday) * 100)) : undefined} subtitle={teamGoalToday > 0 ? `${brNumber(todayCount)} / ${brGoal(teamGoalToday)}` : 'Sem meta oficial para hoje'} />
       </section>
 
