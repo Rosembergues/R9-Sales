@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SalesProvider } from './context/SalesContext';
 import { AuthPage } from './components/auth/AuthPage';
@@ -11,15 +11,6 @@ import { LocalSyncEngine } from './lib/localCache';
 
 const MainLayout: React.FC = () => {
   const { currentUser, loading, signOut, isPasswordRecovery } = useAuth();
-
-  // Normaliza rota caso haja caminho residual (/login, hash, etc.) e garante a raiz do app
-  // (exceto a página de nova senha, que precisa do próprio endereço)
-  useEffect(() => {
-    if (isPasswordRecovery) return;
-    if (window.location.pathname !== '/' && window.location.pathname !== '') {
-      window.history.replaceState(null, '', '/');
-    }
-  }, [currentUser, isPasswordRecovery]);
 
   // Callback de encerramento por inatividade de 3 horas
   const handleIdleLogout = useCallback(async () => {

@@ -4,12 +4,10 @@ import {
   BarChart3,
   CalendarDays,
   ChevronRight,
-  Clock3,
   ShoppingCart,
   Target,
   Trophy,
   UserRound,
-  UsersRound,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSales } from '../../context/SalesContext';
@@ -26,8 +24,9 @@ import { toLocalIso } from '../../lib/dates';
 
 interface HomeDashboardProps {
   onOpenNewSaleModal: () => void;
-  onOpenSales: () => void;
+  onOpenPerformance: () => void;
   onOpenRanking: () => void;
+  isAdminView: boolean;
   /** Só passado para admins: leva à Importação de Metas. */
   onOpenGoalImport?: () => void;
 }
@@ -57,14 +56,13 @@ const percentDelta = (current: number, previous: number) => {
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenNewSaleModal,
-  onOpenSales,
+  onOpenPerformance,
   onOpenRanking,
+  isAdminView,
   onOpenGoalImport,
 }) => {
   const { currentUser, profiles } = useAuth();
   const { sales, salesLoaded } = useSales();
-  const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today');
-
   const now = useMemo(() => new Date(), []);
   const todayKey = dateKey(now);
   const yesterdayKey = dateKey(new Date(now.getTime() - 86400000));
@@ -76,10 +74,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const unitRanking = useUnitRanking();
 
   // Metas manuais (Configuração de Metas). Só usadas quando não há metas importadas.
-  const [manualTargets, setManualTargets] = useState<{
-    weekly: number;
-    monthly: number;
-  }>({ weekly: 0, monthly: 0 });
+  const [manualWeeklyTarget, setManualWeeklyTarget] = useState(0);
   const [manualLoaded, setManualLoaded] = useState(false);
 
   useEffect(() => {
@@ -87,18 +82,11 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     const fetchTargets = async () => {
       try {
         const todayIso = todayKey;
-        const [{ data: weekPeriod }, { data: monthPeriod }, { data: weeklyGoals }] = await Promise.all([
+        const [{ data: weekPeriod }, { data: weeklyGoals }] = await Promise.all([
           supabase
             .from('goal_periods')
             .select('target_total')
             .eq('period_type', 'week')
-            .lte('reference_start', todayIso)
-            .gte('reference_end', todayIso)
-            .maybeSingle(),
-          supabase
-            .from('goal_periods')
-            .select('target_total')
-            .eq('period_type', 'month')
             .lte('reference_start', todayIso)
             .gte('reference_end', todayIso)
             .maybeSingle(),
@@ -128,10 +116,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           }
         }
 
-        const resolvedMonthly = Number(monthPeriod?.target_total) || 0;
-
         if (isMounted) {
-          setManualTargets({ weekly: resolvedWeekly, monthly: resolvedMonthly });
+          setManualWeeklyTarget(resolvedWeekly);
         }
       } catch (err) {
         console.warn('Erro ao carregar metas manuais na Home:', err);
@@ -146,22 +132,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     };
   }, [todayKey]);
 
-  // Mesma base das vendas: hoje, últimos 7 dias corridos e mês calendário, somando todas as BUs.
+  // Meta diária e semanal para comparar os lançamentos registrados no sistema.
   const officialTargets = useMemo(() => {
     if (!official.hasImports) return null;
     const weekStart = dateKey(new Date(now.getTime() - 6 * 86400000));
-    const monthStart = dateKey(new Date(now.getFullYear(), now.getMonth(), 1));
-    const monthEnd = dateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     return {
       daily: sumTarget(official.points, todayKey, todayKey),
       weekly: sumTarget(official.points, weekStart, todayKey),
-      monthly: sumTarget(official.points, monthStart, monthEnd),
     };
   }, [official.hasImports, official.points, now, todayKey]);
 
   const teamGoalToday = officialTargets?.daily ?? 0;
-  const teamGoalWeek = officialTargets?.weekly ?? manualTargets.weekly;
-  const teamGoalMonth = officialTargets?.monthly ?? manualTargets.monthly;
+  const teamGoalWeek = officialTargets?.weekly ?? manualWeeklyTarget;
 
   const todaySales = useMemo(
     () => sales.filter((sale) => getSaleDateBr(sale) === getTodayBrDate()),
@@ -195,6 +177,16 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     [sales, now]
   );
 
+  const mySales = useMemo(
+    () => sales.filter((sale) => sale.seller_id === currentUser?.id),
+    [sales, currentUser?.id]
+  );
+
+  const myToday = mySales.filter((sale) => getSaleDateBr(sale) === getTodayBrDate()).length;
+  const myWeek = mySales.filter((sale) => weekSales.some((item) => item.id === sale.id)).length;
+  const myMonth = mySales.filter((sale) => monthSales.some((item) => item.id === sale.id)).length;
+  const myYesterday = mySales.filter((sale) => dateKey(saleDateObject(sale)) === yesterdayKey).length;
+  const myPreviousWeek = previousWeekSales.filter((sale) => sale.seller_id === currentUser?.id).length;
   const previousMonthSales = useMemo(
     () => sales.filter((sale) => {
       const date = saleDateObject(sale);
@@ -204,34 +196,11 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     }),
     [sales, now]
   );
-
-  const mySales = useMemo(
-    () => sales.filter((sale) => sale.seller_id === currentUser?.id),
-    [sales, currentUser?.id]
-  );
-
-  const myToday = mySales.filter((sale) => getSaleDateBr(sale) === getTodayBrDate()).length;
-  const myWeek = mySales.filter((sale) => weekSales.some((item) => item.id === sale.id)).length;
-  const myMonth = mySales.filter((sale) => monthSales.some((item) => item.id === sale.id)).length;
+  const myPreviousMonth = previousMonthSales.filter((sale) => sale.seller_id === currentUser?.id).length;
 
   const todayCount = todaySales.length;
   const attainment = teamGoalToday > 0 ? Math.round((todayCount / teamGoalToday) * 100) : 0;
   const dayDelta = percentDelta(todayCount, yesterdaySales.length);
-
-  const evolution = useMemo(() => {
-    return Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(now.getTime() - (6 - index) * 86400000);
-      const key = dateKey(date);
-      const count = sales.filter((sale) => dateKey(saleDateObject(sale)) === key).length;
-      return {
-        key,
-        label: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-        count,
-      };
-    });
-  }, [sales, now]);
-
-  const maxEvolution = Math.max(...evolution.map((item) => item.count), teamGoalToday, 1);
 
   const rankingToday = useMemo(() => {
     const counts = new Map<string, number>();
@@ -242,20 +211,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       .sort((a, b) => b.count - a.count || a.profile.name.localeCompare(b.profile.name, 'pt-BR'))
       .slice(0, 5);
   }, [profiles, todaySales]);
-
-  const periodData = period === 'today'
-    ? { count: todayCount, target: teamGoalToday }
-    : period === 'week'
-      ? { count: weekSales.length, target: teamGoalWeek }
-      : { count: monthSales.length, target: teamGoalMonth };
-
-  const periodAttainment = periodData.target > 0
-    ? Math.round((periodData.count / periodData.target) * 100)
-    : 0;
-
-  const recentSales = [...sales].sort((a, b) => {
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  }).slice(0, 5);
 
   const formattedDate = now.toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -270,8 +225,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       ? 'Boa tarde'
       : 'Boa noite';
 
-  const comparisonWeek = percentDelta(weekSales.length, previousWeekSales.length);
-  const comparisonMonth = percentDelta(monthSales.length, previousMonthSales.length);
+  const myDayDelta = percentDelta(myToday, myYesterday);
+  const comparisonWeek = percentDelta(myWeek, myPreviousWeek);
+  const comparisonMonth = percentDelta(myMonth, myPreviousMonth);
 
   // Valores calculados aqui mesmo, a partir das vendas carregadas.
   return (
@@ -311,7 +267,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         lastImportAt={official.lastImportAt}
         loading={official.loading}
         error={official.error}
-        isAdmin={currentUser?.role === 'admin'}
+        isAdmin={isAdminView}
         onOpenImport={onOpenGoalImport}
       />
 
@@ -333,81 +289,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <KpiCard icon={<BarChart3 className="w-5 h-5" />} label="Atingimento Hoje" value={teamGoalToday > 0 ? `${attainment}%` : '—'} tone="purple" delta={teamGoalToday > 0 ? percentDelta(attainment, Math.round((yesterdaySales.length / teamGoalToday) * 100)) : undefined} subtitle={teamGoalToday > 0 ? `${brNumber(todayCount)} / ${brGoal(teamGoalToday)}` : 'Sem meta oficial para hoje'} />
       </section>
 
-      <section className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.85fr_0.85fr] gap-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3 mb-5">
-            <div>
-              <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-blue-600" />
-                Evolução da Equipe
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">Vendas dos últimos 7 dias</p>
-            </div>
-            <span className="text-[11px] text-slate-400">Meta: {brGoal(teamGoalToday)}/dia · 7 dias: {brGoal(teamGoalWeek)}</span>
-          </div>
-
-          <div className="h-52 flex items-end gap-2 sm:gap-3">
-            {evolution.map((item) => (
-              <div key={item.key} className="flex-1 h-full flex flex-col justify-end gap-2">
-                <div className="relative flex-1 flex items-end">
-                  <div
-                    className="w-full rounded-t-xl bg-blue-500/85 transition-all"
-                    style={{ height: `${Math.max(8, (item.count / maxEvolution) * 100)}%` }}
-                    title={`${item.count} vendas`}
-                  />
-                  {teamGoalToday > 0 && (
-                    <div
-                      className="absolute left-0 right-0 border-t border-dashed border-slate-300"
-                      style={{ bottom: `${Math.min(96, (teamGoalToday / maxEvolution) * 100)}%` }}
-                    />
-                  )}
-                </div>
-                <div className="text-center">
-                  <div className={`text-[10px] font-semibold ${item.key === todayKey ? 'text-blue-700' : 'text-slate-400'}`}>
-                    {item.label}
-                  </div>
-                  <div className="text-[10px] text-slate-500">{item.count}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-              <Target className="w-4 h-4 text-emerald-600" />
-              Atingimento da Meta do Dia
-            </h2>
-          </div>
-          <div className="text-4xl font-black text-slate-950 font-['Space_Grotesk']">{attainment}%</div>
-          <p className="text-xs text-slate-400 mt-1">{brNumber(todayCount)} / {brGoal(teamGoalToday)} vendas</p>
-          <div className="mt-5 h-4 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all" style={{ width: `${Math.min(attainment, 100)}%` }} />
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-2 mb-4">
-            <h2 className="text-sm font-extrabold text-slate-900">Resumo do Período</h2>
-            <div className="flex rounded-lg bg-slate-100 p-1 text-[11px] font-bold">
-              {(['today', 'week', 'month'] as const).map((item) => (
-                <button
-                  key={item}
-                  onClick={() => setPeriod(item)}
-                  className={`px-2.5 py-1.5 rounded-md transition-colors cursor-pointer ${period === item ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-900'}`}
-                >
-                  {item === 'today' ? 'Hoje' : item === 'week' ? '7 dias' : 'Mês'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <SummaryRow label="Vendas" value={brNumber(periodData.count)} />
-          <SummaryRow label="Meta" value={periodData.target > 0 ? brGoal(periodData.target) : '—'} />
-          <SummaryRow label="Atingimento" value={periodData.target > 0 ? `${periodAttainment}%` : '—'} />
-        </div>
-      </section>
-
       <section className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3 mb-4">
@@ -415,12 +296,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <UserRound className="w-4 h-4 text-blue-600" />
               Minha Performance
             </h2>
-            <button onClick={() => onOpenRanking()} className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer">
+            <button onClick={onOpenPerformance} className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer">
               Ver desempenho <ArrowUpRight className="w-3.5 h-3.5" />
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <PerformanceCard label="Hoje" value={myToday} delta={dayDelta} suffix="vs. ontem" />
+            <PerformanceCard label="Hoje" value={myToday} delta={myDayDelta} suffix="vs. ontem" />
             <PerformanceCard label="Semana" value={myWeek} delta={comparisonWeek} suffix="vs. semana anterior" />
             <PerformanceCard label="Mês" value={myMonth} delta={comparisonMonth} suffix="vs. mês anterior" />
           </div>
@@ -459,62 +340,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-5 py-4 flex items-center justify-between gap-3 border-b border-slate-100">
-          <div>
-            <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-              <Clock3 className="w-4 h-4 text-slate-500" />
-              Últimas Vendas
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">Os últimos lançamentos registrados no sistema</p>
-          </div>
-          <button onClick={onOpenSales} className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer">
-            Ver todas as vendas <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
-              <tr>
-                <th className="px-5 py-3 text-left font-bold">Hora</th>
-                <th className="px-5 py-3 text-left font-bold">Candidato</th>
-                <th className="px-5 py-3 text-left font-bold">Produto</th>
-                <th className="px-5 py-3 text-left font-bold">Modalidade</th>
-                <th className="px-5 py-3 text-left font-bold">Consultor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentSales.map((sale) => (
-                <tr key={sale.id} className="border-t border-slate-100 hover:bg-slate-50/70 transition-colors">
-                  <td className="px-5 py-3 font-semibold text-slate-500 whitespace-nowrap">
-                    {new Date(sale.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                  </td>
-                  <td className="px-5 py-3 font-semibold text-slate-800 max-w-[220px] truncate">{sale.client_name || '—'}</td>
-                  <td className="px-5 py-3 text-slate-600 max-w-[240px] truncate">{sale.product_name || '—'}</td>
-                  <td className="px-5 py-3 text-slate-600 max-w-[180px] truncate">{sale.custom_data?.modality || '—'}</td>
-                  <td className="px-5 py-3 text-slate-600 max-w-[180px] truncate">{sale.seller_name || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><UsersRound className="w-4 h-4" /></div>
-          <div><div className="text-xs font-bold text-slate-800">Equipe ativa</div><div className="text-[11px] text-slate-400">{profiles.filter((p) => p.role === 'seller' && p.status === 'active').length} vendedores</div></div>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><ShoppingCart className="w-4 h-4" /></div>
-          <div><div className="text-xs font-bold text-slate-800">Vendas na semana</div><div className="text-[11px] text-slate-400">{brNumber(weekSales.length)} lançamentos</div></div>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center"><BarChart3 className="w-4 h-4" /></div>
-          <div><div className="text-xs font-bold text-slate-800">Vendas no mês</div><div className="text-[11px] text-slate-400">{brNumber(monthSales.length)} lançamentos</div></div>
-        </div>
-      </div>
       </>
       )}
     </div>
@@ -527,28 +352,17 @@ const HomeSkeleton: React.FC = () => {
   const bar = 'rounded-md bg-slate-100';
   return (
     <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Carregando o resumo">
+      <div className={`${block} h-40`} />
+      <div className={`${block} h-28`} />
       <div className={`${block} p-5 space-y-3`}>
         <div className={`${bar} h-4 w-48`} />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[0, 1, 2].map(i => <div key={i} className={`${bar} h-20`} />)}
         </div>
       </div>
-      <div className={`${bar} h-4 w-56`} />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[0, 1, 2].map(i => (
-          <div key={i} className={`${block} p-5 flex items-center gap-4`}>
-            <div className="w-12 h-12 rounded-xl bg-slate-100" />
-            <div className="flex-1 space-y-2">
-              <div className={`${bar} h-3 w-20`} />
-              <div className={`${bar} h-6 w-12`} />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.85fr_0.85fr] gap-4">
-        <div className={`${block} h-64`} />
-        <div className={`${block} h-64`} />
-        <div className={`${block} h-64`} />
+      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4">
+        <div className={`${block} h-48`} />
+        <div className={`${block} h-48`} />
       </div>
     </div>
   );
@@ -579,13 +393,6 @@ const KpiCard: React.FC<KpiCardProps> = ({ icon, label, value, tone, delta, subt
     </div>
   );
 };
-
-const SummaryRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="flex items-center justify-between py-3 border-t border-slate-100 text-xs">
-    <span className="text-slate-500">{label}</span>
-    <span className="font-black text-slate-900">{value}</span>
-  </div>
-);
 
 const PerformanceCard: React.FC<{ label: string; value: number; delta: number; suffix: string }> = ({ label, value, delta, suffix }) => (
   <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">

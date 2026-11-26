@@ -48,6 +48,63 @@ type DashboardTab =
   | 'metas'
   | 'metas_importacao';
 
+type PlannerSection = 'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags';
+
+const readDashboardRoute = (pathname = window.location.pathname): { tab: DashboardTab; plannerSection: PlannerSection } => {
+  const normalizedPath = pathname.replace(/\/+$/, '') || '/';
+  const routes: Record<string, { tab: DashboardTab; plannerSection: PlannerSection }> = {
+    '/': { tab: 'home', plannerSection: 'calendar' },
+    '/vendas': { tab: 'canvas', plannerSection: 'calendar' },
+    '/vendas/fechamento-diario': { tab: 'fechamento_diario', plannerSection: 'calendar' },
+    '/rotina/calendario': { tab: 'planner', plannerSection: 'calendar' },
+    '/rotina/fila': { tab: 'planner', plannerSection: 'queue' },
+    '/rotina/minhas-tarefas': { tab: 'planner', plannerSection: 'my_tasks' },
+    '/rotina/semana': { tab: 'planner', plannerSection: 'tasks' },
+    '/rotina/balanco': { tab: 'planner_summary', plannerSection: 'calendar' },
+    '/resultados/desempenho': { tab: 'resumo', plannerSection: 'calendar' },
+    '/resultados/ranking': { tab: 'rank_semanal', plannerSection: 'calendar' },
+    '/ferramentas/comparador-precos': { tab: 'comparador_precos', plannerSection: 'calendar' },
+    '/ferramentas/mensagens': { tab: 'mensagens', plannerSection: 'calendar' },
+    '/ferramentas/bom-dia': { tab: 'ferramentas_bom_dia', plannerSection: 'calendar' },
+    '/ferramentas/coordenacao/desempenho': { tab: 'ferramentas_coord_desempenho', plannerSection: 'calendar' },
+    '/ferramentas/coordenacao/planilhas': { tab: 'ferramentas_coord_planilhas', plannerSection: 'calendar' },
+    '/gestao/equipe': { tab: 'equipe', plannerSection: 'calendar' },
+    '/gestao/metas': { tab: 'metas', plannerSection: 'calendar' },
+    '/gestao/importar-metas': { tab: 'metas_importacao', plannerSection: 'calendar' },
+    '/gestao/tags': { tab: 'planner', plannerSection: 'tags' },
+  };
+  return routes[normalizedPath] ?? { tab: 'home', plannerSection: 'calendar' };
+};
+
+const dashboardPath = (tab: DashboardTab, plannerSection: PlannerSection) => {
+  if (tab === 'planner_summary') return '/rotina/balanco';
+  if (tab === 'planner') {
+    if (plannerSection === 'tags') return '/gestao/tags';
+    return {
+      calendar: '/rotina/calendario',
+      queue: '/rotina/fila',
+      my_tasks: '/rotina/minhas-tarefas',
+      tasks: '/rotina/semana',
+    }[plannerSection];
+  }
+  const paths: Record<Exclude<DashboardTab, 'planner' | 'planner_summary'>, string> = {
+    home: '/',
+    canvas: '/vendas',
+    fechamento_diario: '/vendas/fechamento-diario',
+    resumo: '/resultados/desempenho',
+    rank_semanal: '/resultados/ranking',
+    comparador_precos: '/ferramentas/comparador-precos',
+    mensagens: '/ferramentas/mensagens',
+    ferramentas_bom_dia: '/ferramentas/bom-dia',
+    ferramentas_coord_desempenho: '/ferramentas/coordenacao/desempenho',
+    ferramentas_coord_planilhas: '/ferramentas/coordenacao/planilhas',
+    equipe: '/gestao/equipe',
+    metas: '/gestao/metas',
+    metas_importacao: '/gestao/importar-metas',
+  };
+  return paths[tab];
+};
+
 export const R9Dashboard: React.FC = () => {
   const { currentUser, signOut, pendingProfiles } = useAuth();
   const { sales } = useSales();
@@ -59,14 +116,14 @@ export const R9Dashboard: React.FC = () => {
   const [viewRole, setViewRole] = useState<'admin' | 'membro'>(
     currentUser?.role === 'admin' ? 'admin' : 'membro'
   );
-  const [activeTab, setActiveTab] = useState<DashboardTab>('home');
+  const [activeTab, setActiveTab] = useState<DashboardTab>(() => readDashboardRoute().tab);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isPlannerMenuOpen, setIsPlannerMenuOpen] = useState(false);
-  const [isSalesMenuOpen, setIsSalesMenuOpen] = useState(false);
-  const [isPerformanceMenuOpen, setIsPerformanceMenuOpen] = useState(false);
-  const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
-  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
-  const [plannerSection, setPlannerSection] = useState<'calendar' | 'queue' | 'my_tasks' | 'tasks' | 'tags'>('calendar');
+  const [isPlannerMenuOpen, setIsPlannerMenuOpen] = useState(() => readDashboardRoute().tab === 'planner' || readDashboardRoute().tab === 'planner_summary');
+  const [isSalesMenuOpen, setIsSalesMenuOpen] = useState(() => window.location.pathname.startsWith('/vendas/'));
+  const [isPerformanceMenuOpen, setIsPerformanceMenuOpen] = useState(() => window.location.pathname.startsWith('/resultados/'));
+  const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(() => window.location.pathname.startsWith('/gestao/'));
+  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(() => window.location.pathname.startsWith('/ferramentas/'));
+  const [plannerSection, setPlannerSection] = useState<PlannerSection>(() => readDashboardRoute().plannerSection);
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
 
   // Keep viewRole aligned if user changes
@@ -78,12 +135,36 @@ export const R9Dashboard: React.FC = () => {
     }
   }, [currentUser?.role]);
 
+  useEffect(() => {
+    const path = dashboardPath(activeTab, plannerSection);
+    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  }, [activeTab, plannerSection]);
+
+  useEffect(() => {
+    if (activeTab === 'canvas' || activeTab === 'fechamento_diario') setIsSalesMenuOpen(true);
+    if (activeTab === 'planner' || activeTab === 'planner_summary') setIsPlannerMenuOpen(true);
+    if (activeTab === 'resumo' || activeTab === 'rank_semanal') setIsPerformanceMenuOpen(true);
+    if (activeTab.startsWith('ferramentas_') || activeTab === 'comparador_precos' || activeTab === 'mensagens') setIsToolsMenuOpen(true);
+    if (isActualAdmin && viewRole === 'admin' && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || (activeTab === 'planner' && plannerSection === 'tags'))) setIsAdminMenuOpen(true);
+  }, [activeTab, plannerSection, isActualAdmin, viewRole]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = readDashboardRoute();
+      setActiveTab(route.tab);
+      setPlannerSection(route.plannerSection);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Security guard: Non-admin or member view mode cannot view admin team management
   useEffect(() => {
-    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao')) {
+    if ((!isActualAdmin || viewRole === 'membro') && (activeTab === 'equipe' || activeTab === 'metas' || activeTab === 'metas_importacao' || (activeTab === 'planner' && plannerSection === 'tags'))) {
       setActiveTab('home');
+      setPlannerSection('calendar');
     }
-  }, [isActualAdmin, viewRole, activeTab]);
+  }, [isActualAdmin, viewRole, activeTab, plannerSection]);
 
   const isPlannerArea = activeTab === 'planner' || activeTab === 'planner_summary';
 
@@ -225,7 +306,17 @@ export const R9Dashboard: React.FC = () => {
               {!isSidebarCollapsed && <span>Início</span>}
             </button>
 
-            {/* Section: VENDAS & OPERAÇÃO */}
+            {isSidebarCollapsed && (
+              <div className="space-y-1 pt-2">
+                <button onClick={() => setActiveTab('canvas')} title="Vendas" aria-label="Vendas" className="w-full h-10 flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer"><FileSpreadsheet className="w-4 h-4" /></button>
+                <button onClick={() => openPlannerSection('calendar')} title="Minha Rotina" aria-label="Minha Rotina" className="w-full h-10 flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer"><ClipboardList className="w-4 h-4" /></button>
+                <button onClick={() => setActiveTab('resumo')} title="Resultados" aria-label="Resultados" className="w-full h-10 flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer"><TrendingUp className="w-4 h-4" /></button>
+                <button onClick={() => setActiveTab('ferramentas_bom_dia')} title="Ferramentas" aria-label="Ferramentas" className="w-full h-10 flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer"><Wrench className="w-4 h-4" /></button>
+                {isActualAdmin && viewRole === 'admin' && <button onClick={() => setActiveTab('equipe')} title="Gestão" aria-label="Gestão" className="w-full h-10 flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer"><Shield className="w-4 h-4" /></button>}
+              </div>
+            )}
+
+            {/* Vendas */}
             {!isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
                 <button
@@ -240,7 +331,7 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <span className="flex items-center gap-2.5">
                     <FileSpreadsheet className="w-3.5 h-3.5 text-blue-300" />
-                    <span>Vendas & Operação</span>
+                    <span>Vendas</span>
                   </span>
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isSalesMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -282,11 +373,11 @@ export const R9Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* Planejamento: submenu integrado à navegação principal do R9 Hub */}
+            {/* Minha Rotina */}
             {!isSidebarCollapsed && (
               <div className="space-y-1 pt-2">
                 <button
-                  id="nav-planejamento"
+                  id="nav-minha-rotina"
                   onClick={() => {
                     if (activeTab !== 'planner' && activeTab !== 'planner_summary') {
                       setActiveTab('planner');
@@ -305,7 +396,7 @@ export const R9Dashboard: React.FC = () => {
                 >
                   <span className="flex items-center gap-2.5">
                     <ClipboardList className="w-3.5 h-3.5 text-blue-300" />
-                    <span>Planejamento</span>
+                    <span>Minha Rotina</span>
                   </span>
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPlannerMenuOpen && isPlannerArea ? 'rotate-180' : ''}`} />
                 </button>
@@ -324,36 +415,58 @@ export const R9Dashboard: React.FC = () => {
                     <button id="nav-planner-summary" onClick={openPlannerSummary} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner_summary' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                       <CalendarCheck className="w-3.5 h-3.5" /><span>Balanço da semana</span>
                     </button>
-                    {isActualAdmin && viewRole === 'admin' && (
-                      <button id="nav-planner-tags" onClick={() => openPlannerSection('tags')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'tags' ? 'bg-[#0052cc] text-white font-semibold shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                        <Tag className="w-3.5 h-3.5" /><span>Tags e categorias</span>
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
             )}
 
-            <button
-              id="nav-comparador-precos"
-              onClick={() => setActiveTab('comparador_precos')}
-              title={isSidebarCollapsed ? 'Comparador de Preços' : undefined}
-              aria-label="Comparador de Preços"
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'comparador_precos' ? 'bg-blue-500/15 text-blue-200 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
-            >
-              <Scale className="w-3.5 h-3.5 text-blue-300" />
-              {!isSidebarCollapsed && <span>Comparador de Preços</span>}
-            </button>
-
-            <button
-              id="nav-mensagens"
-              onClick={() => setActiveTab('mensagens')}
-              title={isSidebarCollapsed ? 'Mensagens' : undefined}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'mensagens' ? 'bg-blue-500/15 text-blue-200 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
-            >
-              <MessageSquareText className="w-3.5 h-3.5 text-blue-300" />
-              {!isSidebarCollapsed && <span>Repositório de Mensagens</span>}
-            </button>
+            {/* Resultados */}
+            {!isSidebarCollapsed && (
+              <div className="space-y-1 pt-2">
+                <button
+                  id="nav-resultados-section"
+                  onClick={() => setIsPerformanceMenuOpen((open) => !open)}
+                  aria-expanded={isPerformanceMenuOpen}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'resumo' || activeTab === 'rank_semanal'
+                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-blue-300" />
+                    <span>Resultados</span>
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPerformanceMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isPerformanceMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
+                <button
+                  id="nav-desempenho"
+                  onClick={() => setActiveTab('resumo')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'resumo'
+                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Desempenho</span>
+                </button>
+                <button
+                  id="nav-ranking"
+                  onClick={() => setActiveTab('rank_semanal')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                    activeTab === 'rank_semanal'
+                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Ranking</span>
+                </button>
+                </div>}
+              </div>
+            )}
 
             {/* Section: Ferramentas */}
             {!isSidebarCollapsed && (
@@ -363,7 +476,7 @@ export const R9Dashboard: React.FC = () => {
                   onClick={() => setIsToolsMenuOpen((open) => !open)}
                   aria-expanded={isToolsMenuOpen}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab.startsWith('ferramentas_')
+                    activeTab.startsWith('ferramentas_') || activeTab === 'comparador_precos' || activeTab === 'mensagens'
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
@@ -375,6 +488,12 @@ export const R9Dashboard: React.FC = () => {
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isToolsMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {isToolsMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
+                <button id="nav-comparador-precos" onClick={() => setActiveTab('comparador_precos')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'comparador_precos' ? 'bg-blue-500/15 text-blue-300 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                  <Scale className="w-3.5 h-3.5 text-blue-300" /><span>Comparador de preços</span>
+                </button>
+                <button id="nav-mensagens" onClick={() => setActiveTab('mensagens')} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'mensagens' ? 'bg-blue-500/15 text-blue-300 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                  <MessageSquareText className="w-3.5 h-3.5 text-blue-300" /><span>Repositório de Mensagens</span>
+                </button>
                 <button
                   id="nav-ferramentas-bom-dia"
                   onClick={() => setActiveTab('ferramentas_bom_dia')}
@@ -397,7 +516,7 @@ export const R9Dashboard: React.FC = () => {
                   }`}
                 >
                   <Presentation className="w-3.5 h-3.5 text-teal-300" />
-                  <span className="whitespace-nowrap">Coord. - Desempenho</span>
+                  <span className="whitespace-nowrap">Coordenação - Desempenho</span>
                 </button>
                 <button
                   id="nav-ferramentas-coord-planilhas"
@@ -409,55 +528,7 @@ export const R9Dashboard: React.FC = () => {
                   }`}
                 >
                   <FolderArchive className="w-3.5 h-3.5 text-teal-300" />
-                  <span className="whitespace-nowrap">Coord. - Planilhas</span>
-                </button>
-                </div>}
-              </div>
-            )}
-
-            {/* Section: Desempenho */}
-            {!isSidebarCollapsed && (
-              <div className="space-y-1 pt-2">
-                <button
-                  id="nav-desempenho-section"
-                  onClick={() => setIsPerformanceMenuOpen((open) => !open)}
-                  aria-expanded={isPerformanceMenuOpen}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'resumo' || activeTab === 'rank_semanal'
-                      ? 'bg-blue-500/15 text-blue-200 font-semibold'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <TrendingUp className="w-3.5 h-3.5 text-blue-300" />
-                    <span>Desempenho</span>
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPerformanceMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isPerformanceMenuOpen && <div className="ml-3 pl-2 border-l border-slate-700/80 space-y-1 py-1">
-                <button
-                  id="nav-desempenho"
-                  onClick={() => setActiveTab('resumo')}
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'resumo'
-                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Analytics</span>
-                </button>
-                <button
-                  id="nav-ranking"
-                  onClick={() => setActiveTab('rank_semanal')}
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    activeTab === 'rank_semanal'
-                      ? 'bg-blue-500/15 text-blue-300 font-semibold'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Ranking</span>
+                  <span className="whitespace-nowrap">Coordenação - Planilhas</span>
                 </button>
                 </div>}
               </div>
@@ -470,14 +541,14 @@ export const R9Dashboard: React.FC = () => {
                   onClick={() => setIsAdminMenuOpen((open) => !open)}
                   aria-expanded={isAdminMenuOpen}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                    ['equipe', 'metas', 'metas_importacao'].includes(activeTab)
+                    ['equipe', 'metas', 'metas_importacao'].includes(activeTab) || (activeTab === 'planner' && plannerSection === 'tags')
                       ? 'bg-blue-500/15 text-blue-200 font-semibold'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   <span className="flex items-center gap-2.5">
                     <Shield className="w-3.5 h-3.5 text-blue-300" />
-                    <span>Administração</span>
+                    <span>Gestão</span>
                     {pendingProfiles.length > 0 && (
                       <span className="text-[10px] font-bold text-amber-950 bg-amber-400 rounded-full px-1.5 min-w-[18px] text-center" title="Cadastros aguardando autorização">
                         {pendingProfiles.length}
@@ -545,6 +616,15 @@ export const R9Dashboard: React.FC = () => {
                   <span className="text-[10px] font-medium text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
                     arquivos
                   </span>
+                </button>
+
+                <button
+                  id="nav-gerenciar-tags"
+                  onClick={() => openPlannerSection('tags')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${activeTab === 'planner' && plannerSection === 'tags' ? 'bg-blue-500/15 text-blue-200 font-semibold' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+                >
+                  <Tag className="w-3.5 h-3.5 text-blue-300" />
+                  <span className="whitespace-nowrap">Gerenciar Tags</span>
                 </button>
 
                 </div>}
@@ -640,8 +720,9 @@ export const R9Dashboard: React.FC = () => {
             {activeTab === 'home' && (
               <HomeDashboard
                 onOpenNewSaleModal={() => setShowNewSaleModal(true)}
-                onOpenSales={() => setActiveTab('canvas')}
+                onOpenPerformance={() => setActiveTab('resumo')}
                 onOpenRanking={() => setActiveTab('rank_semanal')}
+                isAdminView={isActualAdmin && viewRole === 'admin'}
                 onOpenGoalImport={isActualAdmin && viewRole === 'admin' ? () => setActiveTab('metas_importacao') : undefined}
               />
             )}

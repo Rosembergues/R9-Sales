@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Database, Flag, TrendingDown, TrendingUp } from 'lucide-react';
-import { BusinessUnitKey, TEACHING_MODELS, getModelMetadata } from '../../lib/goalImport';
 import {
   CycleProgress,
   CumulativePoint,
   GoalDailyPoint,
   ProgressTotals,
   addTotals,
-  computeCycleProgress,
   daysBetween,
   emptyTotals,
   pct,
@@ -18,15 +16,6 @@ const fmt = (v: number, digits = 0) => v.toLocaleString('pt-BR', { maximumFracti
 const fmtSmart = (v: number) => fmt(v, Math.abs(v) < 10 ? 1 : 0);
 const fmtPct = (v: number | null) => (v === null ? '—' : `${fmt(v)}%`);
 const fmtDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-
-const BU_LABEL: Record<BusinessUnitKey, string> = {
-  bu_presencial: 'BU Presencial',
-  bu_digital: 'BU Digital',
-  pos: 'Pós-Graduação',
-  tecnico: 'Técnico',
-};
-// Pós-Graduação e Técnico ficam de fora dessa tabela (pedido do usuário).
-const BU_ORDER: BusinessUnitKey[] = ['bu_presencial', 'bu_digital'];
 
 /** Quadros do topo da Home: um por metodologia da BU Presencial e um para a BU Digital. */
 const METHOD_TILES: { key: string; label: string; detail?: string; groups: string[] }[] = [
@@ -86,20 +75,6 @@ export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, 
     const a = cycles.filter(c => c.isActive);
     return a.length ? a : cycles.slice(-1);
   }, [cycles]);
-
-  const [cycleFilter, setCycleFilter] = useState<string>('all');
-  const scoped = cycleFilter === 'all' ? active : active.filter(c => c.period === cycleFilter);
-
-  // Cards de ciclo: só Graduação (BU Presencial + BU Digital). Pós e Técnico ficam na tabela.
-  const gradActive = useMemo(() => {
-    const isGrad = (g: string) => {
-      const bu = getModelMetadata(g).buKey;
-      return bu === 'bu_presencial' || bu === 'bu_digital';
-    };
-    const activePeriods = new Set(active.map(c => c.period));
-    return computeCycleProgress(points.filter(p => isGrad(p.group)), dataDate)
-      .filter(c => activePeriods.has(c.period));
-  }, [points, dataDate, active]);
 
   const methodTiles = useMemo(() => {
     const windows = buildCycleWindows(points);
@@ -167,33 +142,6 @@ export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, 
         {methodTiles.map(tile => <MethodTile key={tile.key} tile={tile} dataDate={dataDate} />)}
       </div>
 
-      {/* Ciclos */}
-      <div className={`grid grid-cols-1 ${gradActive.length > 1 ? 'xl:grid-cols-2' : ''} gap-4`}>
-        {gradActive.map(c => (
-          <CycleCard key={c.period} cycle={c} />
-        ))}
-      </div>
-
-      {/* Tabela por BU */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-5 py-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100">
-          <h3 className="text-sm font-extrabold text-slate-900">Por BU e modalidade</h3>
-          {active.length > 1 && (
-            <div className="flex rounded-lg bg-slate-100 p-1 text-[11px] font-bold">
-              {['all', ...active.map(c => c.period)].map(p => (
-                <button
-                  key={p}
-                  onClick={() => setCycleFilter(p)}
-                  className={`px-2.5 py-1 rounded-md cursor-pointer ${cycleFilter === p ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-900'}`}
-                >
-                  {p === 'all' ? 'Todos' : p}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <BuTable cycles={scoped} />
-      </div>
     </section>
   );
 };
@@ -266,66 +214,6 @@ const MethodTile: React.FC<{ tile: MethodTileData; dataDate: string }> = ({ tile
     </div>
   );
 };
-
-const CycleCard: React.FC<{ cycle: CycleProgress }> = ({ cycle }) => {
-  const t = cycle.totals;
-  const att = pct(t.actual, t.metaToDate);
-  const ofCycle = t.metaCycle > 0 ? Math.min(100, (t.actual / t.metaCycle) * 100) : 0;
-  const expected = t.metaCycle > 0 ? Math.min(100, (t.metaToDate / t.metaCycle) * 100) : 0;
-  const projPct = cycle.projection !== null ? pct(cycle.projection, t.metaCycle) : null;
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Ciclo · Graduação</div>
-          <div className="text-xl font-black text-slate-950 font-['Space_Grotesk']">{cycle.period}</div>
-          <div className="text-[11px] text-slate-500">
-            {fmtDate(cycle.startDate)} → {fmtDate(cycle.metaEndDate)}
-            {cycle.remainingDays > 0 ? ` · faltam ${cycle.remainingDays} dias` : ' · meta encerrada'}
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-3xl font-black text-slate-950 font-['Space_Grotesk']">{fmtPct(att)}</div>
-          <StatusChip attainment={att} />
-        </div>
-      </div>
-
-      {/* Barra: realizado sobre a meta do ciclo, com marcador de onde deveria estar hoje */}
-      <div className="mt-4">
-        <div className="relative h-3 rounded-full bg-slate-100">
-          <div className="h-full rounded-full bg-blue-600" style={{ width: `${ofCycle}%` }} />
-          <div
-            className="absolute -top-1 -bottom-1 w-0.5 bg-slate-800"
-            style={{ left: `calc(${expected}% - 1px)` }}
-            title={`Previsto até agora: ${fmtSmart(t.metaToDate)}`}
-          />
-        </div>
-        <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-          <span><b className="text-slate-700">{fmt(t.actual)}</b> realizados</span>
-          <span>▮ previsto até agora: {fmtSmart(t.metaToDate)}</span>
-          <span>meta {fmt(t.metaCycle)}</span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4 text-center">
-        <Mini label="vs. ano ant." value={<VsAA actual={t.actual} aa={t.aaToDate} />} />
-        <Mini label="Falta" value={fmt(cycle.gap)} />
-        <Mini label="Ritmo nec." value={cycle.requiredPerDay !== null ? `${fmtSmart(cycle.requiredPerDay)}/dia` : '—'} />
-        <Mini label="Projeção" value={cycle.projection !== null ? `${fmt(cycle.projection)} (${fmtPct(projPct)})` : '—'} />
-      </div>
-
-      <CumulativeChart data={cycle.cumulative} />
-    </div>
-  );
-};
-
-const Mini: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
-  <div className="rounded-xl bg-slate-50 border border-slate-100 px-2 py-2">
-    <div className="text-[10px] font-bold uppercase text-slate-400">{label}</div>
-    <div className="text-xs font-bold text-slate-800 mt-0.5">{value}</div>
-  </div>
-);
 
 /** Linhas acumuladas: Realizado (sólida), Meta (tracejada), Ano anterior (pontilhada). Um eixo só. */
 const SERIES = [
@@ -422,67 +310,3 @@ export const CumulativeChart: React.FC<{ data: CumulativePoint[] }> = ({ data })
   );
 };
 
-const BuTable: React.FC<{ cycles: CycleProgress[] }> = ({ cycles }) => {
-  const rows = useMemo(() => {
-    const byBu = new Map<BusinessUnitKey, ProgressTotals>();
-    const byGroup = new Map<string, ProgressTotals>();
-    cycles.forEach(c => {
-      Object.entries(c.byBu).forEach(([bu, tot]) => byBu.set(bu as BusinessUnitKey, addTotals(byBu.get(bu as BusinessUnitKey) ?? emptyTotals(), tot!)));
-      Object.entries(c.byGroup).forEach(([g, tot]) => byGroup.set(g, addTotals(byGroup.get(g) ?? emptyTotals(), tot)));
-    });
-    // Só soma as BUs exibidas na tabela (Pós e Técnico ficam de fora).
-    const total = BU_ORDER
-      .map(bu => byBu.get(bu))
-      .filter((t): t is ProgressTotals => !!t)
-      .reduce(addTotals, emptyTotals());
-    return { byBu, byGroup, total };
-  }, [cycles]);
-
-  const Row: React.FC<{ label: string; t: ProgressTotals; strong?: boolean; sub?: boolean }> = ({ label, t, strong, sub }) => {
-    const att = pct(t.actual, t.metaToDate);
-    const st = STATUS_STYLE[statusOf(att)];
-    return (
-      <tr className={`border-t border-slate-100 ${strong ? 'bg-slate-50 font-black' : sub ? 'text-slate-500' : 'font-semibold'}`}>
-        <td className={`px-5 py-2.5 ${sub ? 'pl-9 text-[11px]' : ''}`}>{label}</td>
-        <td className="px-3 py-2.5 text-right">{fmt(t.actual)}</td>
-        <td className="px-3 py-2.5 text-right">{fmtSmart(t.metaToDate)}</td>
-        <td className={`px-3 py-2.5 text-right ${t.metaToDate > 0 ? st.text : 'text-slate-400'}`}>{fmtPct(att)}</td>
-        <td className="px-3 py-2.5 text-right"><VsAA actual={t.actual} aa={t.aaToDate} /></td>
-        <td className="px-3 py-2.5 text-right">{fmt(t.metaCycle)}</td>
-        <td className="px-5 py-2.5 text-right">{fmt(Math.max(0, t.metaCycle - t.actual))}</td>
-      </tr>
-    );
-  };
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs text-slate-800">
-        <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
-          <tr>
-            <th className="px-5 py-2.5 text-left font-bold">BU / modalidade</th>
-            <th className="px-3 py-2.5 text-right font-bold">Realizado</th>
-            <th className="px-3 py-2.5 text-right font-bold">Meta até agora</th>
-            <th className="px-3 py-2.5 text-right font-bold">Ating.</th>
-            <th className="px-3 py-2.5 text-right font-bold">vs. AA</th>
-            <th className="px-3 py-2.5 text-right font-bold">Meta ciclo</th>
-            <th className="px-5 py-2.5 text-right font-bold">Falta</th>
-          </tr>
-        </thead>
-        <tbody>
-          {BU_ORDER.filter(bu => rows.byBu.has(bu)).map(bu => (
-            <React.Fragment key={bu}>
-              <Row
-                label={BU_LABEL[bu]}
-                t={rows.byBu.get(bu) ?? emptyTotals()}
-              />
-              {TEACHING_MODELS.filter(m => m.buKey === bu && rows.byGroup.has(m.id)).map(m => (
-                <Row key={m.id} label={m.title.split('·').pop()!.trim()} t={rows.byGroup.get(m.id) ?? emptyTotals()} sub />
-              ))}
-            </React.Fragment>
-          ))}
-          <Row label="Total" t={rows.total} strong />
-        </tbody>
-      </table>
-    </div>
-  );
-};
