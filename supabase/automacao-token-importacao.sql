@@ -68,10 +68,10 @@ begin
   end if;
 
   insert into public.goal_daily_inbox (
-    source, academic_period, product, goal_group, reference_date, aa_to_date, target_to_date, actual_to_date
+    source, academic_period, product, goal_group, reference_date, aa_to_date, target_to_date, actual_to_date, cycle_target
   )
   select coalesce(x.source, 'python_local'), x.academic_period, x.product, x.goal_group, x.reference_date,
-         x.aa_to_date, x.target_to_date, x.actual_to_date
+         x.aa_to_date, x.target_to_date, x.actual_to_date, x.cycle_target
   from jsonb_populate_record(null::public.goal_daily_inbox, p_row) as x
   returning * into r;
 

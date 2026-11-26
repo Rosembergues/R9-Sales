@@ -30,6 +30,19 @@ export interface GoalDailyRow {
   actual: number | null;
 }
 
+/** public.official_goal_snapshots — acumulados oficiais recebidos pela automação local. */
+export interface OfficialGoalSnapshotRow {
+  academic_period: string;
+  product: string;
+  goal_group: string;
+  reference_date: string;
+  aa_to_date: number | null;
+  target_to_date: number | null;
+  actual_to_date: number | null;
+  cycle_target: number | null;
+  updated_at: string;
+}
+
 /** public.unit_ranking_daily — posição do R9-Taquara e total do mercado, por BU. */
 export interface UnitRankingRow {
   reference_date: string;

@@ -66,11 +66,9 @@ interface Props {
   lastImportAt: string | null;
   loading: boolean;
   error: string | null;
-  isAdmin: boolean;
-  onOpenImport?: () => void;
 }
 
-export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, lastImportAt, loading, error, isAdmin, onOpenImport }) => {
+export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, lastImportAt, loading, error }) => {
   const active = useMemo(() => {
     const a = cycles.filter(c => c.isActive);
     return a.length ? a : cycles.slice(-1);
@@ -108,9 +106,6 @@ export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, 
     return (
       <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-xs text-slate-500 flex items-center justify-between gap-3">
         <span>{error ? `Não foi possível carregar as metas oficiais: ${error}` : 'Nenhuma meta oficial importada ainda.'}</span>
-        {isAdmin && onOpenImport && (
-          <button onClick={onOpenImport} className="font-bold text-blue-600 hover:text-blue-700 cursor-pointer">Importar metas</button>
-        )}
       </div>
     );
   }
@@ -131,9 +126,6 @@ export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, 
           <Database className="w-3.5 h-3.5" />
           Dados até <b className="text-slate-700">{fmtDate(dataDate)}</b>
           {lastImportAt && <> · importado em {new Date(lastImportAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</>}
-          {isAdmin && onOpenImport && (
-            <button onClick={onOpenImport} className="ml-1 font-bold text-blue-600 hover:text-blue-700 cursor-pointer">Atualizar</button>
-          )}
         </div>
       </div>
 

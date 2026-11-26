@@ -26,6 +26,10 @@
 -- IMPORTANTE (não está neste arquivo, rode à parte e não commite):
 --   alter role power_automate_ingest with password '<escolha uma senha forte>';
 -- Essa é a senha que vai na conexão PostgreSQL do Power Automate.
+--
+-- Depois deste arquivo, rode também separacao-metas-automacao.sql. Ele muda
+-- o destino do gatilho para official_goal_snapshots e protege as importações
+-- manuais em goal_daily_data.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -55,6 +59,7 @@ create table if not exists public.goal_daily_inbox (
   aa_to_date numeric,
   target_to_date numeric,
   actual_to_date numeric,
+  cycle_target numeric,
   processed boolean not null default false,
   process_error text
 );

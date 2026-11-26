@@ -16,8 +16,9 @@ import { getSaleDateBr, getTodayBrDate, getRealSaleDate } from '../../lib/salesM
 import { supabase } from '../../lib/supabase';
 import { LocalSyncEngine } from '../../lib/localCache';
 import { useOfficialGoals } from '../../hooks/useOfficialGoals';
+import { useAutomatedOfficialGoals } from '../../hooks/useAutomatedOfficialGoals';
 import { useUnitRanking } from '../../hooks/useUnitRanking';
-import { computeCycleProgress, resolveDataDate, sumTarget } from '../../lib/goalProgress';
+import { computeCycleProgress, sumTarget } from '../../lib/goalProgress';
 import { OfficialGoalsPanel } from './OfficialGoalsPanel';
 import { UnitRankingCard } from './UnitRankingCard';
 import { toLocalIso } from '../../lib/dates';
@@ -26,9 +27,6 @@ interface HomeDashboardProps {
   onOpenNewSaleModal: () => void;
   onOpenPerformance: () => void;
   onOpenRanking: () => void;
-  isAdminView: boolean;
-  /** Só passado para admins: leva à Importação de Metas. */
-  onOpenGoalImport?: () => void;
 }
 
 const brNumber = (value: number) =>
@@ -58,8 +56,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenNewSaleModal,
   onOpenPerformance,
   onOpenRanking,
-  isAdminView,
-  onOpenGoalImport,
 }) => {
   const { currentUser, profiles } = useAuth();
   const { sales, salesLoaded } = useSales();
@@ -67,9 +63,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const todayKey = dateKey(now);
   const yesterdayKey = dateKey(new Date(now.getTime() - 86400000));
 
-  // Metas oficiais importadas do Power BI (todas as BUs, todos os ciclos ativos).
-  const official = useOfficialGoals();
-  const dataDate = useMemo(() => resolveDataDate(official.points, todayKey), [official.points, todayKey]);
+  // Os quadros oficiais da Home vêm dos PDFs da automação; o restante continua vindo da importação manual.
+  const official = useAutomatedOfficialGoals();
+  const importedGoals = useOfficialGoals();
+  const dataDate = useMemo(
+    () => official.points.reduce((latest, point) => point.date <= todayKey && point.date > latest ? point.date : latest, '') || yesterdayKey,
+    [official.points, todayKey, yesterdayKey],
+  );
   const cycles = useMemo(() => computeCycleProgress(official.points, dataDate), [official.points, dataDate]);
   const unitRanking = useUnitRanking();
 
@@ -132,15 +132,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     };
   }, [todayKey]);
 
-  // Meta diária e semanal para comparar os lançamentos registrados no sistema.
+  // A meta do cartão de lançamentos vem dos arquivos Excel importados manualmente.
   const officialTargets = useMemo(() => {
-    if (!official.hasImports) return null;
+    if (!importedGoals.hasImports) return null;
     const weekStart = dateKey(new Date(now.getTime() - 6 * 86400000));
     return {
-      daily: sumTarget(official.points, todayKey, todayKey),
-      weekly: sumTarget(official.points, weekStart, todayKey),
+      daily: sumTarget(importedGoals.points, todayKey, todayKey),
+      weekly: sumTarget(importedGoals.points, weekStart, todayKey),
     };
-  }, [official.hasImports, official.points, now, todayKey]);
+  }, [importedGoals.hasImports, importedGoals.points, now, todayKey]);
 
   const teamGoalToday = officialTargets?.daily ?? 0;
   const teamGoalWeek = officialTargets?.weekly ?? manualWeeklyTarget;
@@ -258,7 +258,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       </section>
 
       {/* Só mostra números quando vendas e metas chegaram: evita a tela aparecer com zeros e trocar logo depois. */}
-      {!(salesLoaded && manualLoaded && !official.loading) ? <HomeSkeleton /> : (
+      {!(salesLoaded && manualLoaded && !official.loading && !importedGoals.loading) ? <HomeSkeleton /> : (
       <>
       <OfficialGoalsPanel
         points={official.points}
@@ -267,8 +267,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         lastImportAt={official.lastImportAt}
         loading={official.loading}
         error={official.error}
-        isAdmin={isAdminView}
-        onOpenImport={onOpenGoalImport}
       />
 
       <UnitRankingCard ranking={unitRanking} />

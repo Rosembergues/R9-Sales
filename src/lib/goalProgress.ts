@@ -8,6 +8,8 @@ export interface GoalDailyPoint {
   aa: number | null;
   target: number | null;
   actual: number | null;
+  /** Meta total do ciclo informada pelo snapshot oficial, quando disponível. */
+  cycleTarget?: number | null;
 }
 
 export interface ProgressTotals {
@@ -84,7 +86,6 @@ export function resolveDataDate(points: GoalDailyPoint[], todayIso: string): str
 const accumulate = (t: ProgressTotals, p: GoalDailyPoint, dataDate: string) => {
   const target = p.target ?? 0;
   const aa = p.aa ?? 0;
-  t.metaCycle += target;
   t.aaCycle += aa;
   if (p.date <= dataDate) {
     t.metaToDate += target;
@@ -124,6 +125,18 @@ export function computeCycleProgress(points: GoalDailyPoint[], dataDate: string)
       d.aa += p.aa ?? 0;
       d.actual += p.actual ?? 0;
       daily.set(p.date, d);
+    });
+
+    const groups = new Set(sorted.map(p => p.group));
+    groups.forEach(group => {
+      const groupRows = sorted.filter(p => p.group === group);
+      const snapshots = groupRows.filter(p => p.cycleTarget != null);
+      const cycleTarget = snapshots.length
+        ? snapshots[snapshots.length - 1].cycleTarget!
+        : groupRows.reduce((sum, p) => sum + (p.target ?? 0), 0);
+      byGroup[group].metaCycle = cycleTarget;
+      byBu[getModelMetadata(group).buKey]!.metaCycle += cycleTarget;
+      totals.metaCycle += cycleTarget;
     });
 
     // Curva acumulada em dias corridos (o Power BI só exporta dias com movimento).

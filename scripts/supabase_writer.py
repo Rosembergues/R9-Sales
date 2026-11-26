@@ -111,6 +111,7 @@ def write_funil_result(result: FunilResult, reference_date: str, source: str = "
             "aa_to_date": result.aa_to_date,
             "target_to_date": result.target_to_date,
             "actual_to_date": result.actual_to_date,
+            "cycle_target": result.cycle_target,
             "source": source,
         },
     )

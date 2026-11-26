@@ -132,6 +132,7 @@ class FunilResult:
     aa_to_date: float
     target_to_date: float
     actual_to_date: float
+    cycle_target: float | None = None
 
 
 def parse_funil_captacao_text(text: str, nome_arquivo: str) -> FunilResult:
@@ -151,12 +152,18 @@ def parse_funil_captacao_text(text: str, nome_arquivo: str) -> FunilResult:
         tokens = [t for t in fin_match.group(1).split() if not t.endswith("%") and t != "-"]
         if len(tokens) < 3:
             raise ValueError(f"Linha FIN com poucos numeros em {nome_arquivo}: {tokens}")
-        aa, meta, atual = (_to_number(t) for t in tokens[:3])
+        values = [_to_number(t) for t in tokens]
+        aa, meta, atual = values[:3]
+        cycle_target = values[-2] if len(values) >= 6 else None
     else:
-        mfin_match = re.search(rf"\nM\.FIN\s+({NUM})\s+({NUM})\s+({NUM})", text, re.IGNORECASE)
+        mfin_match = re.search(r"^M\.FIN\s+([^\n]+)", text, re.IGNORECASE | re.MULTILINE)
         if not mfin_match:
             raise ValueError(f"Nao encontrei a linha M.FIN em {nome_arquivo}")
-        aa, meta, atual = (_to_number(mfin_match.group(i)) for i in (1, 2, 3))
+        row_tokens = [t for t in mfin_match.group(1).split() if not t.endswith("%") and t != "-"]
+        if len(row_tokens) < 3:
+            raise ValueError(f"Linha M.FIN com poucos numeros em {nome_arquivo}: {row_tokens}")
+        aa, meta, atual = (_to_number(t) for t in row_tokens[:3])
+        cycle_target = _to_number(row_tokens[-2]) if len(row_tokens) >= 6 else None
 
     if aa is None or meta is None or atual is None:
         raise ValueError(f"Nao consegui converter os numeros da linha financeira em {nome_arquivo}")
@@ -167,6 +174,7 @@ def parse_funil_captacao_text(text: str, nome_arquivo: str) -> FunilResult:
         aa_to_date=aa,
         target_to_date=meta,
         actual_to_date=atual,
+        cycle_target=cycle_target,
     )
 
 

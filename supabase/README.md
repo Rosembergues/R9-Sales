@@ -16,9 +16,10 @@ Todos podem ser rodados mais de uma vez sem estragar nada, exceto quando o próp
 | 7 | `metas-pesos.sql` | Peso de cada consultor por BU e marcação de ajuste manual nas metas. |
 | 8 | `equipe-protecoes.sql` | Só admin muda função; ninguém se bloqueia; o último admin não pode ser removido. |
 | 9 | `vendas-completas.sql` | Recusa venda nova incompleta e mostra quantas vendas antigas estão incompletas. |
-| 10 | `automacao-funil-captacao.sql` | Caixa de entrada (`goal_daily_inbox`) e gatilho que grava o Funil de Captação diário direto no `goal_daily_data`, sem upload manual. Hoje quem envia é o script Python (`scripts/run_daily_import.py`); o role `power_automate_ingest` só serve para conexão Postgres direta. |
+| 10 | `automacao-funil-captacao.sql` | Caixa de entrada (`goal_daily_inbox`) do Funil de Captação. Para manter snapshots oficiais separados das metas manuais, rode também o passo 13. |
 | 11 | `automacao-ranking-unidades.sql` | Caixa de entrada (`unit_ranking_inbox`) e tabela `unit_ranking_daily` com a posição do R9-Taquara e o total do mercado, gravados pela importação diária a partir do relatório "Ranking Unidades". Rode `automacao-funil-captacao.sql` antes (reaproveita o role de lá). |
 | 12 | `automacao-token-importacao.sql` | Acesso restrito da importação diária (script Python): tokens guardados só como hash e as funções `ingest_funil_captacao` / `ingest_unit_ranking`, que só gravam nas caixas de entrada. Substitui o uso da chave `service_role` no script. |
+| 13 | `separacao-metas-automacao.sql` | Separa os snapshots dos PDFs das metas manuais (`goal_daily_data`), abastece os quadros oficiais da Home e restaura os dados manuais de 26/11/2026 afetados pelo gatilho anterior. |
 
 `tarefas-modelo-limpeza.sql` foi uma limpeza única, depois da migração das tarefas antigas. Não precisa rodar num banco novo.
 

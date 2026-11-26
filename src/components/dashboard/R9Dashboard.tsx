@@ -722,8 +722,6 @@ export const R9Dashboard: React.FC = () => {
                 onOpenNewSaleModal={() => setShowNewSaleModal(true)}
                 onOpenPerformance={() => setActiveTab('resumo')}
                 onOpenRanking={() => setActiveTab('rank_semanal')}
-                isAdminView={isActualAdmin && viewRole === 'admin'}
-                onOpenGoalImport={isActualAdmin && viewRole === 'admin' ? () => setActiveTab('metas_importacao') : undefined}
               />
             )}
 
