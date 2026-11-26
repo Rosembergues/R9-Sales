@@ -286,7 +286,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       {!(salesLoaded && manualLoaded && !official.loading && !importedGoals.loading) ? <HomeSkeleton /> : (
       <>
       <OfficialGoalsPanel
-        points={official.points}
         cycles={cycles}
         dataDate={dataDate}
         lastImportAt={official.lastImportAt}

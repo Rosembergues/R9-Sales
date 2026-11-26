@@ -3,19 +3,19 @@ import { AlertTriangle, CheckCircle2, Database, Flag, TrendingDown, TrendingUp }
 import {
   CycleProgress,
   CumulativePoint,
-  GoalDailyPoint,
   ProgressTotals,
   addTotals,
   daysBetween,
   emptyTotals,
   pct,
 } from '../../lib/goalProgress';
-import { buildCycleWindows } from '../../lib/saleCycle';
 
 const fmt = (v: number, digits = 0) => v.toLocaleString('pt-BR', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 const fmtSmart = (v: number) => fmt(v, Math.abs(v) < 10 ? 1 : 0);
 const fmtPct = (v: number | null) => (v === null ? '—' : `${fmt(v)}%`);
 const fmtDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+// shortcut: prazo temporário comum até 19/12/2026, atualizar quando os PDFs informarem o fim de cada ciclo.
+const TEMPORARY_CYCLE_DEADLINE = '2026-12-19';
 
 /** Quadros do topo da Home: um por metodologia da BU Presencial e um para a BU Digital. */
 const METHOD_TILES: { key: string; label: string; detail?: string; groups: string[] }[] = [
@@ -60,7 +60,6 @@ export const VsAA: React.FC<{ actual: number; aa: number }> = ({ actual, aa }) =
 };
 
 interface Props {
-  points: GoalDailyPoint[];
   cycles: CycleProgress[];
   dataDate: string;
   lastImportAt: string | null;
@@ -68,25 +67,20 @@ interface Props {
   error: string | null;
 }
 
-export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, lastImportAt, loading, error }) => {
+export const OfficialGoalsPanel: React.FC<Props> = ({ cycles, dataDate, lastImportAt, loading, error }) => {
   const active = useMemo(() => {
     const a = cycles.filter(c => c.isActive);
     return a.length ? a : cycles.slice(-1);
   }, [cycles]);
 
   const methodTiles = useMemo(() => {
-    const windows = buildCycleWindows(points);
     return METHOD_TILES.map(tile => {
-      const inTile = (g: string) => tile.groups.includes(g);
       const periods = active.filter(c => tile.groups.some(g => c.byGroup[g])).map(c => c.period);
       const totals = active.reduce(
         (acc, c) => tile.groups.reduce((a, g) => (c.byGroup[g] ? addTotals(a, c.byGroup[g]) : a), acc),
         emptyTotals(),
       );
-      const metaEnd = windows
-        .filter(w => periods.includes(w.period) && inTile(w.group))
-        .reduce((max, w) => (w.metaEnd > max ? w.metaEnd : max), '');
-      const remainingDays = metaEnd ? Math.max(0, daysBetween(dataDate, metaEnd)) : 0;
+      const remainingDays = Math.max(0, daysBetween(dataDate, TEMPORARY_CYCLE_DEADLINE));
       const gap = Math.max(0, totals.metaCycle - totals.actual);
       return {
         ...tile,
@@ -97,7 +91,7 @@ export const OfficialGoalsPanel: React.FC<Props> = ({ points, cycles, dataDate, 
         requiredPerDay: remainingDays > 0 ? gap / remainingDays : null,
       };
     });
-  }, [points, active, dataDate]);
+  }, [active, dataDate]);
 
   if (loading) {
     return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm text-xs text-slate-400">Carregando metas oficiais…</div>;
@@ -191,7 +185,7 @@ const MethodTile: React.FC<{ tile: MethodTileData; dataDate: string }> = ({ tile
             <div>
               <div className="text-slate-400">Falta</div>
               <div className="mt-0.5 font-bold text-slate-800">
-                {fmt(tile.gap)} <span className="font-medium text-slate-400">/ {fmt(t.metaCycle)}</span>
+                {fmt(tile.gap)} <span className="font-medium text-slate-400">de {fmt(t.metaCycle)}</span>
               </div>
             </div>
             <div>
