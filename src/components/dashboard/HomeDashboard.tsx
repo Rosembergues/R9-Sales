@@ -19,6 +19,7 @@ import { useOfficialGoals } from '../../hooks/useOfficialGoals';
 import { useAutomatedOfficialGoals } from '../../hooks/useAutomatedOfficialGoals';
 import { useUnitRanking } from '../../hooks/useUnitRanking';
 import { computeCycleProgress, sumTarget } from '../../lib/goalProgress';
+import { saleGoalGroup } from '../../lib/saleCycle';
 import { OfficialGoalsPanel } from './OfficialGoalsPanel';
 import { UnitRankingCard } from './UnitRankingCard';
 import { toLocalIso } from '../../lib/dates';
@@ -51,6 +52,14 @@ const percentDelta = (current: number, previous: number) => {
   if (previous === 0) return current > 0 ? 100 : 0;
   return Math.round(((current - previous) / previous) * 100);
 };
+
+const MODALITY_GOALS = [
+  { group: 'graduacao_presencial', label: 'Presencial' },
+  { group: 'graduacao_semipresencial', label: 'Semi' },
+  { group: 'graduacao_aovivo', label: 'Ao Vivo' },
+  { group: 'graduacao_ead', label: 'EAD' },
+  { group: 'graduacao_dlex', label: 'Flex' },
+] as const;
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenNewSaleModal,
@@ -149,6 +158,22 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     () => sales.filter((sale) => getSaleDateBr(sale) === getTodayBrDate()),
     [sales]
   );
+
+  const modalityGoals = useMemo(() => MODALITY_GOALS.map(({ group, label }) => {
+    const dailyRows = importedGoals.points.filter(point => point.group === group && point.date === todayKey);
+    const targetRow = dailyRows.find(point => point.target !== null);
+    const count = todaySales.filter(sale =>
+      saleGoalGroup(sale.custom_data?.main_product || sale.product_name, sale.custom_data?.modality) === group
+    ).length;
+    const target = targetRow?.target ?? null;
+    return {
+      group,
+      label,
+      target,
+      count,
+      attainment: target && target > 0 ? Math.round((count / target) * 100) : null,
+    };
+  }), [importedGoals.points, todayKey, todaySales]);
 
   const yesterdaySales = useMemo(
     () => sales.filter((sale) => dateKey(saleDateObject(sale)) === yesterdayKey),
@@ -269,8 +294,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         error={official.error}
       />
 
-      <UnitRankingCard ranking={unitRanking} />
-
       <div className="pt-2">
         <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
           <ShoppingCart className="w-4 h-4 text-blue-600" />
@@ -286,6 +309,39 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <KpiCard icon={<Target className="w-5 h-5" />} label="Meta Hoje" value={brGoal(teamGoalToday)} tone="green" subtitle={`Últimos 7 dias: ${brGoal(teamGoalWeek)}`} />
         <KpiCard icon={<BarChart3 className="w-5 h-5" />} label="Atingimento Hoje" value={teamGoalToday > 0 ? `${attainment}%` : '—'} tone="purple" delta={teamGoalToday > 0 ? percentDelta(attainment, Math.round((yesterdaySales.length / teamGoalToday) * 100)) : undefined} subtitle={teamGoalToday > 0 ? `${brNumber(todayCount)} / ${brGoal(teamGoalToday)}` : 'Sem meta oficial para hoje'} />
       </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-extrabold text-slate-900">Metas por modalidade</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Metas manuais e vendas lançadas hoje · Graduação</p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          {modalityGoals.map(({ group, label, target, count, attainment }) => (
+            <div key={group} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-bold text-slate-500">{label}</div>
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <span className="text-2xl font-black tracking-tight text-slate-950">{target === null ? '—' : brGoal(target)}</span>
+                <span className="text-[11px] text-slate-400">meta hoje</span>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {brNumber(count)} {count === 1 ? 'venda lançada' : 'vendas lançadas'}
+              </div>
+              {attainment !== null ? (
+                <>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div className={`h-full rounded-full ${attainment >= 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} style={{ width: `${Math.min(100, attainment)}%` }} />
+                  </div>
+                  <div className="mt-1 text-[11px] font-semibold text-slate-500">{attainment}% atingido</div>
+                </>
+              ) : (
+                <div className="mt-3 text-[11px] text-slate-400">{target === null ? 'Sem meta importada hoje' : 'Sem meta para calcular'}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <UnitRankingCard ranking={unitRanking} />
 
       <section className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
